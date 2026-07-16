@@ -1,0 +1,2894 @@
+/* ================================================================
+ * Code.gs — StarTrack POS Backend
+ *
+ * CHANGES FROM PREVIOUS VERSION:
+ *   • All public-facing functions now call _verifySession() before
+ *     touching any data.  _verifySession() and helpers live in Auth.gs.
+ *   • Several functions that previously took multiple positional
+ *     arguments now take a single plain object (o) so that the
+ *     _token field can be included cleanly.  Frontend calls must be
+ *     updated to match — see Frontend-Migration.md.
+ *   • checkCode() now calls _createSession() and returns sessionToken.
+ *   • doLogout() / invalidateSession() destroys the server-side token.
+ *
+ * SIGNATURE CHANGES (old → new):
+ *   getProducts(store)              → getProducts({store, _token})
+ *   getWindowBlindProducts(store)   → getWindowBlindProducts({store, _token})
+ *   getExpenseTypes()               → getExpenseTypes(token)
+ *   createExpenseType(name)         → createExpenseType({name, _token})
+ *   undoLastSale(store, user)       → undoLastSale({store, user, _token})
+ *   setStaffStatus(rowId, status)   → setStaffStatus({rowId, status, _token})
+ *   setStaffRole(rowId, role)       → setStaffRole({rowId, role, _token})
+ *   adminResetPIN(rowId, newPin)    → adminResetPIN({rowId, newPin, _token})
+ *   assignStaffPerm(rowId, perm)    → assignStaffPerm({rowId, perm, _token})
+ *   removeStaffPerm(rowId, perm)    → removeStaffPerm({rowId, perm, _token})
+ *   getShifts()                     → getShifts(token)
+ *   assignStaffToShift(sid, stid)   → assignStaffToShift({shiftId, staffId, _token})
+ *   createShift(o)                  → createShift({...o, _token})
+ *   deleteShift(rowId)              → deleteShift({rowId, _token})
+ *   getHubSettings()                → getHubSettings(token)
+ *   saveHubSetting(key, value)      → saveHubSetting({key, value, _token})
+ *   addAlertEmail(email)            → addAlertEmail({email, _token})
+ *   removeAlertEmail(idx)           → removeAlertEmail({idx, _token})
+ *   getPendingReturns()             → getPendingReturns(token)
+ *   getAllReturns()                  → getAllReturns(token)
+ *   getReturnsByStatus(status)      → getReturnsByStatus({status, _token})
+ *   getAllStaff()                    → getAllStaff(token)
+ *   getAttendanceOverview()         → getAttendanceOverview(token)
+ *   getStockAlerts()                → getStockAlerts(token)
+ *   getPermNotifs(staffName)        → getPermNotifs({staffName, _token})
+ *   clearPermNotif(row)             → clearPermNotif({row, _token})
+ *   All object-param functions      → add _token field to existing object
+ * ================================================================ */
+
+function requestPermissions(){
+  GmailApp.getInboxUnreadCount();
+}
+
+function _sendEmail(to, subject, htmlBody){
+  try{
+    MailApp.sendEmail({
+      to: to,
+      name: 'StarTrack',
+      replyTo: 'no-reply@startrack-pos.app',
+      subject: subject,
+      htmlBody: htmlBody
+    });
+  } catch(e){ Logger.log('_sendEmail error: '+e.message); }
+}
+
+/********************************
+ * WEB APP
+ ********************************/
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile("Index")
+    .setTitle("StarTrack POS")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/********************************
+ * UTIL
+ ********************************/
+function headerMap(h) {
+  const m = {};
+  h.forEach((x,i)=>m[x.toString().trim().toLowerCase().replace(/\s+/g,'')]=i);
+  return m;
+}
+
+function _sf(val) {
+  const s = String(val == null ? '' : val).trim();
+  return /^[=+\-@|%`]/.test(s) ? "'" + s : s;
+}
+
+function stockStatus(stock, reorder) {
+  if (stock <= 0) return "Out of Stock";
+  if (stock <= reorder) return "Need to Reorder";
+  return "Available";
+}
+
+/* Returns the inventory sheet for a given store name.
+ * Each store has its own sheet (e.g. "Wholesale", "Retail").
+ * Throws a clear error if the sheet doesn't exist. */
+function getStoreSheet(ss, storeName) {
+  const sh = ss.getSheetByName(storeName);
+  if (!sh) throw new Error('Store sheet not found: "' + storeName + '". Check that this store has its own sheet.');
+  return sh;
+}
+
+/********************************
+ * SALE ID (SHORT, CLEAN)
+ ********************************/
+function generateSaleID() {
+  const d = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyMMdd");
+  const unique = Utilities.getUuid().slice(0, 4).toUpperCase();
+  return "HJ-" + d + "-" + unique;
+}
+
+/********************************
+ * LOGIN
+ * Returns userInfo + sessionToken on success, null on failure.
+ * No auth check needed here — this IS the auth step.
+ ********************************/
+function checkCode(o){
+  // o = { code, nonce }
+  const code  = String(o.code  || '').trim();
+  const nonce = String(o.nonce || '');
+
+  // ── Brute-force lockout check ──────────────────────────────────
+  const bfStatus = _bfCheck(nonce);
+  if (bfStatus.locked) {
+    return { locked: true, msg: 'Too many failed attempts — please wait 15 minutes before trying again' };
+  }
+
+  const sh = SpreadsheetApp.getActive().getSheetByName("SalesPerson");
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+
+  const roleDefaults = {
+    'staff':    ['sales','returns'],
+    'manager':  ['sales','returns','approve_returns','expenses','stock','prices','dashboard_ops','activity','barcode','attendance','customers'],
+    'admin':    ['sales','returns','approve_returns','expenses','stock','prices','dashboard_ops','dashboard_finance','activity','barcode','attendance','staff_mgmt','settings','customers']
+  };
+
+  for(let i = 1; i < d.length; i++){
+    {
+      const stored = String(d[i][h.logincode]).trim();
+      const match  = _isHashed(stored)
+        ? stored === _hashPin(code)   // hashed comparison
+        : stored === code;            // legacy plaintext (lazy migration)
+      if(match && d[i][h.status] === 'Active'){
+        // Silently upgrade plaintext PIN to hash on first successful login
+        if (!_isHashed(stored)) {
+          sh.getRange(i + 1, h.logincode + 1).setValue(_hashPin(code));
+        }
+      const role = (d[i][h.role] || 'Staff').toLowerCase();
+      const isAdmin   = role === 'admin';
+      const isManager = role === 'manager';
+
+      let permissions = roleDefaults[role] || roleDefaults['staff'];
+      if(h.permissions !== undefined && d[i][h.permissions]){
+        const custom = String(d[i][h.permissions]).split(',').map(p=>p.trim()).filter(Boolean);
+        if(custom.length) permissions = custom;
+      }
+      if(h.extraperms !== undefined && d[i][h.extraperms]){
+        const extra = String(d[i][h.extraperms]).split(',').map(p=>p.trim()).filter(Boolean);
+        extra.forEach(p=>{ if(!permissions.includes(p)) permissions.push(p); });
+      }
+
+      const userInfo = {
+        name:            d[i][h.name],
+        store:           d[i][h.store],
+        role:            role,
+        isAdmin:         isAdmin,
+        isManager:       isManager,
+        permissions:     permissions,
+        availableStores: (isAdmin || isManager) ? getAllStores() : [d[i][h.store]]
+      };
+
+      // ── NEW: create server-side session and return its token ──
+      const sessionToken = _createSession(userInfo);
+      _bfReset(nonce); // clear failed-attempt counter on success
+      return { ...userInfo, sessionToken };
+      } // closes match && Active
+    }   // closes row loop block
+  }
+  // No matching PIN found — record failed attempt
+  const bf = _bfFail(nonce);
+  _bfThrottle();   // #26: global soft-throttle that a rotating nonce can't dodge
+  if (bf.locked) {
+    return { locked: true, msg: 'Too many failed attempts — please wait 15 minutes before trying again' };
+  }
+  return null;
+}
+
+/********************************
+ * GET ALL STORES (INTERNAL — called from checkCode, not exposed directly)
+ ********************************/
+function getAllStores(){
+  const sh = SpreadsheetApp.getActive().getSheetByName("SalesPerson");
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+  const stores = [];
+  for(let i = 1; i < d.length; i++){
+    const store = d[i][h.store];
+    if(store && !stores.includes(store)) stores.push(store);
+  }
+  return stores.sort();
+}
+
+/********************************
+ * LOAD PRODUCTS
+ * Signature change: getProducts({store, _token})
+ ********************************/
+function getProducts(o){
+  const sess = _verifySession(o._token, 'sales');
+  if(!sess) return _unauth();
+  const store = o.store;
+
+  const sh = getStoreSheet(SpreadsheetApp.getActive(), store);
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+
+  return d.slice(1)
+    .filter(r => r[h.productname])
+    .map(r => ({
+      id:           r[h.productid],
+      name:         r[h.productname],
+      category:     r[h.category],
+      subCategory:  r[h.subcategory],
+      price:        Number(r[h.listprice]),
+      cost:         Number(r[h.cost]) || 0,
+      expenseOnCost:Number(r[h["expenseoncost"]]) || 0,
+      stock:        Number(r[h.stock]),
+      reorder:      Number(r[h.reorderlevel]),
+      expiryDate:   h.expirydate!==undefined && r[h.expirydate] ? Utilities.formatDate(new Date(r[h.expirydate]),Session.getScriptTimeZone(),'yyyy-MM-dd') : '',
+      daysToExpiry: h.expirydate!==undefined && r[h.expirydate] ? Math.round((new Date(r[h.expirydate])-new Date())/86400000) : null
+    }));
+}
+
+/********************************
+ * RECORD SALE (INVENTORY = OUT)
+ * o must include _token
+ ********************************/
+function recordSale(o){
+  const sess = _verifySession(o._token, 'sales');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+
+  // Serialize the read-check-write so two cashiers can't oversell the last unit (#21).
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); }
+  catch(e){ return { msg: 'System busy recording another sale — please try again' }; }
+  try {
+
+  const prod  = getStoreSheet(ss, o.store);
+  const sales = ss.getSheetByName("FactSales");
+  const inv   = ss.getSheetByName("FactInventory");
+
+  const d = prod.getDataRange().getValues();
+  const h = headerMap(d[0]);
+
+  let r = -1;
+  for(let i = 1; i < d.length; i++){
+    if (d[i][h.productid] === o.productID) {
+      r = i;
+      break;
+    }
+  }
+  if (r === -1) return { msg: "Product not found" };
+
+  const qty   = Number(o.qty);
+  const price = Number(o.unitSoldPrice);
+  if (!Number.isFinite(qty)   || qty   < 1 || qty   > 10000) return { msg: 'Invalid quantity' };
+  if (!Number.isFinite(price) || price < 0 || price > 1e9)   return { msg: 'Invalid unit price' };
+  const stock = Number(d[r][h.stock]);
+  if (stock < qty) return { msg: "Insufficient stock" };
+
+  // #18: fold this line's share of the cart discount into the stored amount so revenue is net.
+  const disc      = Math.max(0, Number(o.disc) || 0);
+  const lineTotal = Math.max(0, price * qty - disc);
+
+  const newStock = stock - qty;
+  const status   = stockStatus(newStock, Number(d[r][h.reorderlevel]));
+  const saleID   = o.saleID || generateSaleID();
+  const txDate   = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+  const totalCost = (Number(d[r][h.cost]) + Number(d[r][h["expenseoncost"]])) * qty;
+
+  sales.appendRow([
+    saleID, txDate, o.productID, qty, d[r][h.listprice],
+    totalCost, price, lineTotal,
+    _sf(o.payment), _sf(o.soldBy), _sf(o.store), o.vat||0, o.vatRate||0
+  ]);
+
+  if(o.customerName && o.customerName.trim()){
+    _upsertCustomer(_sf(o.customerName.trim()), _sf(o.customerWA||''), lineTotal,
+      d[r][h.productname]||o.productID, o.store, saleID, o.date);
+  }
+
+  prod.getRange(r + 1, h.stock + 1).setValue(newStock);
+  prod.getRange(r + 1, h.status + 1).setValue(status);
+
+  checkStockAlert(o.productID, d[r][h.productname]||o.productID, newStock,
+    Number(d[r][h.reorderlevel]), o.store);
+
+  inv.appendRow([
+    "INV-" + saleID, txDate, o.productID, "OUT", qty, newStock, o.soldBy, o.store
+  ]);
+
+  return { msg: "Sale completed successfully", saleID: saleID };
+
+  } finally { lock.releaseLock(); }
+}
+
+/********************************
+ * WINDOW BLIND SALE LOGIC (internal — called from recordSale, already authed)
+ ********************************/
+function recordWindowBlindSale(o){
+  const ss  = SpreadsheetApp.getActive();
+  const dim   = ss.getSheetByName("DimWindowBlind");
+  const sales = ss.getSheetByName("FactSales");
+  const inv   = ss.getSheetByName("FactInventory");
+
+  const data = dim.getDataRange().getValues();
+  const h    = headerMap(data[0]);
+
+  const saleID = o.saleID || generateSaleID();
+  const txDate = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+  const sqmUsed = Number(o.width) * Number(o.height) * Number(o.qty || 1);
+
+  let fabricRow = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][h.productid] === o.fabricID && data[i][h.store] === o.store) {
+      fabricRow = i;
+      break;
+    }
+  }
+  if (fabricRow === -1) return { msg: "Fabric not found" };
+
+  const currentFabricStock = Number(data[fabricRow][h.stock]);
+  if (currentFabricStock < sqmUsed) return { msg: "Not enough fabric stock" };
+  const newFabricStock = currentFabricStock - sqmUsed;
+
+  dim.getRange(fabricRow + 1, h.stock + 1).setValue(newFabricStock);
+  dim.getRange(fabricRow + 1, h.status + 1)
+     .setValue(stockStatus(newFabricStock, Number(data[fabricRow][h.reorderlevel])));
+
+  inv.appendRow([
+    "INV-" + saleID, txDate, o.fabricID, "OUT", sqmUsed, newFabricStock, o.soldBy, o.store
+  ]);
+
+  for (let item of o.accessories) {
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (
+        String(data[i][h.productname]).trim().toLowerCase() ===
+        String(item.name).trim().toLowerCase() &&
+        data[i][h.store] === o.store
+      ) { rowIndex = i; break; }
+    }
+    if (rowIndex === -1) return { msg: "Accessory not found: " + item.name };
+
+    const accessoryProductID = data[rowIndex][h.productid];
+    const currentStock       = Number(data[rowIndex][h.stock]);
+    if (currentStock < item.qty) return { msg: "Not enough stock for " + item.name };
+
+    const updatedStock = currentStock - item.qty;
+    dim.getRange(rowIndex + 1, h.stock + 1).setValue(updatedStock);
+    dim.getRange(rowIndex + 1, h.status + 1)
+       .setValue(stockStatus(updatedStock, Number(data[rowIndex][h.reorderlevel])));
+
+    inv.appendRow([
+      "INV-" + saleID + "-" + accessoryProductID, txDate,
+      accessoryProductID, "OUT", item.qty, updatedStock, o.soldBy, o.store
+    ]);
+  }
+
+  let totalCost = 0;
+  const dimForCost = dim.getDataRange().getValues();
+  const hc = headerMap(dimForCost[0]);
+
+  const costItems = [
+    { name: data[fabricRow][hc.productname], qty: sqmUsed },
+    { name: "Rail",        qty: Number(o.width) * Number(o.qty || 1) },
+    { name: "Miler",       qty: Number(o.width) * Number(o.qty || 1) },
+    { name: "Small Belt",  qty: Number(o.width) * Number(o.qty || 1) },
+    { name: "Big Belt",    qty: Number(o.width) * Number(o.qty || 1) },
+    { name: "Accessories", qty: Number(o.accessories.find(a => a.name === "Accessories")?.qty || 1) }
+  ];
+  for(const item of costItems){
+    const found = dimForCost.slice(1).find(r =>
+      String(r[hc.productname]).trim().toLowerCase() === item.name.trim().toLowerCase() &&
+      String(r[hc.store]).trim() === o.store
+    );
+    if(found) totalCost += (Number(found[hc.cost]) || 0) * item.qty;
+  }
+
+  sales.appendRow([
+    saleID, txDate, o.fabricID, sqmUsed, 0, totalCost, o.finalPrice, o.finalPrice,
+    o.payment, o.soldBy, o.store, o.vat||0, o.vatRate||0
+  ]);
+
+  if(o.customerName && o.customerName.trim()){
+    _upsertCustomer(o.customerName.trim(), o.customerWA||'', o.finalPrice,
+      data[fabricRow][h.productname]||o.fabricID, o.store, saleID, o.date);
+  }
+
+  return { msg: "Window blind sale recorded successfully", saleID: saleID };
+}
+
+/********************************
+ * SELL NEW PRODUCT
+ * Requires 'settings' permission
+ ********************************/
+function sellNewProduct(o){
+  const sess = _verifySession(o._token, 'settings');
+  if(!sess) return _unauth();
+
+  const ss   = SpreadsheetApp.getActive();
+  const inv  = ss.getSheetByName("FactInventory");
+
+  if(
+    !o.productName?.toString().trim() ||
+    !o.category?.toString().trim()    ||
+    !o.subCategory?.toString().trim() ||
+    !o.store?.toString().trim()
+  ) return { msg: "Missing required product information" };
+
+  const initialStock = Number(o.initialStock);
+  const qty          = Number(o.qty);
+  const unitPrice    = Number(o.unitSoldPrice);
+
+  if(!Number.isFinite(initialStock) || initialStock < 0 || initialStock > 100000)
+    return { msg: "Initial stock must be between 0 and 100,000" };
+  if(!Number.isFinite(qty) || qty < 0)
+    return { msg: "Quantity cannot be negative" };
+  if(!Number.isFinite(unitPrice) || unitPrice <= 0 || unitPrice > 1e9)
+    return { msg: "Selling price must be between ₦1 and ₦1,000,000,000" };
+  if(qty > initialStock)
+    return { msg: "Cannot sell more than available stock" };
+
+  const prod = getStoreSheet(ss, o.store);
+  const existingData  = prod.getDataRange().getValues();
+  const existingH     = headerMap(existingData[0]);
+  const existingNames = existingData.slice(1).map(r=>String(r[existingH.productname]||'').toLowerCase().trim());
+  if(existingNames.includes(o.productName.trim().toLowerCase()))
+    return { msg: "Product already exists with this name" };
+
+  const productID      = "P-" + Utilities.getUuid().slice(0,6).toUpperCase();
+  const remainingStock = initialStock - qty;
+  const reorderLevel   = Number(o.reorderLevel) || 1;
+  const status         = stockStatus(remainingStock, reorderLevel);
+  const txDate         = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+
+  // Write product to the chosen store sheet
+  prod.appendRow([
+    productID, _sf(o.productName.trim()), _sf(o.category.trim()), _sf(o.subCategory.trim()),
+    _sf(o.store), Number(o.cost)||0, Number(o.expenseOnCost)||0, unitPrice,
+    remainingStock, reorderLevel, status
+  ]);
+  // Write expiry date and alert days if provided
+  if(o.expiryDate || o.alertDays){
+    const newRow = prod.getLastRow();
+    if(o.expiryDate && existingH.expirydate !== undefined){
+      prod.getRange(newRow, existingH.expirydate+1).setValue(o.expiryDate);
+    }
+    if(o.alertDays && existingH.expiryalertdays !== undefined){
+      prod.getRange(newRow, existingH.expiryalertdays+1).setValue(o.alertDays);
+    }
+  }
+
+  if(initialStock > 0){
+    inv.appendRow([
+      "INV-INITIAL-" + productID, txDate, productID, "IN",
+      initialStock, initialStock, o.soldBy, o.store
+    ]);
+  }
+
+  // Auto-create matching 0-stock row in every OTHER store (so transfers work)
+  const allStores = getAllStores();
+  allStores.forEach(otherStore => {
+    if (otherStore === o.store) return; // skip current store
+    const otherSheet = ss.getSheetByName(otherStore);
+    if (!otherSheet) return; // skip if that store sheet doesn't exist
+    const otherData = otherSheet.getDataRange().getValues();
+    const otherH = headerMap(otherData[0]);
+    const otherNames = otherData.slice(1).map(r=>String(r[otherH.productname]||'').toLowerCase().trim());
+    if (otherNames.includes(o.productName.trim().toLowerCase())) return; // skip if already exists
+    otherSheet.appendRow([
+      productID, _sf(o.productName.trim()), _sf(o.category.trim()), _sf(o.subCategory.trim()),
+      _sf(otherStore), Number(o.cost)||0, Number(o.expenseOnCost)||0, unitPrice,
+      0, reorderLevel, 'Out of Stock'
+    ]);
+  });
+
+  return { msg: "Product created successfully" };
+}
+
+/********************************
+ * UNDO SALE (RESTORE STOCK + FIX INVENTORY)
+ * Signature change: undoLastSale({store, user, _token})
+ * Also accepts saleID for precision undos
+ ********************************/
+function undoLastSale(o){
+  const sess = _verifySession(o._token, 'sales');
+  if(!sess) return _unauth();
+
+  const store = o.store;
+  const user  = o.user;
+
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(8000); // wait up to 8 s; throws if another undo is in progress
+  } catch(e) {
+    return { msg: 'Another undo is in progress — please wait a moment and try again' };
+  }
+  try {
+
+  const ss    = SpreadsheetApp.getActive();
+  const sales   = ss.getSheetByName("FactSales");
+  const archive = ss.getSheetByName("ArchiveSales");
+  const prod    = getStoreSheet(ss, store);
+  const inv     = ss.getSheetByName("FactInventory");
+
+  const salesData = sales.getDataRange().getValues();
+  if (salesData.length <= 1) return { msg: "No sale to undo" };
+
+  const isMine = (row) =>
+    String(row[9]).trim()  === String(user).trim() &&
+    String(row[10]).trim() === String(store).trim();
+
+  // ── Decide which line(s) to undo ──────────────────────────────────
+  // #22: when a txnBase (the shared transaction id) is supplied, undo EVERY line of
+  // that transaction; otherwise undo a single row (explicit saleID, else most recent).
+  const undoRows = [];
+  if (o.txnBase && !o.saleID) {
+    const base = String(o.txnBase).trim();
+    for (let i = 1; i < salesData.length; i++) {
+      const id = String(salesData[i][0]).trim();
+      if ((id === base || id.startsWith(base + '-')) && isMine(salesData[i])) {
+        undoRows.push({ rowIndex: i, sale: salesData[i] });
+      }
+    }
+  }
+  if (!undoRows.length) {
+    let anchor = -1;
+    if (o.saleID) {
+      for (let i = salesData.length - 1; i > 0; i--) {
+        if (String(salesData[i][0]).trim() === String(o.saleID).trim()) { anchor = i; break; }
+      }
+      if (anchor !== -1) {
+        if (String(salesData[anchor][9]).trim()  !== String(user).trim())
+          return { msg: "You can only undo your own sales" };
+        if (String(salesData[anchor][10]).trim() !== String(store).trim())
+          return { msg: "Sale belongs to a different store" };
+      }
+    } else {
+      for (let i = salesData.length - 1; i > 0; i--) {
+        if (isMine(salesData[i])) { anchor = i; break; }
+      }
+    }
+    if (anchor === -1) return { msg: "No sale found for you to undo" };
+    undoRows.push({ rowIndex: anchor, sale: salesData[anchor] });
+  }
+
+  // ── Restore stock + archive each line ─────────────────────────────
+  const prodData = prod.getDataRange().getValues();
+  const h = headerMap(prodData[0]);
+  const touched = {};
+
+  undoRows.forEach(u => {
+    const sale = u.sale;
+    const productID = sale[2];
+    const qty = Number(sale[3]) || 0;
+    for (let i = 1; i < prodData.length; i++) {
+      if (prodData[i][h.productid] === productID) {
+        const restored = Number(prodData[i][h.stock]) + qty;
+        prodData[i][h.stock] = restored;                 // keep local copy in sync across lines
+        prod.getRange(i + 1, h.stock + 1).setValue(restored);
+        prod.getRange(i + 1, h.status + 1)
+            .setValue(stockStatus(restored, Number(prodData[i][h.reorderlevel])));
+        break;
+      }
+    }
+    touched[productID] = true;
+    archive.appendRow([
+      sale[0], sale[1], sale[2], sale[3], sale[4],
+      sale[6], sale[7], sale[8], sale[9], sale[10],
+      new Date(), user
+    ]);
+  });
+
+  // ── Delete matching inventory OUT rows (collect, then delete bottom-up) ──
+  const invData = inv.getDataRange().getValues();
+  const invToDelete = [];
+  undoRows.forEach(u => {
+    const sID = String(u.sale[0]).trim();
+    for (let i = invData.length - 1; i > 0; i--) {
+      if (String(invData[i][0]) === "INV-" + sID &&
+          String(invData[i][3]) === "OUT" &&
+          invData[i][7] === store && invData[i][2] &&
+          invToDelete.indexOf(i) === -1) {
+        invToDelete.push(i); break;
+      }
+    }
+  });
+  if (invToDelete.length) {
+    invToDelete.sort((a,b)=>b-a).forEach(i => inv.deleteRow(i + 1));
+    SpreadsheetApp.flush();
+    Object.keys(touched).forEach(pid => recalculateInventoryBalances(pid, store));
+  }
+
+  // ── Delete the sale rows (bottom-up so row numbers stay valid) ─────
+  undoRows.map(u => u.rowIndex).sort((a,b)=>b-a).forEach(i => sales.deleteRow(i + 1));
+
+  const n = undoRows.length;
+  return { msg: n > 1 ? ('Last sale undone — ' + n + ' items · stock restored') : 'Last sale undone and stock restored' };
+  } finally { lock.releaseLock(); }
+}
+
+/********************************
+ * UNDO WINDOW BLIND SALE (internal — already authed)
+ ********************************/
+function undoWindowBlindSale(o){
+  const store = o.store;
+  const user  = o.user;
+
+  const lock = LockService.getScriptLock();
+  try { lock.waitLock(8000); } catch(e) {
+    return { msg: 'Another undo is in progress — please try again shortly' };
+  }
+  try {
+
+  const ss      = SpreadsheetApp.getActive();
+  const sales   = ss.getSheetByName("FactSales");
+  const archive = ss.getSheetByName("ArchiveSales");
+  const dim     = ss.getSheetByName("DimWindowBlind");
+  const inv     = ss.getSheetByName("FactInventory");
+
+  const salesData = sales.getDataRange().getValues();
+  let saleRow = -1, sale;
+  for (let i = salesData.length - 1; i > 0; i--) {
+    if (salesData[i][9] === store && salesData[i][8] === user) {
+      saleRow = i; sale = salesData[i]; break;
+    }
+  }
+  if (saleRow === -1) return { msg: "No window blind sale found to undo" };
+
+  const saleID       = sale[0];
+  const invData      = inv.getDataRange().getValues();
+  const qtyToRestore = {};
+  const rowsToDelete = [];
+
+  for (let i = 1; i < invData.length; i++) {
+    const invID    = String(invData[i][0]);
+    const prodID   = invData[i][2];
+    const type     = invData[i][3];
+    const invStore = invData[i][7];
+    const belongs  = invID === "INV-" + saleID || invID.startsWith("INV-" + saleID + "-WB-");
+    if (belongs && type === "OUT" && invStore === store) {
+      rowsToDelete.push(i + 1);
+      qtyToRestore[prodID] = (qtyToRestore[prodID] || 0) + Number(invData[i][4]);
+    }
+  }
+
+  rowsToDelete.sort((a,b)=>b-a).forEach(r=>inv.deleteRow(r));
+  SpreadsheetApp.flush();
+
+  const dimData = dim.getDataRange().getValues();
+  const h = headerMap(dimData[0]);
+  for (const [prodID, deletedQty] of Object.entries(qtyToRestore)) {
+    for (let i = 1; i < dimData.length; i++) {
+      if (dimData[i][h.productid] === prodID && dimData[i][h.store] === store) {
+        const newStock = Number(dimData[i][h.stock]) + deletedQty;
+        dim.getRange(i+1, h.stock+1).setValue(newStock);
+        dim.getRange(i+1, h.status+1)
+           .setValue(stockStatus(newStock, Number(dimData[i][h.reorderlevel])));
+        break;
+      }
+    }
+  }
+
+  SpreadsheetApp.flush();
+  for (const prodID of Object.keys(qtyToRestore)) {
+    recalculateWindowBlindInventory(prodID, store, dim);
+  }
+
+  archive.appendRow([
+    sale[0], sale[1], sale[2], sale[3], sale[4],
+    sale[6], sale[7], sale[8], sale[9], sale[10],
+    new Date(), user
+  ]);
+  sales.deleteRow(saleRow + 1);
+
+  return { msg: "Last window blind sale undone successfully" };
+  } finally { lock.releaseLock(); }
+}
+
+function recalculateWindowBlindInventory(productID, store, dim) {
+  const ss  = SpreadsheetApp.getActive();
+  const inv = ss.getSheetByName("FactInventory");
+  const invData = inv.getDataRange().getValues();
+  const dimData = dim.getDataRange().getValues();
+  const h = headerMap(dimData[0]);
+
+  let currentDimStock = 0;
+  for (let i = 1; i < dimData.length; i++) {
+    if (dimData[i][h.productid] === productID && dimData[i][h.store] === store) {
+      currentDimStock = Number(dimData[i][h.stock]); break;
+    }
+  }
+
+  const outRows = [];
+  for (let i = 1; i < invData.length; i++) {
+    if (invData[i][2] === productID && invData[i][7] === store && invData[i][3] === "OUT") {
+      outRows.push({ sheetRow: i+1, date: new Date(invData[i][1]), qty: Number(invData[i][4]) });
+    }
+  }
+  if (outRows.length === 0) return;
+
+  outRows.sort((a,b)=>a.date-b.date);
+  const totalOuts = outRows.reduce((sum,r)=>sum+r.qty, 0);
+  let runningBalance = currentDimStock + totalOuts;
+  for (const row of outRows) {
+    runningBalance -= row.qty;
+    inv.getRange(row.sheetRow, 6).setValue(runningBalance);
+  }
+}
+
+function recalculateInventoryBalances(productID, store) {
+  const ss  = SpreadsheetApp.getActive();
+  const inv = ss.getSheetByName("FactInventory");
+  let dim;
+  try { dim = getStoreSheet(ss, store); }        // #23: read the correct store sheet, not DimProduct
+  catch(e){ dim = ss.getSheetByName("DimProduct"); }
+  if(!dim) return;
+  const invData = inv.getDataRange().getValues();
+  const dimData = dim.getDataRange().getValues();
+  const h = headerMap(dimData[0]);
+
+  let currentDimStock = 0;
+  for (let i = 1; i < dimData.length; i++) {
+    if (dimData[i][h.productid] === productID && dimData[i][h.store] === store) {
+      currentDimStock = Number(dimData[i][h.stock]); break;
+    }
+  }
+
+  const rows = [];
+  for (let i = 1; i < invData.length; i++) {
+    if (invData[i][2] === productID && invData[i][7] === store) {
+      rows.push({ sheetRow: i+1, date: new Date(invData[i][1]), type: invData[i][3], qty: Number(invData[i][4]) });
+    }
+  }
+  if (rows.length === 0) return;
+
+  rows.sort((a,b)=>a.date-b.date);
+  const totalOuts = rows.filter(r=>r.type==="OUT").reduce((s,r)=>s+r.qty, 0);
+  const totalIns  = rows.filter(r=>r.type==="IN").reduce((s,r)=>s+r.qty, 0);
+  let runningBalance = currentDimStock + totalOuts - totalIns;
+
+  for (const row of rows) {
+    runningBalance += row.type === "IN" ? row.qty : -row.qty;
+    inv.getRange(row.sheetRow, 6).setValue(runningBalance);
+  }
+}
+
+/********************************
+ * STOCK IN (INVENTORY = IN)
+ * o must include _token
+ ********************************/
+function stockIn(o){
+  const sess = _verifySession(o._token, 'stock');
+  if(!sess) return _unauth();
+  const qty = Number(o.qty);
+  if(!Number.isInteger(qty) || qty < 1 || qty > 100000)
+    return { msg: 'Invalid quantity — must be a whole number between 1 and 100,000' };
+
+  const ss   = SpreadsheetApp.getActive();
+  const prod = getStoreSheet(ss, o.store);
+  const inv  = ss.getSheetByName("FactInventory");
+  const d    = prod.getDataRange().getValues();
+  const h    = headerMap(d[0]);
+  const txDate = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+
+  for(let i = 1; i < d.length; i++){
+    if (d[i][h.productid] === o.productID) {
+      const newStock = Number(d[i][h.stock]) + o.qty;
+      prod.getRange(i+1, h.stock+1).setValue(newStock);
+      prod.getRange(i+1, h.status+1).setValue(stockStatus(newStock, Number(d[i][h.reorderlevel])));
+      inv.appendRow([
+        "INV-IN-" + Utilities.getUuid().slice(0,6), txDate,
+        o.productID, "IN", o.qty, newStock, o.performedBy, o.store
+      ]);
+      // Handle expiry date
+      var oldExpiryNote = null;
+      if(o.expiryDate && h.expirydate !== undefined){
+        var oldExpRaw = d[i][h.expirydate];
+        var newExp = new Date(o.expiryDate);
+        if(oldExpRaw){
+          var oldExp = new Date(oldExpRaw);
+          oldExp.setHours(0,0,0,0);
+          var todayX = new Date(); todayX.setHours(0,0,0,0);
+          var oldDays = Math.round((oldExp - todayX) / 86400000);
+          if(newExp > oldExp && oldDays <= 60){
+            oldExpiryNote = {
+              productName: String(d[i][h.productname] || o.productID),
+              oldExpiry: Utilities.formatDate(oldExp, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+              daysToExpiry: oldDays,
+              store: o.store
+            };
+          }
+        }
+        if(!oldExpRaw || newExp > new Date(oldExpRaw)){
+          prod.getRange(i+1, h.expirydate+1).setValue(o.expiryDate);
+        }
+      }
+      if(o.alertDays && h.expiryalertdays !== undefined){
+        prod.getRange(i+1, h.expiryalertdays+1).setValue(o.alertDays);
+      }
+      return { msg: "Stock added successfully", oldExpiryNote: oldExpiryNote };
+    }
+  }
+  return { msg: "Product not found" };
+}
+
+/********************************
+ * EXPENSE
+ * getExpenseTypes(token)  — signature change
+ ********************************/
+function getExpenseTypes(token){
+  if(!_verifySession(token)) return _unauth();
+  const sh   = SpreadsheetApp.getActive().getSheetByName("DimExpenseType");
+  const data = sh.getDataRange().getValues();
+  return data.slice(1).map(row => row[0]).filter(x => x);
+}
+
+function recordExpense(o){
+  const sess = _verifySession(o._token, 'expenses');
+  if(!sess) return _unauth();
+  const amt = Number(o.amount);
+  if(isNaN(amt) || amt <= 0 || amt > 1e9)
+    return { msg: 'Invalid amount — must be a positive number under ₦1,000,000,000' };
+
+  const sh      = SpreadsheetApp.getActive().getSheetByName("FactExpenses");
+  const lastRow = sh.getLastRow();
+  let expenseID = "EP001";
+
+  if (lastRow > 1) {
+    const lastID = String(sh.getRange(lastRow, 1).getValue()).trim();
+    const match  = lastID.match(/EP(\d+)/);
+    if (match) expenseID = "EP" + (parseInt(match[1]) + 1).toString().padStart(3, "0");
+  }
+
+  const txDate = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+
+  if (o.expenseType) {
+    const typeSh        = SpreadsheetApp.getActive().getSheetByName("DimExpenseType");
+    const typeData      = typeSh.getDataRange().getValues();
+    const existingTypes = typeData.slice(1).map(row => String(row[0]));
+    if (!existingTypes.map(t=>t.toLowerCase().trim()).includes(String(o.expenseType).toLowerCase().trim())) {
+      let expenseTypeID = "ET001";
+      const lastTypeRow = typeSh.getLastRow();
+      if (lastTypeRow > 1) {
+        const lastTypeID = String(typeSh.getRange(lastTypeRow, 2).getValue()).trim();
+        const match = lastTypeID.match(/ET(\d+)/);
+        if (match) expenseTypeID = "ET" + (parseInt(match[1]) + 1).toString().padStart(3, "0");
+      }
+      typeSh.appendRow([o.expenseType, expenseTypeID]);
+    }
+  }
+
+  sh.appendRow([expenseID, txDate, _sf(o.expenseType), o.amount, _sf(o.paidBy), _sf(o.notes), _sf(o.store)]);
+  return { msg: "Expense recorded successfully", id: expenseID };
+}
+
+/**
+ * Signature change: createExpenseType({name, _token})
+ */
+function createExpenseType(o){
+  const sess = _verifySession(o._token, 'expenses');
+  if(!sess) return _unauth();
+
+  const name = o.name;
+  const sh   = SpreadsheetApp.getActive().getSheetByName("DimExpenseType");
+  if(!name) return { msg: "Invalid name" };
+
+  const data          = sh.getDataRange().getValues();
+  const existingTypes = data.slice(1).map(row => String(row[0]));
+  if(existingTypes.map(t=>t.toLowerCase().trim()).includes(name.toLowerCase().trim()))
+    return { msg: "Expense type already exists" };
+
+  let expenseTypeID = "ET001";
+  const lastRow = sh.getLastRow();
+  if (lastRow > 1) {
+    const lastID  = String(sh.getRange(lastRow, 2).getValue()).trim();
+    const match   = lastID.match(/ET(\d+)/);
+    if (match) expenseTypeID = "ET" + (parseInt(match[1]) + 1).toString().padStart(3, "0");
+  }
+  sh.appendRow([name, expenseTypeID]);
+  return { msg: "Expense type created" };
+}
+
+/********************************
+ * TRANSFER STOCK BETWEEN STORES
+ * Requires admin or manager role
+ ********************************/
+function transferStock(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(sess.role !== 'admin' && sess.role !== 'manager') return _unauth();
+
+  const fromQty = Number(o.fromQty);
+  const toQty   = Number(o.toQty);
+  if(!fromQty || fromQty < 1) return { msg: 'Invalid source quantity' };
+  if(!toQty   || toQty   < 1) return { msg: 'Invalid destination quantity' };
+  if(o.fromStore === o.toStore) return { msg: 'Source and destination stores must be different' };
+
+  const ss  = SpreadsheetApp.getActive();
+  const inv = ss.getSheetByName('FactInventory');
+  const now = new Date();
+
+  // ── DEDUCT from source ──────────────────────────────────────
+  const fromSheet = getStoreSheet(ss, o.fromStore);
+  const fromData  = fromSheet.getDataRange().getValues();
+  const fh = headerMap(fromData[0]);
+  let fromRow = -1;
+  for(let i = 1; i < fromData.length; i++){
+    if(String(fromData[i][fh.productid]).trim() === String(o.fromProductID).trim()){
+      fromRow = i; break;
+    }
+  }
+  if(fromRow === -1) return { msg: 'Source product not found in ' + o.fromStore };
+  const fromStock = Number(fromData[fromRow][fh.stock]);
+  if(fromStock < fromQty) return { msg: 'Insufficient stock in ' + o.fromStore + ' — only ' + fromStock + ' available' };
+
+  const newFromStock = fromStock - fromQty;
+  fromSheet.getRange(fromRow + 1, fh.stock + 1).setValue(newFromStock);
+  fromSheet.getRange(fromRow + 1, fh.status + 1).setValue(stockStatus(newFromStock, Number(fromData[fromRow][fh.reorderlevel])));
+
+  // ── ADD to destination ────────────────────────────────────
+  const toSheet = getStoreSheet(ss, o.toStore);
+  const toData  = toSheet.getDataRange().getValues();
+  const th = headerMap(toData[0]);
+  let toRow = -1;
+  for(let i = 1; i < toData.length; i++){
+    if(String(toData[i][th.productid]).trim() === String(o.toProductID).trim()){
+      toRow = i; break;
+    }
+  }
+  if(toRow === -1) return { msg: 'Destination product not found in ' + o.toStore };
+
+  const toStock    = Number(toData[toRow][th.stock]);
+  const newToStock = toStock + toQty;
+  toSheet.getRange(toRow + 1, th.stock + 1).setValue(newToStock);
+  toSheet.getRange(toRow + 1, th.status + 1).setValue(stockStatus(newToStock, Number(toData[toRow][th.reorderlevel])));
+
+  // ── Log both movements in FactInventory ───────────────────
+  const txID = 'TRF-' + Utilities.getUuid().slice(0,6).toUpperCase();
+  inv.appendRow([ 'INV-' + txID + '-OUT', now, o.fromProductID, 'TRANSFER_OUT', fromQty, newFromStock, o.performedBy, o.fromStore ]);
+  inv.appendRow([ 'INV-' + txID + '-IN',  now, o.toProductID,  'TRANSFER_IN',  toQty,  newToStock,  o.performedBy, o.toStore  ]);
+
+  return {
+    msg: 'Transfer complete · ' + fromQty + ' out of ' + o.fromStore + ' · ' + toQty + ' into ' + o.toStore
+  };
+}
+
+/********************************
+ * LOAD WINDOW BLIND PRODUCTS
+ * Signature change: getWindowBlindProducts({store, _token})
+ ********************************/
+function getWindowBlindProducts(o){
+  const sess = _verifySession(o._token, 'sales');
+  if(!sess) return _unauth();
+  const store = o.store;
+
+  const sh = SpreadsheetApp.getActive().getSheetByName("DimWindowBlind");
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+
+  return d.slice(1)
+    .filter(r =>
+      String(r[h.store]).trim().toLowerCase().replace(/\s/g,'') ===
+      String(store).trim().toLowerCase().replace(/\s/g,'')
+    )
+    .map(r => ({
+      id:          r[h.productid],
+      name:        r[h.productname],
+      category:    r[h.category],
+      subCategory: r[h.subcategory],
+      unitType:    r[h.unittype],
+      cost:        Number(r[h.cost]) || 0,
+      stock:       Number(r[h.stock]),
+      reorder:     Number(r[h.reorderlevel])
+    }));
+}
+
+/********************************
+ * UPDATE PRICE — ELECTRONICS
+ * o must include _token
+ ********************************/
+function updateProductPrice(o){
+  const sess = _verifySession(o._token, 'prices');
+  if(!sess) return _unauth();
+
+  const ss   = SpreadsheetApp.getActive();
+  const prod = getStoreSheet(ss, o.store);
+  const d    = prod.getDataRange().getValues();
+  const h    = headerMap(d[0]);
+
+  for(let i = 1; i < d.length; i++){
+    if(d[i][h.productid] === o.productID){
+      if(o.cost !== null && o.cost !== undefined && h.cost !== undefined)
+        prod.getRange(i+1, h.cost+1).setValue(Number(o.cost));
+      if(o.expenseOnCost !== null && o.expenseOnCost !== undefined && h["expenseoncost"] !== undefined)
+        prod.getRange(i+1, h["expenseoncost"]+1).setValue(Number(o.expenseOnCost));
+      if(o.listPrice !== null && o.listPrice !== undefined && h.listprice !== undefined)
+        prod.getRange(i+1, h.listprice+1).setValue(Number(o.listPrice));
+      return { msg: "Price updated successfully for " + d[i][h.productname] };
+    }
+  }
+  return { msg: "Product not found" };
+}
+
+/********************************
+ * UPDATE COST — WINDOW BLIND
+ * o must include _token
+ ********************************/
+function updateWindowBlindCost(o){
+  const sess = _verifySession(o._token, 'prices');
+  if(!sess) return _unauth();
+
+  const ss  = SpreadsheetApp.getActive();
+  const dim = ss.getSheetByName("DimWindowBlind");
+  const d   = dim.getDataRange().getValues();
+  const h   = headerMap(d[0]);
+
+  if(h.cost === undefined)
+    return { msg: "Cost column not found in DimWindowBlind sheet. Please add a 'Cost' header." };
+
+  for(let i = 1; i < d.length; i++){
+    if(d[i][h.productid] === o.productID && d[i][h.store] === o.store){
+      dim.getRange(i+1, h.cost+1).setValue(Number(o.cost));
+      return { msg: "Cost updated successfully for " + d[i][h.productname] };
+    }
+  }
+  return { msg: "Product not found" };
+}
+
+/********************************
+ * CREATE NEW FABRIC
+ * o must include _token
+ ********************************/
+function createNewFabric(o){
+  const sess = _verifySession(o._token, 'stock');
+  if(!sess) return _unauth();
+
+  const ss  = SpreadsheetApp.getActive();
+  const dim = ss.getSheetByName("DimWindowBlind");
+  const inv = ss.getSheetByName("FactInventory");
+  const txDate  = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+  const uuid    = Utilities.getUuid().slice(0,5).toUpperCase();
+  const productID = "WB-F" + uuid;
+
+  dim.appendRow([
+    productID, _sf(o.name), "Fabric", _sf(o.subCategory), _sf(o.store),
+    "SQM", o.cost || 0, o.stock, Number(o.reorderLevel)||5, "Available"
+  ]);
+  inv.appendRow([
+    "INV-INITIAL-" + productID, txDate, productID, "IN",
+    o.stock, o.stock, o.createdBy, o.store
+  ]);
+  return { msg: "New fabric created successfully" };
+}
+
+/********************************
+ * DASHBOARD DATA
+ * Requires dashboard_ops OR dashboard_finance
+ ********************************/
+function getDashboardData(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['dashboard_ops','dashboard_finance'])) return _unauth();
+
+  const ss      = SpreadsheetApp.getActive();
+  const sales   = ss.getSheetByName("FactSales");
+  const expenses= ss.getSheetByName("FactExpenses");
+
+  // Collect products from every store sheet
+  const allStoreNames = getAllStores();
+  const pNameMap = {};
+  const allProdRows = []; // for low-stock check later
+  allStoreNames.forEach(storeName => {
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const data = sh.getDataRange().getValues();
+    if(data.length < 2) return;
+    const ph = headerMap(data[0]);
+    data.slice(1).forEach(r=>{
+      if(r[ph.productid]) pNameMap[r[ph.productid]] = r[ph.productname];
+      if(r[ph.productname]) allProdRows.push({row:r, h:ph, store:storeName});
+    });
+  });
+
+  const tz = Session.getScriptTimeZone();
+  const salesData = sales.getDataRange().getValues();
+  const expData   = expenses.getDataRange().getValues();
+  const sh  = headerMap(salesData[0]);
+  const eh  = headerMap(expData[0]);
+
+  const fromDate = o.from ? new Date(o.from + 'T00:00:00') : null;
+  const toDate   = o.to   ? new Date(o.to   + 'T23:59:59') : null;
+
+  // Non-admin / non-manager users scoped to own store only
+  let filterStore = o.store || null;
+  if(!sess.isAdmin && !sess.isManager) filterStore = sess.store;
+
+  const normalizeStore = s => String(s||'').trim().toLowerCase().replace(/\s+/g,'');
+  const inRange = date => {
+    if(!date) return false;
+    const d = (date instanceof Date) ? date : new Date(date);
+    if(isNaN(d.getTime())) return false;
+    if(fromDate && d < fromDate) return false;
+    if(toDate   && d > toDate)   return false;
+    return true;
+  };
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayStr = Utilities.formatDate(today, tz, "yyyy-MM-dd");
+
+  let todaySales=0,todayRevenue=0,todayProfit=0,todayExpenses=0;
+  let totalRevenue=0,totalProfit=0,totalTransactions=0;
+  const weekly={},topMap={},storeMap={},sellerMap={},payMap={Cash:0,POS:0,Transfer:0};
+  const monthlyMap={},dailyMap={},hourlyMap={};
+
+  salesData.slice(1).forEach(r=>{
+    const rawDate = r[sh.date||1];
+    const date = (rawDate instanceof Date) ? rawDate : new Date(rawDate);
+    if(isNaN(date.getTime())) return;
+    const store = String(r[sh.store||10]||'');
+    if(filterStore && normalizeStore(store) !== normalizeStore(filterStore)) return;
+    if(!inRange(date)) return;
+
+    const dateStr   = Utilities.formatDate(date, tz, "yyyy-MM-dd");
+    const revenue   = Number(r[sh.totalamount||7])||0;
+    const cost      = Number(r[sh.totalcost||5])||0;
+    const profit    = revenue - cost;
+    const productID = String(r[sh.productid||2]||'');
+    const productName = pNameMap[productID] || productID;
+    const soldBy    = String(r[sh.soldby||9]||'');
+    const pay       = String(r[sh.payment||8]||'Cash');
+    const day       = Utilities.formatDate(date, tz, "EEE");
+    const monthKey  = Utilities.formatDate(date, tz, "yyyy-MM");
+
+    if(dateStr===todayStr){ todaySales++; todayRevenue+=revenue; todayProfit+=profit; }
+
+    const hour=date.getHours();
+    if(!hourlyMap[hour]) hourlyMap[hour]={hour,revenue:0,count:0};
+    hourlyMap[hour].revenue+=revenue; hourlyMap[hour].count++;
+
+    totalRevenue+=revenue; totalProfit+=profit; totalTransactions++;
+
+    const diff = Math.floor((new Date()-date)/(1000*60*60*24));
+    if(diff<7){
+      if(!weekly[day]) weekly[day]={day,revenue:0,count:0};
+      weekly[day].revenue+=revenue; weekly[day].count++;
+    }
+
+    if(!topMap[productID]) topMap[productID]={name:productName,revenue:0,qty:0,count:0};
+    topMap[productID].revenue+=revenue;
+    topMap[productID].qty+=Number(r[sh.quantity||3])||1;
+    topMap[productID].count++;
+
+    if(!dailyMap[dateStr]) dailyMap[dateStr]={date:dateStr,revenue:0,transactions:0};
+    dailyMap[dateStr].revenue+=revenue; dailyMap[dateStr].transactions++;
+
+    if(!storeMap[store]) storeMap[store]={store,sales:0,revenue:0,profit:0,expenses:0};
+    storeMap[store].sales++; storeMap[store].revenue+=revenue; storeMap[store].profit+=profit;
+
+    if(!sellerMap[soldBy]) sellerMap[soldBy]={name:soldBy,revenue:0,sales:0};
+    sellerMap[soldBy].revenue+=revenue; sellerMap[soldBy].sales++;
+
+    if(payMap[pay]!==undefined) payMap[pay]+=revenue; else payMap[pay]=revenue;
+
+    if(!monthlyMap[monthKey]) monthlyMap[monthKey]={month:monthKey,revenue:0,transactions:0};
+    monthlyMap[monthKey].revenue+=revenue; monthlyMap[monthKey].transactions++;
+  });
+
+  const expBreak={};
+  expData.slice(1).forEach(r=>{
+    const rawDate = r[eh.date||1];
+    const date    = (rawDate instanceof Date) ? rawDate : new Date(rawDate);
+    const store   = String(r[eh.store||6]||'');
+    if(filterStore && normalizeStore(store) !== normalizeStore(filterStore)) return;
+    const amt     = Number(r[eh.amount||3])||0;
+    const dateStr = Utilities.formatDate(date, tz, "yyyy-MM-dd");
+    if(dateStr===todayStr) todayExpenses+=amt;
+    if(storeMap[store]) storeMap[store].expenses=(storeMap[store].expenses||0)+amt;
+    const type = String(r[eh.expensetype||2]||'Other');
+    if(inRange(date)) expBreak[type]=(expBreak[type]||0)+amt;
+  });
+
+  const lowStock = [];
+  allProdRows.forEach(item=>{
+    const r = item.row;
+    const ph = item.h;
+    if(filterStore && item.store!==filterStore) return;
+    if(Number(r[ph.stock])<=Number(r[ph.reorderlevel]))
+      lowStock.push({name:r[ph.productname],stock:Number(r[ph.stock]),store:item.store});
+  });
+
+  const days          = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const monthlyTrend  = Object.values(monthlyMap).sort((a,b)=>a.month.localeCompare(b.month)).slice(-12);
+  const allProds      = Object.values(topMap).sort((a,b)=>b.revenue-a.revenue);
+  const dailyTrend    = Object.values(dailyMap).sort((a,b)=>a.date.localeCompare(b.date));
+  const avgSaleValue  = totalTransactions>0?Math.round(totalRevenue/totalTransactions):0;
+  const totalExpenses = Object.values(expBreak).reduce((s,v)=>s+v,0);
+  const hourlyData    = Array.from({length:24},(_,h)=>hourlyMap[h]||{hour:h,revenue:0,count:0});
+
+  return {
+    todaySales, todayRevenue, todayProfit, todayExpenses,
+    hourlyData,
+    totalRevenue, totalProfit, totalTransactions, avgSaleValue, totalExpenses,
+    weeklySales:     days.map(d=>weekly[d]||{day:d,revenue:0,count:0}),
+    topProducts:     allProds.slice(0,5),
+    bottomProducts:  allProds.slice(-5).reverse(),
+    allProducts:     allProds,
+    dailyTrend,
+    lowStock:        lowStock.sort((a,b)=>a.stock-b.stock).slice(0,10),
+    expenseBreakdown:Object.entries(expBreak).map(([type,amount])=>({type,amount})).sort((a,b)=>b.amount-a.amount),
+    storeComparison: Object.values(storeMap),
+    topSellers:      Object.values(sellerMap).sort((a,b)=>b.revenue-a.revenue).slice(0,8),
+    paymentMethods:  payMap,
+    revTrend:        monthlyTrend,
+    allStores:       getAllStores(),
+    totalExpenses
+  };
+}
+
+/********************************
+ * SALESPERSON ACTIVITY
+ * Staff may only query their own name/store
+ ********************************/
+function getSalespersonActivity(o){
+  const sess = _verifySession(o._token, 'activity');
+  if(!sess) return _unauth();
+
+  // Prevent staff from querying other people's activity
+  if(!sess.isAdmin && !sess.isManager) {
+    if(o.soldBy !== sess.name)  o.soldBy  = sess.name;
+    if(o.store  !== sess.store) o.store   = sess.store;
+  }
+
+  const ss    = SpreadsheetApp.getActive();
+  const sales = ss.getSheetByName("FactSales");
+
+  const data  = sales.getDataRange().getValues();
+  const h     = headerMap(data[0]);
+
+  // Build name map from all store sheets
+  const nameMap = {};
+  getAllStores().forEach(storeName=>{
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const sd = sh.getDataRange().getValues();
+    if(sd.length < 2) return;
+    const ph = headerMap(sd[0]);
+    sd.slice(1).forEach(r=>{
+      const id = String(r[ph.productid]||'').trim();
+      if(id) nameMap[id] = String(r[ph.productname]||'').trim();
+    });
+  });
+  
+// (DimWindowBlind removed — name mapping uses DimProduct only)
+
+  const cutoff = new Date();
+  const days   = o.days || 14;
+  cutoff.setDate(cutoff.getDate() - days);
+
+  const rows = data.slice(1).filter(r=>{
+    const rowUser  = String(r[9]||'').trim().toLowerCase();
+    const rowStore = String(r[10]||'').trim().toLowerCase();
+    const filterUser  = String(o.soldBy||'').trim().toLowerCase();
+    const filterStore = String(o.store||'').trim().toLowerCase();
+    if(rowUser!==filterUser || rowStore!==filterStore) return false;
+    let d;
+    if(r[1] instanceof Date) d=r[1];
+    else d=new Date(r[1]);
+    if(isNaN(d.getTime())) return false;
+    if(o.month!==undefined&&o.month!==null&&o.year){
+      return d.getMonth()===Number(o.month)&&d.getFullYear()===Number(o.year);
+    }
+    return d.getTime()>=cutoff.getTime();
+  });
+
+  const transactions = rows.map(r=>{
+    const productID   = String(r[h.productid]||r[2]||'').trim();
+    const productName = nameMap[productID] || productID;
+    const isWB        = String(r[h.store]||r[10]||'').toLowerCase().includes('windowblind');
+    const qty         = Number(r[h.quantity]||r[h.qty]||r[3])||1;
+    const unitPrice   = Number(r[h.unitprice]||r[h.unitsoldprice]||r[6])||0;
+    const total       = Number(r[h.totalamount]||r[7])||0;
+    const rawDate     = r[h.date]||r[1];
+    const dateStr     = rawDate instanceof Date
+      ? Utilities.formatDate(rawDate, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")
+      : String(rawDate||'');
+    return {
+      id:      String(r[h.saleid]||r[0]),
+      date:    dateStr, time: dateStr,
+      total, payment: String(r[h.paymenttype]||r[h.payment]||r[8]||'Cash'),
+      soldBy:  String(r[h.soldby]||r[9]||''),
+      store:   String(r[h.store]||r[10]||''),
+      customer:'', discount:0,
+      items:[{ name:productName, qty:isWB?parseFloat(qty.toFixed(2)):qty, unitPrice, isWB }]
+    };
+  });
+
+  const grouped = {};
+  transactions.forEach(t=>{
+    if(!grouped[t.id]) grouped[t.id]={...t};
+    else { grouped[t.id].items.push(...t.items); grouped[t.id].total+=t.total; }
+  });
+
+  return { transactions: Object.values(grouped) };
+}
+
+/********************************
+ * SAVE RECEIPT TO DRIVE
+ * Any valid session
+ ********************************/
+function saveReceiptToDrive(o){
+  if(!_verifySession(o._token)) return _unauth();
+  try {
+    const folderName    = 'TadoFoods Receipts';
+    const subFolderName = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    let mainFolder;
+    const mainFolders = DriveApp.getFoldersByName(folderName);
+    if(mainFolders.hasNext()) mainFolder = mainFolders.next();
+    else {
+      mainFolder = DriveApp.createFolder(folderName);
+      mainFolder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    }
+    let dayFolder;
+    const dayFolders = mainFolder.getFoldersByName(subFolderName);
+    if(dayFolders.hasNext()) {
+      dayFolder = dayFolders.next();
+    } else {
+      dayFolder = mainFolder.createFolder(subFolderName);
+      dayFolder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+    }
+    const fileName = o.fileName || ('Receipt_'+o.id+'.html');
+    const blob = Utilities.newBlob(o.html, 'text/html', fileName);
+    const file = dayFolder.createFile(blob);
+    return { success:true, url:file.getUrl(), id:file.getId() };
+  } catch(e) {
+    return { success:false, error:e.message };
+  }
+}
+
+/********************************
+ * ATTENDANCE
+ * Any valid session may clock in/out for themselves
+ ********************************/
+function recordClockIn(o){
+  if(!_verifySession(o._token)) return _unauth();
+  const ss = SpreadsheetApp.getActive();
+  let sheet = ss.getSheetByName("Attendance");
+  if(!sheet){
+    sheet = ss.insertSheet("Attendance");
+    sheet.appendRow(["RecordID","Name","Store","ClockIn","ClockOut","HoursWorked","Date"]);
+  }
+  const id = "ATT-"+Utilities.getUuid().substring(0,8).toUpperCase();
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  sheet.appendRow([id, o.name, o.store, o.time, "", "", todayStr]);
+  return {success:true, id};
+}
+
+function recordClockOut(o){
+  if(!_verifySession(o._token)) return _unauth();
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName("Attendance");
+  if(!sheet) return {success:false};
+  const data = sheet.getDataRange().getValues();
+  for(let i=data.length-1; i>=1; i--){
+    if(String(data[i][1])===String(o.name) && String(data[i][3])===String(o.clockIn) && !data[i][4]){
+      sheet.getRange(i+1,5).setValue(o.clockOut);
+      sheet.getRange(i+1,6).setValue(o.hoursWorked);
+      return {success:true};
+    }
+  }
+  return {success:false};
+}
+
+/********************************
+ * CHANGE PIN (own PIN only)
+ * Any valid session; verifies name matches session owner
+ ********************************/
+function changePIN(o) {
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  // A user can only change their own PIN
+  if(sess.name !== o.name) return { success:false, msg:'You can only change your own PIN' };
+
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('SalesPerson');
+  const data  = sheet.getDataRange().getValues();
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]).trim() === String(o.name).trim()) {
+      const storedPin = String(data[i][2]).trim();
+      const inputPin  = String(o.currentPIN).trim();
+      const pinMatch  = _isHashed(storedPin)
+        ? storedPin === _hashPin(inputPin)
+        : storedPin === inputPin;
+      if (!pinMatch)
+        return { success:false, msg:'Incorrect current PIN' };
+      sheet.getRange(i+1, 3).setValue(_hashPin(o.newPIN));
+      return { success:true, msg:'PIN changed successfully' };
+    }
+  }
+  return { success:false, msg:'User not found' };
+}
+
+/********************************
+ * GET TRANSACTION BY ID
+ * Any valid session (scoped to own store for non-admin)
+ ********************************/
+function getTransactionById(o) {
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('FactSales');
+  if (!sheet) return null;
+  const data   = sheet.getDataRange().getValues();
+  const baseId = String(o.id).trim();
+
+  const rows = data.filter((r,i)=>{
+    if(i===0) return false;
+    const rowId = String(r[0]).trim();
+    // Non-admins scoped to own store
+    if(!sess.isAdmin && !sess.isManager && String(r[10]).trim() !== sess.store) return false;
+    return rowId === baseId || rowId.startsWith(baseId+'-');
+  });
+  if (!rows.length) return null;
+
+  const nameMap = {};
+  getAllStores().forEach(storeName=>{
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const sd = sh.getDataRange().getValues();
+    if(sd.length < 2) return;
+    const ph = headerMap(sd[0]);
+    sd.slice(1).forEach(r=>{ if(r[ph.productid]) nameMap[r[ph.productid]] = r[ph.productname]; });
+  });
+
+  const items = rows.map(r=>{
+    const pid = String(r[2]);
+    return { id:pid, name:nameMap[pid]||pid, qty:Number(r[3])||1, unitPrice:Number(r[6])||0, isWB:pid.startsWith('WB-') };
+  });
+  return { id:o.id, customer:'', payment:String(rows[0][8]||''), total:rows.reduce((s,r)=>s+(Number(r[7])||0),0), items };
+}
+
+/********************************
+ * PROCESS RETURN
+ * Requires 'returns' permission
+ ********************************/
+/** Restore returned units to the CORRECT store sheet (#23).
+ *  Uses the store-named sheet like the rest of the app; falls back to DimProduct
+ *  only for a pre-migration single-store layout. Columns resolved via headerMap. */
+function _restoreReturnStock(ss, store, productID, qty){
+  var sh;
+  try { sh = getStoreSheet(ss, store); }
+  catch(e){ sh = ss.getSheetByName('DimProduct'); }
+  if(!sh) return false;
+  var d = sh.getDataRange().getValues();
+  var h = headerMap(d[0]);
+  for(var i=1;i<d.length;i++){
+    if(String(d[i][h.productid]).trim() === String(productID).trim()){
+      var newStock = (Number(d[i][h.stock])||0) + (Number(qty)||0);
+      sh.getRange(i+1, h.stock+1).setValue(newStock);
+      sh.getRange(i+1, h.status+1).setValue(stockStatus(newStock, Number(d[i][h.reorderlevel])||1));
+      return true;
+    }
+  }
+  return false;
+}
+
+function processReturn(o) {
+  const sess = _verifySession(o._token, 'returns');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  let returnsSheet = ss.getSheetByName('Returns');
+  if (!returnsSheet) {
+    returnsSheet = ss.insertSheet('Returns');
+    returnsSheet.appendRow([
+      'ReturnID','Date','OriginalTxnID','ProductID','ProductName',
+      'Qty','UnitPrice','RefundAmount','RefundMethod','Reason',
+      'ReturnedBy','Store','Status','ApprovedBy','ApprovedDate'
+    ]);
+  }
+
+  const returnId = 'RET-' + Utilities.getUuid().slice(0,6).toUpperCase();
+  const date     = o.date ? new Date(o.date + 'T' + new Date().toTimeString().slice(0,8)) : new Date();
+  const status   = (sess.isAdmin || sess.role === 'admin') ? 'Approved' : 'Pending';
+
+  returnsSheet.appendRow([
+    returnId, date, o.originalTxnId, o.productID, o.productName,
+    o.qty, o.unitPrice, o.refundAmount, o.refundMethod, o.reason,
+    o.returnedBy, o.store, status,
+    status === 'Approved' ? o.returnedBy : '',
+    status === 'Approved' ? date : ''
+  ]);
+
+  if (status === 'Approved' && !o.isWB) {
+    _restoreReturnStock(ss, o.store, o.productID, Number(o.qty));
+  }
+
+  return {
+    msg: status === 'Approved'
+      ? 'Return processed · ' + returnId + ' · Refund: ₦' + Number(o.refundAmount).toLocaleString()
+      : 'Return request submitted · Pending admin approval · ' + returnId,
+    status
+  };
+}
+
+/********************************
+ * GET PENDING RETURNS
+ * Signature change: getPendingReturns(token)
+ ********************************/
+function getPendingReturns(token) {
+  const sess = _verifySession(token, 'approve_returns');
+  if(!sess) return _unauth();
+
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('Returns');
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const results = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][12]).trim() === 'Pending') {
+      results.push({
+        returnId:      String(data[i][0]),
+        date:          data[i][1] ? new Date(data[i][1]).toISOString() : '',
+        originalTxnId: String(data[i][2]),
+        productID:     String(data[i][3]),
+        productName:   String(data[i][4]),
+        qty:           Number(data[i][5]),
+        unitPrice:     Number(data[i][6]),
+        refundAmount:  Number(data[i][7]),
+        refundMethod:  String(data[i][8]),
+        reason:        String(data[i][9]),
+        returnedBy:    String(data[i][10]),
+        store:         String(data[i][11]),
+        rowIndex:      i + 1
+      });
+    }
+  }
+  return results;
+}
+
+/********************************
+ * APPROVE / REJECT RETURN
+ * Requires 'approve_returns'
+ ********************************/
+function approveReturn(o) {
+  const sess = _verifySession(o._token, 'approve_returns');
+  if(!sess) return _unauth();
+
+  const ss           = SpreadsheetApp.getActive();
+  const returnsSheet = ss.getSheetByName('Returns');
+  if (!returnsSheet) return { success:false, msg:'Returns sheet not found' };
+
+  const data = returnsSheet.getDataRange().getValues();
+  let rowIndex = -1;
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(o.returnId).trim()) { rowIndex=i+1; break; }
+  }
+  if (rowIndex === -1) return { success:false, msg:'Return not found' };
+
+  const now = new Date();
+
+  if (o.action === 'approve') {
+    returnsSheet.getRange(rowIndex, 13).setValue('Approved');
+    returnsSheet.getRange(rowIndex, 14).setValue(o.approvedBy);
+    returnsSheet.getRange(rowIndex, 15).setValue(now);
+
+    if (!o.isWB) {
+      const store = String(data[rowIndex-1][11]||'').trim();   // Store from the return row (#24)
+      _restoreReturnStock(ss, store, o.productID, Number(o.qty));
+    }
+
+    const salesSheet = ss.getSheetByName('FactSales');
+    if(salesSheet && o.originalTxnId){
+      const salesData = salesSheet.getDataRange().getValues();
+      for(let i=1;i<salesData.length;i++){
+        const rowSaleId  = String(salesData[i][0]).trim();
+        const rowProdId  = String(salesData[i][2]).trim();
+        if(rowSaleId===String(o.originalTxnId).trim() && rowProdId===String(o.productID).trim()){
+          const currentQty = Number(salesData[i][3]);
+          const newQty     = currentQty - Number(o.qty);
+          if(newQty<=0){ salesSheet.deleteRow(i+1); }
+          else {
+            const ratio     = newQty / currentQty;
+            const origCost  = Number(salesData[i][5]) || 0;   // Total Cost  (col 6)
+            const origTotal = Number(salesData[i][7]) || 0;   // TotalAmount (col 8, net of discount)
+            salesSheet.getRange(i+1, 4).setValue(newQty);                        // Quantity
+            salesSheet.getRange(i+1, 6).setValue(Math.round(origCost * ratio));  // Total Cost (#24)
+            salesSheet.getRange(i+1, 8).setValue(Math.round(origTotal * ratio)); // TotalAmount, keeps discount ratio
+          }
+          break;
+        }
+      }
+    }
+    return { success:true, msg:'Return approved · Stock restored · Refund: ₦'+Number(o.refundAmount).toLocaleString() };
+  } else {
+    returnsSheet.getRange(rowIndex, 13).setValue('Rejected');
+    returnsSheet.getRange(rowIndex, 14).setValue(o.approvedBy);
+    returnsSheet.getRange(rowIndex, 15).setValue(now);
+    return { success:true, msg:'Return rejected · '+o.returnId };
+  }
+}
+
+/********************************
+ * GET MY RETURNS
+ * Users can only see their own returns (enforced server-side)
+ ********************************/
+function getMyReturns(o) {
+  const sess = _verifySession(o._token, 'returns');
+  if(!sess) return _unauth();
+  // Enforce: staff can only query their own returns
+  if(!sess.isAdmin && !sess.isManager && o.returnedBy !== sess.name) o.returnedBy = sess.name;
+
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('Returns');
+  if (!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const results = [];
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][10]).trim() === String(o.returnedBy).trim() &&
+        String(data[i][11]).trim() === String(o.store).trim()) {
+      results.push({
+        returnId:      String(data[i][0]),
+        date:          data[i][1] ? new Date(data[i][1]).toISOString() : '',
+        originalTxnId: String(data[i][2]),
+        productID:     String(data[i][3]),
+        productName:   String(data[i][4]),
+        qty:           Number(data[i][5]),
+        unitPrice:     Number(data[i][6]),
+        refundAmount:  Number(data[i][7]),
+        refundMethod:  String(data[i][8]),
+        reason:        String(data[i][9]),
+        returnedBy:    String(data[i][10]),
+        store:         String(data[i][11]),
+        status:        String(data[i][12]||'Pending')
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Signature change: getReturnsByStatus({status, _token})
+ */
+function getReturnsByStatus(o){
+  const sess = _verifySession(o._token, 'approve_returns');
+  if(!sess) return _unauth();
+  const status = o.status;
+
+  const ss    = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName('Returns');
+  if(!sheet) return [];
+  const data = sheet.getDataRange().getValues();
+  if(data.length<=1) return [];
+
+  return data.slice(1).filter(r=>String(r[12]).trim()===status).map(r=>({
+    returnId:      String(r[0]),
+    date:          r[1]?new Date(r[1]).toISOString():'',
+    originalTxnId: String(r[2]),
+    productID:     String(r[3]),
+    productName:   String(r[4]),
+    qty:           Number(r[5]),
+    refundAmount:  Number(r[7]),
+    refundMethod:  String(r[8]),
+    reason:        String(r[9]),
+    returnedBy:    String(r[10]),
+    store:         String(r[11]),
+    status:        String(r[12])
+  }));
+}
+
+/**
+ * Signature change: getAllReturns(token)
+ */
+function getAllReturns(token){
+  const sess = _verifySession(token, 'approve_returns');
+  if(!sess) return _unauth();
+  return getReturnsByStatus({status:'Pending',_token:token})
+    .concat(getReturnsByStatus({status:'Approved',_token:token}))
+    .concat(getReturnsByStatus({status:'Rejected',_token:token}));
+}
+
+/********************************
+ * SEARCH SALES BY DETAILS
+ * Any valid session (scoped to own store for non-admin)
+ ********************************/
+function searchSalesByDetails(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  // Scope non-admin/manager to own store
+  if(!sess.isAdmin && !sess.isManager) o.store = sess.store;
+
+  try{
+    const ss         = SpreadsheetApp.getActiveSpreadsheet();
+    const salesSheet = ss.getSheetByName('FactSales');
+    const salesData  = salesSheet.getDataRange().getValues();
+
+    const prodMap={};
+    getAllStores().forEach(storeName=>{
+      const sh = ss.getSheetByName(storeName);
+      if(!sh) return;
+      const sd = sh.getDataRange().getValues();
+      if(sd.length < 2) return;
+      sd.slice(1).forEach(r=>{
+        if(r[0]) prodMap[String(r[0]).trim()] = String(r[1]||'').trim();
+      });
+    });
+
+    const results=[];
+    for(let i=1;i<salesData.length;i++){
+      const row=salesData[i];
+      const saleId=String(row[0]).trim();
+      const date=new Date(row[1]);
+      const productId=String(row[2]).trim();
+      const qty=Number(row[3]);
+      const totalAmount=Number(row[7]);
+      const paymentType=String(row[8]).trim().toLowerCase();
+      const soldBy=String(row[9]).trim().toLowerCase();
+      const store=String(row[10]).trim();
+      const productName=prodMap[productId]||productId;
+      if(!saleId||saleId==='SaleID') continue;
+      if(o.productName&&o.productName.trim()){
+        const q=o.productName.trim().toLowerCase();
+        if(!productName.toLowerCase().includes(q)&&!productId.toLowerCase().includes(q)) continue;
+      }
+      if(o.dateFrom){ const from=new Date(o.dateFrom); from.setHours(0,0,0,0); if(date<from) continue; }
+      if(o.dateTo){   const to  =new Date(o.dateTo);   to.setHours(23,59,59,999); if(date>to) continue; }
+      if(o.amount&&Number(o.amount)>0){
+        const amt=Number(o.amount), tolerance=amt*0.15;
+        if(totalAmount<amt-tolerance||totalAmount>amt+tolerance) continue;
+      }
+      if(o.paymentType&&o.paymentType!=='any'){
+        if(!paymentType.includes(o.paymentType.toLowerCase())) continue;
+      }
+      if(o.soldBy&&o.soldBy.trim()){ if(!soldBy.includes(o.soldBy.trim().toLowerCase())) continue; }
+      if(o.store&&o.store.trim()){ if(store.toLowerCase()!==o.store.trim().toLowerCase()) continue; }
+      results.push({ saleId, date:date.toISOString(), productId, productName, qty, totalAmount, paymentType:String(row[8]).trim(), soldBy:String(row[9]).trim(), store });
+    }
+    results.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    return results.slice(0,30);
+  }catch(e){ return {error:e.message}; }
+}
+
+/********************************
+ * ATTENDANCE OVERVIEW
+ * Signature change: getAttendanceOverview(token)
+ * Requires attendance_view OR staff_mgmt
+ ********************************/
+function getAttendanceOverview(token){
+  const sess = _verifySession(token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['attendance_view','staff_mgmt'])) return _unauth();
+
+  const ss      = SpreadsheetApp.getActive();
+  const attSh   = ss.getSheetByName('Attendance');
+  const spSh    = ss.getSheetByName('SalesPerson');
+  const shiftSh = ss.getSheetByName('Shifts');
+  const today   = new Date();
+  const todayStr= Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  const spData      = spSh.getDataRange().getValues();
+  const spH         = headerMap(spData[0]);
+  const activeStaff = spData.slice(1).filter(r=>r[spH.status]==='Active'&&r[spH.name]);
+  const attData     = attSh.getDataRange().getValues();
+  const attH        = headerMap(attData[0]);
+
+  const todayAtt = attData.slice(1).filter(r=>{
+    const d  = r[attH.date];
+    const ds = d instanceof Date
+      ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : String(d).split('T')[0];
+    return ds===todayStr;
+  });
+
+  let shifts=[];
+  if(shiftSh){
+    const shData = shiftSh.getDataRange().getValues();
+    const shH    = headerMap(shData[0]);
+    shifts = shData.slice(1).map(r=>({
+      staffId: String(r[shH.staffid]||r[shH.staff_id]||''),
+      start:   r[shH.start]||r[shH.starttime]||'',
+      grace:   parseInt(r[shH.grace]||r[shH.graceperiod]||5)
+    }));
+  }
+
+  const records = activeStaff.map((s,i)=>{
+    const name    = s[spH.name];
+    const store   = s[spH.store];
+    const role    = (s[spH.role]||'Staff').toLowerCase();
+    const staffId = String(i+2);
+    const att     = todayAtt.find(a=>String(a[attH.name])===String(name));
+    const shift   = shifts.find(sh=>sh.staffId===staffId);
+    let clockIn='', clockOut='', hours='', status='Absent';
+
+    if(att){
+      const cin  = att[attH.clockin]||att[attH['clock in']]||att[attH.timein]||'';
+      const cout = att[attH.clockout]||att[attH['clock out']]||att[attH.timeout]||'';
+      if(cin  instanceof Date) clockIn  = Utilities.formatDate(cin,  Session.getScriptTimeZone(), 'HH:mm');
+      else clockIn  = String(cin).replace(/.*T/,'').slice(0,5)||String(cin);
+      if(cout instanceof Date) clockOut = Utilities.formatDate(cout, Session.getScriptTimeZone(), 'HH:mm');
+      else if(cout) clockOut = String(cout).replace(/.*T/,'').slice(0,5)||String(cout);
+      if(clockIn&&clockOut){
+        const [ih,im]=clockIn.split(':').map(Number);
+        const [oh,om]=clockOut.split(':').map(Number);
+        const mins=(oh*60+om)-(ih*60+im);
+        if(mins>0) hours=Math.floor(mins/60)+'h '+(mins%60)+'m';
+      }
+      status='Present';
+      if(shift&&shift.start&&clockIn){
+        const startStr=shift.start instanceof Date
+          ? Utilities.formatDate(shift.start, Session.getScriptTimeZone(), 'HH:mm')
+          : String(shift.start);
+        const [sh2,sm]=startStr.split(':').map(Number);
+        const [ch,cm]=clockIn.split(':').map(Number);
+        if(!isNaN(sh2)&&!isNaN(ch)&&(ch*60+cm)>(sh2*60+sm+(shift.grace||5))) status='Late';
+      }
+    }
+    return {name, store, role, clockIn, clockOut, hours, status};
+  });
+
+  return {
+    present: records.filter(r=>r.status==='Present').length,
+    late:    records.filter(r=>r.status==='Late').length,
+    absent:  records.filter(r=>r.status==='Absent').length,
+    total:   activeStaff.length,
+    records
+  };
+}
+
+/********************************
+ * ATTENDANCE HISTORY
+ * Requires attendance_view OR staff_mgmt
+ ********************************/
+function getAttendanceHistory(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['attendance_view','staff_mgmt'])) return _unauth();
+
+  const ss      = SpreadsheetApp.getActive();
+  const attSh   = ss.getSheetByName('Attendance');
+  const spSh    = ss.getSheetByName('SalesPerson');
+  const shiftSh = ss.getSheetByName('Shifts');
+  const attData = attSh.getDataRange().getValues();
+  const attH    = headerMap(attData[0]);
+  const spData  = spSh.getDataRange().getValues();
+  const spH     = headerMap(spData[0]);
+
+  const staffMap={};
+  spData.slice(1).forEach((r,i)=>{
+    if(r[spH.name]) staffMap[String(r[spH.name])]={store:r[spH.store],role:r[spH.role],id:String(i+2)};
+  });
+
+  let shifts=[];
+  if(shiftSh){
+    const shData = shiftSh.getDataRange().getValues();
+    const shH    = headerMap(shData[0]);
+    shifts = shData.slice(1).map(r=>({
+      staffId: String(r[shH.staffid]||r[shH.staff_id]||''),
+      start:   r[shH.start]||r[shH.starttime]||'',
+      grace:   parseInt(r[shH.grace]||r[shH.graceperiod]||5)
+    }));
+  }
+
+  const from = new Date(o.from); from.setHours(0,0,0,0);
+  const to   = new Date(o.to);   to.setHours(23,59,59,999);
+
+  return attData.slice(1).filter(r=>{
+    const d  = r[attH.date];
+    const dt = d instanceof Date ? d : new Date(d);
+    if(isNaN(dt)) return false;
+    if(dt<from||dt>to) return false;
+    if(o.staffId){
+      const info = staffMap[String(r[attH.name])];
+      if(!info||info.id!==o.staffId) return false;
+    }
+    return true;
+  }).map(r=>{
+    const name  = String(r[attH.name]);
+    const info  = staffMap[name]||{store:'',role:''};
+    const d     = r[attH.date];
+    const date  = d instanceof Date
+      ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd MMM yyyy')
+      : String(d).split('T')[0];
+    const cin   = r[attH.clockin]||r[attH['clock in']]||r[attH.timein]||'';
+    const cout  = r[attH.clockout]||r[attH['clock out']]||r[attH.timeout]||'';
+    let clockIn='', clockOut='', hours='', status='Present';
+    if(cin  instanceof Date) clockIn  = Utilities.formatDate(cin,  Session.getScriptTimeZone(), 'HH:mm');
+    else clockIn = String(cin).replace(/.*T/,'').slice(0,5)||String(cin);
+    if(cout instanceof Date) clockOut = Utilities.formatDate(cout, Session.getScriptTimeZone(), 'HH:mm');
+    else if(cout) clockOut = String(cout).replace(/.*T/,'').slice(0,5);
+    if(clockIn&&clockOut){
+      const [ih,im]=clockIn.split(':').map(Number);
+      const [oh,om]=clockOut.split(':').map(Number);
+      const mins=(oh*60+om)-(ih*60+im);
+      if(mins>0) hours=Math.floor(mins/60)+'h '+(mins%60)+'m';
+    }
+    const shift = shifts.find(sh=>sh.staffId===info.id);
+    if(shift&&shift.start&&clockIn){
+      const startStr = shift.start instanceof Date
+        ? Utilities.formatDate(shift.start, Session.getScriptTimeZone(), 'HH:mm')
+        : String(shift.start);
+      const [sh2,sm]=startStr.split(':').map(Number);
+      const [ch,cm]=clockIn.split(':').map(Number);
+      if(!isNaN(sh2)&&!isNaN(ch)&&(ch*60+cm)>(sh2*60+sm+(shift.grace||5))) status='Late';
+    }
+    return {name, store:info.store, role:info.role, date, clockIn, clockOut, hours, status};
+  });
+}
+
+/********************************
+ * STAFF MANAGEMENT
+ * All require 'staff_mgmt'
+ * setStaffRole is admin-only
+ ********************************/
+
+/** Signature change: getAllStaff(token) */
+function getAllStaff(token){
+  const sess = _verifySession(token, 'staff_mgmt');
+  if(!sess) return _unauth();
+
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+  return d.slice(1).map((r,i)=>({
+    id:         String(i+2),
+    name:       r[h.name]||'',
+    store:      r[h.store]||'',
+    role:       (r[h.role]||'Staff').toLowerCase(),
+    status:     r[h.status]||'Active',
+    extraPerms: h.extraperms!==undefined&&r[h.extraperms]
+      ? String(r[h.extraperms]).split(',').map(p=>p.trim()).filter(Boolean) : []
+  })).filter(r=>r.name);
+}
+
+/** Signature change: setStaffStatus({rowId, status, _token}) */
+function setStaffStatus(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const h  = headerMap(sh.getDataRange().getValues()[0]);
+  sh.getRange(Number(o.rowId), h.status+1).setValue(o.status);
+  return {ok:true};
+}
+
+/** Signature change: setStaffRole({rowId, role, _token}) — admin only */
+function setStaffRole(o){
+  const sess = _verifySession(o._token);
+  if(!sess || sess.role !== 'admin') return _unauth();
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const h  = headerMap(sh.getDataRange().getValues()[0]);
+  sh.getRange(Number(o.rowId), h.role+1).setValue(o.role);
+  return {ok:true};
+}
+
+/** Signature change: adminResetPIN({rowId, newPin, _token}) */
+function adminResetPIN(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const h  = headerMap(sh.getDataRange().getValues()[0]);
+  sh.getRange(Number(o.rowId), h.logincode+1).setValue(_hashPin(o.newPin));
+  return {ok:true};
+}
+
+/** Signature change: assignStaffPerm({rowId, perm, _token}) */
+function assignStaffPerm(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+  const row= Number(o.rowId);
+  let col  = h.extraperms;
+  if(col===undefined){
+    col = d[0].length;
+    sh.getRange(1, col+1).setValue('ExtraPerms');
+  }
+  const cur = d[row-1][col] ? String(d[row-1][col]).split(',').map(p=>p.trim()).filter(Boolean) : [];
+  if(!cur.includes(o.perm)) cur.push(o.perm);
+  sh.getRange(row, col+1).setValue(cur.join(','));
+
+  const staffName = d[row-1][h.salesperson||h.name||0]||'';
+  writeStaffNotif(staffName, 'PERM_ADDED', o.perm);
+  return {ok:true};
+}
+
+/** Signature change: removeStaffPerm({rowId, perm, _token}) */
+function removeStaffPerm(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+  const row= Number(o.rowId);
+  let col  = h.extraperms;
+  if(col===undefined){
+    col = d[0].length;
+    sh.getRange(1, col+1).setValue('ExtraPerms');
+  }
+  const cur = d[row-1][col] ? String(d[row-1][col]).split(',').map(p=>p.trim()).filter(Boolean) : [];
+  sh.getRange(row, col+1).setValue(cur.filter(p=>p!==o.perm).join(','));
+
+  const staffName = d[row-1][h.salesperson||h.name||0]||'';
+  writeStaffNotif(staffName, 'PERM_REMOVED', o.perm);
+  return {ok:true};
+}
+
+/** Internal helper — no auth needed (called from assign/remove) */
+function writeStaffNotif(staffName, type, perm){
+  try{
+    const ss = SpreadsheetApp.getActive();
+    let sh   = ss.getSheetByName('StaffNotifs');
+    if(!sh){ sh=ss.insertSheet('StaffNotifs'); sh.getRange(1,1,1,4).setValues([['StaffName','Type','Perm','Date']]); }
+    sh.appendRow([staffName, type, perm, new Date()]);
+  }catch(e){ Logger.log('writeStaffNotif error:'+e); }
+}
+
+/** Signature change: getPermNotifs({staffName, _token}) */
+function getPermNotifs(o){
+  if(!_verifySession(o._token)) return _unauth();
+  try{
+    const ss = SpreadsheetApp.getActive();
+    const sh = ss.getSheetByName('StaffNotifs');
+    if(!sh) return [];
+    const d = sh.getDataRange().getValues();
+    return d.slice(1)
+      .map((r,i)=>({row:i+2, name:r[0], type:r[1], perm:r[2], date:r[3]}))
+      .filter(r=>r.name===o.staffName);
+  }catch(e){ return []; }
+}
+
+/** Signature change: clearPermNotif({row, _token}) */
+function clearPermNotif(o){
+  if(!_verifySession(o._token)) return _unauth();
+  try{
+    const sh = SpreadsheetApp.getActive().getSheetByName('StaffNotifs');
+    if(sh) sh.deleteRow(o.row);
+  }catch(e){}
+  return {ok:true};
+}
+
+/** Requires 'staff_mgmt' */
+function createStaff(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+
+  const sh = SpreadsheetApp.getActive().getSheetByName('SalesPerson');
+  const h  = headerMap(sh.getDataRange().getValues()[0]);
+  const row= [];
+  row[h.name]      = o.name;
+  row[h.logincode] = _hashPin(o.pin);
+  row[h.store]     = o.store;
+  row[h.role]      = o.role;
+  row[h.status]    = 'Active';
+  sh.appendRow(row);
+  return {ok:true};
+}
+
+/********************************
+ * SHIFTS
+ * All require 'staff_mgmt'
+ * createShift / deleteShift are admin-only
+ ********************************/
+
+/** Signature change: getShifts(token) */
+function getShifts(token){
+  const sess = _verifySession(token, 'staff_mgmt');
+  if(!sess) return _unauth();
+  try{
+    const ss = SpreadsheetApp.getActive();
+    const sh = ss.getSheetByName('Shifts');
+    if(!sh) return [];
+    const d = sh.getDataRange().getValues();
+    if(d.length<2) return [];
+    const h = headerMap(d[0]);
+    return d.slice(1).map((r,i)=>({
+      id:        String(i+2),
+      name:      String(r[h.name]||''),
+      start:     r[h.start] instanceof Date ? Utilities.formatDate(r[h.start], Session.getScriptTimeZone(), 'HH:mm') : String(r[h.start]||''),
+      end:       r[h.end]   instanceof Date ? Utilities.formatDate(r[h.end],   Session.getScriptTimeZone(), 'HH:mm') : String(r[h.end]||''),
+      grace:     Number(r[h.grace]||5),
+      staffId:   String(r[h.staffid]||''),
+      staffName: ''
+    })).filter(r=>r.name);
+  }catch(e){ Logger.log('getShifts error: '+e.message); return []; }
+}
+
+/** Signature change: assignStaffToShift({shiftId, staffId, _token}) */
+function assignStaffToShift(o){
+  const sess = _verifySession(o._token, 'staff_mgmt');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('Shifts');
+  if(!sh) return {ok:false, msg:'Shifts sheet not found'};
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+  for(let i=1;i<d.length;i++){
+    if(String(d[i][0])===String(o.shiftId)){
+      let existing = String(d[i][h.staffid]||'').split(',').map(s=>s.trim()).filter(Boolean);
+      if(existing.includes(o.staffId)) existing = existing.filter(s=>s!==o.staffId);
+      else existing.push(o.staffId);
+      sh.getRange(i+1, h.staffid+1).setValue(existing.join(','));
+      return {ok:true};
+    }
+  }
+  return {ok:false, msg:'Shift not found'};
+}
+
+/** Requires admin role */
+function createShift(o){
+  const sess = _verifySession(o._token);
+  if(!sess || sess.role !== 'admin') return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName('Shifts');
+  if(!sh){ sh = ss.insertSheet('Shifts'); sh.appendRow(['Name','Start','End','Grace','StaffID']); }
+  sh.appendRow([o.name, o.start, o.end, o.grace, o.staffId||'']);
+  return {ok:true};
+}
+
+/** Signature change: deleteShift({rowId, _token}) — admin only */
+function deleteShift(o){
+  const sess = _verifySession(o._token);
+  if(!sess || sess.role !== 'admin') return _unauth();
+  const sh = SpreadsheetApp.getActive().getSheetByName('Shifts');
+  if(!sh) return {ok:false};
+  sh.deleteRow(Number(o.rowId));
+  return {ok:true};
+}
+
+/********************************
+ * HUB SETTINGS
+ * getHubSettings / saveHubSetting require admin OR 'settings'
+ * addAlertEmail / removeAlertEmail are admin-only
+ ********************************/
+
+/** Signature change: getHubSettings(token) */
+function getHubSettings(token){
+  const sess = _verifySession(token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['settings'])) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  let sh   = ss.getSheetByName('Settings');
+  if(!sh){ sh=ss.insertSheet('Settings'); sh.appendRow(['Key','Value']); return {}; }
+  const d = sh.getDataRange().getValues();
+  if(d.length<2) return {};
+  const settings={};
+  d.slice(1).forEach(r=>{ if(r[0]) settings[String(r[0]).trim()]=String(r[1]||''); });
+  return settings;
+}
+
+/** Public — ANY valid session may read VAT config. Staff can't read full hub settings,
+ *  but they still need VAT to be applied at checkout, so expose only the VAT keys (#19). */
+function getVatSettings(token){
+  const sess = _verifySession(token);
+  if(!sess) return _unauth();
+  const out = { vat_enabled:'false', vat_rate:'7.5', vat_base:'after_discount' };
+  const sh  = SpreadsheetApp.getActive().getSheetByName('Settings');
+  if(!sh) return out;
+  const d = sh.getDataRange().getValues();
+  d.slice(1).forEach(r=>{
+    const k = String(r[0]||'').trim();
+    if(k==='vat_enabled'||k==='vat_rate'||k==='vat_base') out[k]=String(r[1]||'');
+  });
+  return out;
+}
+
+/** Signature change: saveHubSetting({key, value, _token}) */
+function saveHubSetting(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['settings'])) return _unauth();
+
+  const key   = o.key;
+  const value = o.value;
+
+  const ss = SpreadsheetApp.getActive();
+  let sh   = ss.getSheetByName('Settings');
+  if(!sh){ sh=ss.insertSheet('Settings'); sh.appendRow(['Key','Value']); }
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+  for(let i=1;i<d.length;i++){
+    if(String(d[i][h.key]).trim()===key){
+      sh.getRange(i+1, h.value+1).setValue(value);
+      return {ok:true};
+    }
+  }
+  sh.appendRow([key, value]);
+  return {ok:true};
+}
+
+/** Signature change: addAlertEmail({email, _token}) — admin only */
+function addAlertEmail(o){
+  const sess = _verifySession(o._token);
+  if(!sess || sess.role !== 'admin') return _unauth();
+  const settings = getHubSettings(o._token);
+  const emails   = settings.alert_emails
+    ? settings.alert_emails.split(',').map(e=>e.trim()).filter(Boolean) : [];
+  if(!emails.includes(o.email)) emails.push(o.email);
+  saveHubSetting({key:'alert_emails', value:emails.join(','), _token:o._token});
+  return {ok:true};
+}
+
+/** Signature change: removeAlertEmail({idx, _token}) — admin only */
+function removeAlertEmail(o){
+  const sess = _verifySession(o._token);
+  if(!sess || sess.role !== 'admin') return _unauth();
+  const settings = getHubSettings(o._token);
+  const emails   = settings.alert_emails
+    ? settings.alert_emails.split(',').map(e=>e.trim()).filter(Boolean) : [];
+  emails.splice(o.idx, 1);
+  saveHubSetting({key:'alert_emails', value:emails.join(','), _token:o._token});
+  return {ok:true};
+}
+
+/********************************
+ * STOCK ALERTS (internal + public)
+ ********************************/
+function checkStockAlert(productId, productName, newStock, reorderLevel, store){
+  // Internal — no token needed (called from recordSale / stockIn)
+  try{
+    const settings = (() => {
+      const ss = SpreadsheetApp.getActive();
+      const sh = ss.getSheetByName('Settings');
+      if(!sh) return {};
+      const d = sh.getDataRange().getValues();
+      const s = {};
+      d.slice(1).forEach(r=>{ if(r[0]) s[String(r[0]).trim()]=String(r[1]||''); });
+      return s;
+    })();
+
+    const emails  = settings.alert_emails
+      ? settings.alert_emails.split(',').map(e=>e.trim()).filter(Boolean) : [];
+    if(!emails.length) return;
+
+    const isOut = newStock<=0;
+    const isLow = !isOut && newStock<=reorderLevel;
+    if(isOut && String(settings.notif_out_stock).toLowerCase()!=='true') return;
+    if(isLow && String(settings.notif_low_stock).toLowerCase()!=='true') return;
+    if(!isOut && !isLow) return;
+
+    const subject = isOut
+      ? `[Out of Stock] ${productName} — StarTrack POS`
+      : `[Low Stock] ${productName} — StarTrack POS`;
+
+    const body = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#1a48cc;padding:24px 32px;border-radius:12px 12px 0 0">
+        <div style="color:#fff;font-size:22px;font-weight:800">StarTrack POS</div>
+        <div style="color:rgba(255,255,255,.7);font-size:13px;margin-top:4px">Stock Alert Notification</div>
+      </div>
+      <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+        <div style="display:inline-block;padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;background:${isOut?'#fee2e2':'#fef3c7'};color:${isOut?'#dc2626':'#d97706'};margin-bottom:20px">
+          ${isOut?'OUT OF STOCK':'LOW STOCK'}
+        </div>
+        <h2 style="font-size:20px;font-weight:800;color:#111;margin:0 0 8px">${productName}</h2>
+        <p style="color:#6b7280;font-size:14px;margin:0 0 24px">Store: ${store}</p>
+        <div style="background:#f9fafb;border-radius:8px;padding:20px;margin-bottom:24px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+            <span style="font-size:13px;color:#6b7280">Current Stock</span>
+            <span style="font-size:13px;font-weight:700;color:${isOut?'#dc2626':'#d97706'}">${newStock} units</span>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span style="font-size:13px;color:#6b7280">Reorder Level</span>
+            <span style="font-size:13px;font-weight:700;color:#111">${reorderLevel} units</span>
+          </div>
+        </div>
+        <p style="font-size:13px;color:#6b7280;line-height:1.6">
+          ${isOut
+            ?`<strong>${productName}</strong> is completely out of stock. Please restock immediately.`
+            :`<strong>${productName}</strong> has fallen to or below its reorder level.`}
+        </p>
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e5e7eb">
+          <p style="font-size:11px;color:#9ca3af;margin:0">StarTrack POS · ${new Date().toLocaleString('en-NG')}</p>
+        </div>
+      </div>
+    </div>`;
+
+    emails.forEach(email => _sendEmail(email, subject, body));
+  } catch(e){
+    Logger.log('Stock alert error: ' + e.message);
+  }
+}
+
+/** Signature change: getStockAlerts(token) */
+function getStockAlerts(token){
+  if(!_verifySession(token)) return _unauth();
+  const ss = SpreadsheetApp.getActive();
+  const alerts = [];
+  const allStoreNames = getAllStores();
+  allStoreNames.forEach(storeName=>{
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const d  = sh.getDataRange().getValues();
+    if(d.length < 2) return;
+    const h  = headerMap(d[0]);
+    d.slice(1).forEach(r=>{
+      const stock  = Number(r[h.stock]||0);
+      const reorder= Number(r[h.reorderlevel]||0);
+      const name   = r[h.productname]||'';
+      const id     = r[h.productid]||'';
+      if(!name) return;
+      if(stock<=0)          alerts.push({id,name,stock,reorder,store:storeName,type:'out'});
+      else if(stock<=reorder) alerts.push({id,name,stock,reorder,store:storeName,type:'low'});
+    });
+  });
+  return alerts;
+}
+
+/********************************
+ * CUSTOMER MODULE
+ ********************************/
+
+/** Internal — called from recordSale, no token */
+function _upsertCustomer(name, wa, amount, product, store, saleID, date){
+  const ss = SpreadsheetApp.getActive();
+  let sh   = ss.getSheetByName('Customers');
+  if(!sh){
+    sh = ss.insertSheet('Customers');
+    sh.appendRow(['Name','WhatsApp','TotalSpend','VisitCount','LastProduct','LastSaleID','LastVisit','FirstVisit','Store']);
+  }
+  const d      = sh.getDataRange().getValues();
+  const h      = headerMap(d[0]);
+  const txDate = date ? new Date(date + 'T12:00:00') : new Date();
+  const dateStr= Utilities.formatDate(txDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  for(let i=1;i<d.length;i++){
+    if(
+      String(d[i][h.name]).toLowerCase().trim()  === name.toLowerCase().trim() &&
+      String(d[i][h.store]).toLowerCase().trim()  === store.toLowerCase().trim()
+    ){
+      sh.getRange(i+1, h.totalspend+1).setValue((Number(d[i][h.totalspend])||0)+amount);
+      sh.getRange(i+1, h.visitcount+1).setValue((Number(d[i][h.visitcount])||0)+1);
+      sh.getRange(i+1, h.lastproduct+1).setValue(_sf(product));
+      sh.getRange(i+1, h.lastsaleid+1).setValue(saleID);
+      sh.getRange(i+1, h.lastvisit+1).setValue(dateStr);
+      if(wa) sh.getRange(i+1, h.whatsapp+1).setValue(_sf(wa));
+      return;
+    }
+  }
+  sh.appendRow([_sf(name), _sf(wa||''), amount, 1, _sf(product), saleID, dateStr, dateStr, _sf(store)]);
+}
+
+function getCustomerData(o){
+  const sess = _verifySession(o._token, 'customers');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('Customers');
+  if(!sh) return { customers:[], stats:{total:0,returning:0,newThisMonth:0,activeThisWeek:0,totalSpend:0,avgSpend:0} };
+
+  const d   = sh.getDataRange().getValues();
+  const h   = headerMap(d[0]);
+  const tz  = Session.getScriptTimeZone();
+  const today = new Date();
+  const filterStore = (o&&o.store) ? o.store.trim().toLowerCase().replace(/\s+/g,'') : '';
+  const thisMonth   = Utilities.formatDate(today, tz, 'yyyy-MM');
+  const sevenDaysAgo= new Date(today.getTime()-7*24*60*60*1000);
+
+  const customers = d.slice(1).filter(r=>r[h.name]).map(r=>{
+    const name  = String(r[h.name]||'').trim();
+    const store = String(r[h.store]||'').trim();
+    if(filterStore && store.toLowerCase().replace(/\s+/g,'')!==filterStore) return null;
+
+    const totalSpend = Number(r[h.totalspend]||0);
+    const visitCount = Number(r[h.visitcount]||0);
+
+    const toDate = v=>{
+      if(!v) return null;
+      if(v instanceof Date) return isNaN(v)?null:v;
+      const s = String(v).trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(s)){ const p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+      const d = new Date(s); return isNaN(d)?null:d;
+    };
+
+    const lastVisitDate  = toDate(r[h.lastvisit]);
+    const firstVisitDate = toDate(r[h.firstvisit]);
+    const daysSinceLastVisit = lastVisitDate ? Math.floor((today-lastVisitDate)/(1000*60*60*24)) : null;
+    const lastVisitStr   = lastVisitDate  ? Utilities.formatDate(lastVisitDate,  tz, 'dd MMM yyyy') : '';
+    const firstVisitStr  = firstVisitDate ? Utilities.formatDate(firstVisitDate, tz, 'dd MMM yyyy') : '';
+    const firstVisitMonth= firstVisitDate ? Utilities.formatDate(firstVisitDate, tz, 'yyyy-MM') : '';
+
+    return {
+      name, whatsapp:String(r[h.whatsapp]||''), totalSpend, visitCount,
+      avgSpendPerVisit: visitCount>0 ? Math.round(totalSpend/visitCount) : 0,
+      favouriteProduct: String(r[h.lastproduct]||''),
+      lastSaleID:       String(r[h.lastsaleid]||''),
+      lastVisit:        lastVisitStr, firstVisit: firstVisitStr,
+      daysSinceLastVisit, store,
+      isReturning:     visitCount>=2,
+      isNewThisMonth:  firstVisitMonth===thisMonth,
+      isActiveThisWeek:lastVisitDate&&!isNaN(lastVisitDate)&&lastVisitDate>=sevenDaysAgo,
+      allProducts:     r[h.lastproduct] ? [{name:String(r[h.lastproduct]),count:visitCount}] : []
+    };
+  }).filter(Boolean);
+
+  const totalSpendAll = customers.reduce((s,c)=>s+c.totalSpend, 0);
+  return {
+    customers,
+    stats:{
+      total:          customers.length,
+      returning:      customers.filter(c=>c.isReturning).length,
+      newThisMonth:   customers.filter(c=>c.isNewThisMonth).length,
+      activeThisWeek: customers.filter(c=>c.isActiveThisWeek).length,
+      totalSpend:     totalSpendAll,
+      avgSpend:       customers.length>0 ? Math.round(totalSpendAll/customers.length) : 0
+    }
+  };
+}
+
+function getCustomerByName(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['customers','returns'])) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('Customers');
+  if(!sh) return null;
+  const d = sh.getDataRange().getValues();
+  const h = headerMap(d[0]);
+  const q = String(o.name||'').toLowerCase().trim();
+  for(let i=1;i<d.length;i++){
+    if(String(d[i][h.name]||'').toLowerCase().trim().includes(q)){
+      return {
+        name:       String(d[i][h.name]||''),
+        whatsapp:   String(d[i][h.whatsapp]||''),
+        totalSpend: Number(d[i][h.totalspend]||0),
+        visitCount: Number(d[i][h.visitcount]||0),
+        lastProduct:String(d[i][h.lastproduct]||''),
+        lastSaleID: String(d[i][h.lastsaleid]||''),
+        store:      String(d[i][h.store]||'')
+      };
+    }
+  }
+  return null;
+}
+
+/********************************
+ * INVENTORY VIEWS
+ * All require dashboard_ops
+ ********************************/
+function getInventoryOverview(o){
+  const sess = _verifySession(o._token);
+  if(!sess) return _unauth();
+  if(!_hasAnyPerm(sess, ['stock','dashboard_ops'])) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const filterStore = o&&o.store ? String(o.store).trim().toLowerCase().replace(/\s+/g,'') : '';
+
+  // Read products from every store sheet
+  const allStoreNames = getAllStores();
+  const products = [];
+  allStoreNames.forEach(storeName=>{
+    if(filterStore && storeName.trim().toLowerCase().replace(/\s+/g,'')!==filterStore) return;
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const data = sh.getDataRange().getValues();
+    if(data.length < 2) return;
+    const eh = headerMap(data[0]);
+    data.slice(1).filter(r=>r[eh.productname]).forEach(r=>{
+      products.push({
+        name:         String(r[eh.productname]||''),
+        category:     String(r[eh.category]||''),
+        stock:        Number(r[eh.stock]||0),
+        reorder:      Number(r[eh.reorderlevel]||0),
+        store:        storeName,
+        price:        Number(r[eh.listprice]||0),
+        cost:         Number(r[eh.cost]||0),
+        expenseOnCost:Number(r[eh['expenseoncost']]||0)
+      });
+    });
+  });
+
+  return {products: products, electronics: products, windowblind: []};
+}
+
+function getInventoryMovement(o){
+  const sess = _verifySession(o._token, 'dashboard_ops');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('FactInventory');
+  if(!sh) return [];
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+  const tz = Session.getScriptTimeZone();
+
+  const nameMap = {};
+  getAllStores().forEach(storeName=>{
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const sd = sh.getDataRange().getValues();
+    if(sd.length < 2) return;
+    const ph = headerMap(sd[0]);
+    sd.slice(1).forEach(r=>{ if(r[ph.productid]) nameMap[String(r[ph.productid])] = String(r[ph.productname]||''); });
+  });
+  
+
+  const toDate   = o&&o.to   ? new Date(o.to+'T23:59:59')   : new Date();
+  const fromDate = o&&o.from ? new Date(o.from+'T00:00:00') : new Date(toDate.getTime()-(14*24*60*60*1000));
+
+  return d.slice(1).filter(r=>{
+    const raw  = r[h.date];
+    const date = (raw instanceof Date)?raw:new Date(raw);
+    if(isNaN(date.getTime())) return false;
+    if(fromDate&&date<fromDate) return false;
+    if(toDate  &&date>toDate)   return false;
+    return true;
+  }).map(r=>{
+    const raw    = r[h.date];
+    const date   = (raw instanceof Date)?raw:new Date(raw);
+    const productId = String(r[h.productid]||'');
+    return {
+      product: nameMap[productId]||productId,
+      action:  String(r[h.movementtype]||''),
+      qty:     Number(r[h.quantity]||0),
+      balance: Number(r[h.balanceafter]||0),
+      by:      String(r[h.performedby]||''),
+      date:    Utilities.formatDate(date, tz, 'yyyy-MM-dd'),
+      time:    Utilities.formatDate(date, tz, 'HH:mm'),
+      store:   String(r[h.store]||'')
+    };
+  }).reverse();
+}
+
+function getArchivedSales(o){
+  const sess = _verifySession(o._token, 'dashboard_ops');
+  if(!sess) return _unauth();
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName('ArchiveSales');
+  if(!sh) return [];
+  const d  = sh.getDataRange().getValues();
+  const h  = headerMap(d[0]);
+  const tz = Session.getScriptTimeZone();
+
+  const nameMap = {};
+  getAllStores().forEach(storeName=>{
+    const sh = ss.getSheetByName(storeName);
+    if(!sh) return;
+    const sd = sh.getDataRange().getValues();
+    if(sd.length < 2) return;
+    const ph = headerMap(sd[0]);
+    sd.slice(1).forEach(r=>{ if(r[ph.productid]) nameMap[String(r[ph.productid])] = String(r[ph.productname]||''); });
+  });
+
+  const fromDate = o&&o.from ? new Date(o.from+'T00:00:00') : null;
+  const toDate   = o&&o.to   ? new Date(o.to+'T23:59:59')   : null;
+
+  return d.slice(1).filter(r=>{
+    if(!r[h.salesid]) return false;
+    const raw  = r[h.originaldate];
+    const date = (raw instanceof Date)?raw:new Date(raw);
+    if(isNaN(date.getTime())) return false;
+    if(fromDate&&date<fromDate) return false;
+    if(toDate  &&date>toDate)   return false;
+    return true;
+  }).map(r=>{
+    const rawOrig = r[h.originaldate];
+    const rawUndo = r[h.undodate];
+    const origDate= (rawOrig instanceof Date)?rawOrig:new Date(rawOrig);
+    const undoDate= (rawUndo instanceof Date)?rawUndo:new Date(rawUndo);
+    const productId = String(r[h.productid]||'');
+    return {
+      saleId:      String(r[h.salesid]||''),
+      originalDate:Utilities.formatDate(origDate, tz, 'yyyy-MM-dd'),
+      originalTime:Utilities.formatDate(origDate, tz, 'HH:mm'),
+      product:     nameMap[productId]||productId,
+      qty:         Number(r[h.quantity]||0),
+      unitPrice:   Number(r[h.unitsoldprice]||0),
+      total:       Number(r[h.totalamount]||0),
+      payment:     String(r[h.paymenttype]||''),
+      soldBy:      String(r[h.soldby]||''),
+      store:       String(r[h.store]||''),
+      undoDate:    isNaN(undoDate.getTime())?'':Utilities.formatDate(undoDate, tz, 'yyyy-MM-dd HH:mm'),
+      undoneBy:    String(r[h.undoneby]||'')
+    };
+  }).reverse();
+}
+
+/* ─── EXPIRY TRACKING ─────────────────────────────────────── */
+
+function _getSentAlertsSheet(ss){
+  var sh=ss.getSheetByName('SentAlerts');
+  if(!sh){
+    sh=ss.insertSheet('SentAlerts');
+    sh.getRange(1,1,1,7).setValues([['ProductID','ProductName','Store','ExpiryDate','AlertDays','SentDate','Dismissed']]);
+  }
+  return sh;
+}
+
+function getExpiryAlerts(o){
+  var sess=_verifySession(o._token);
+  if(!sess) return _unauth();
+  var ss=SpreadsheetApp.getActive();
+  var stores=getAllStores();
+  var today=new Date(); today.setHours(0,0,0,0);
+  var alerts=[];
+  stores.forEach(function(storeName){
+    var sh=getStoreSheet(ss,storeName);
+    if(!sh) return;
+    var d=sh.getDataRange().getValues();
+    var h=headerMap(d[0]);
+    if(h.expirydate===undefined) return;
+    d.slice(1).forEach(function(r){
+      var stock=Number(r[h.stock])||0;
+      if(stock<=0) return;
+      var raw=r[h.expirydate];
+      if(!raw||!r[h.productname]) return;
+      var exp=new Date(raw); exp.setHours(0,0,0,0);
+      var days=Math.round((exp-today)/86400000);
+      if(days<=60){
+        alerts.push({
+          productID:r[h.productid],
+          name:String(r[h.productname]),
+          store:storeName,
+          stock:stock,
+          expiryDate:Utilities.formatDate(exp,Session.getScriptTimeZone(),'yyyy-MM-dd'),
+          daysToExpiry:days,
+          status:days<0?'expired':days<=7?'critical':days<=14?'warning':'soon'
+        });
+      }
+    });
+  });
+  return alerts.sort(function(a,b){return a.daysToExpiry-b.daysToExpiry;});
+}
+
+function dismissExpiryAlert(o){
+  var sess=_verifySession(o._token);
+  if(!sess) return _unauth();
+  var ss=SpreadsheetApp.getActive();
+  var sh=_getSentAlertsSheet(ss);
+  var d=sh.getDataRange().getValues();
+  var h=headerMap(d[0]);
+  d.slice(1).forEach(function(row,i){
+    if(String(row[h.productid])===String(o.productID)&&String(row[h.store])===o.store){
+      sh.getRange(i+2,h.dismissed+1).setValue(true);
+    }
+  });
+  return {success:true};
+}
+
+function _autoDismissExpiryAlerts(ss,productID,store){
+  var sh=_getSentAlertsSheet(ss);
+  var d=sh.getDataRange().getValues();
+  var h=headerMap(d[0]);
+  d.slice(1).forEach(function(row,i){
+    if(String(row[h.productid])===String(productID)&&String(row[h.store])===store){
+      sh.getRange(i+2,h.dismissed+1).setValue(true);
+    }
+  });
+}
+
+function checkExpiryAlerts(){
+  var ss=SpreadsheetApp.getActive();
+  var stores=getAllStores();
+  var today=new Date(); today.setHours(0,0,0,0);
+  var sentSh=_getSentAlertsSheet(ss);
+  var sentData=sentSh.getDataRange().getValues();
+  var sH=headerMap(sentData[0]);
+  var newAlerts=[];
+  stores.forEach(function(storeName){
+    var sh=getStoreSheet(ss,storeName);
+    if(!sh) return;
+    var d=sh.getDataRange().getValues();
+    var h=headerMap(d[0]);
+    if(h.expirydate===undefined) return;
+    d.slice(1).forEach(function(r){
+      var stock=Number(r[h.stock])||0;
+      if(stock<=0) return;
+      var raw=r[h.expirydate];
+      if(!raw||!r[h.productname]) return;
+      var exp=new Date(raw); exp.setHours(0,0,0,0);
+      var days=Math.round((exp-today)/86400000);
+      var pid=String(r[h.productid]);
+      var pname=String(r[h.productname]);
+      var expStr=Utilities.formatDate(exp,Session.getScriptTimeZone(),'yyyy-MM-dd');
+      var rawThresh=r[h.expiryalertdays]?String(r[h.expiryalertdays]):'14';
+      var thresholds=rawThresh.split(',').map(function(x){return parseInt(x.trim());}).filter(Boolean);
+      thresholds.forEach(function(thresh){
+        if(days<=thresh&&days>=0){
+          var sent=sentData.slice(1).some(function(row){
+            return String(row[sH.productid])===pid&&
+                   String(row[sH.store])===storeName&&
+                   String(row[sH.expirydate]).slice(0,10)===expStr&&
+                   Number(row[sH.alertdays])===thresh;
+          });
+          if(!sent){
+            newAlerts.push({
+              name:pname, store:storeName, expiryDate:expStr,
+              daysToExpiry:days, thresh:thresh,
+              _row:[pid,pname,storeName,expStr,thresh,
+                Utilities.formatDate(today,Session.getScriptTimeZone(),'yyyy-MM-dd'),false]
+            });
+          }
+        }
+      });
+      if(days<0){
+        var sentExp=sentData.slice(1).some(function(row){
+          return String(row[sH.productid])===pid&&
+                 String(row[sH.store])===storeName&&
+                 String(row[sH.expirydate]).slice(0,10)===expStr&&
+                 Number(row[sH.alertdays])===-1;
+        });
+        if(!sentExp){
+          newAlerts.push({
+            name:pname, store:storeName, expiryDate:expStr,
+            daysToExpiry:days, thresh:-1,
+            _row:[pid,pname,storeName,expStr,-1,
+              Utilities.formatDate(today,Session.getScriptTimeZone(),'yyyy-MM-dd'),false]
+          });
+        }
+      }
+    });
+  });
+  if(newAlerts.length){
+    var sent=_sendExpiryEmail(newAlerts);
+    if(sent) newAlerts.forEach(function(a){ sentSh.appendRow(a._row); });
+  }
+  return {checked:true,alerts:newAlerts.length};
+}
+
+function _sendExpiryEmail(alerts){
+  if(!alerts||!Array.isArray(alerts)||!alerts.length) return false;
+  var emails=[];
+  var _notifExpiry=false;
+  try{
+    var _sh=SpreadsheetApp.getActive().getSheetByName('Settings');
+    if(_sh){
+      var _d=_sh.getDataRange().getValues();
+      var _s={};
+      _d.slice(1).forEach(function(r){ if(r[0]) _s[String(r[0]).trim()]=String(r[1]||''); });
+      emails=_s.alert_emails?_s.alert_emails.split(',').map(function(e){return e.trim();}).filter(Boolean):[];
+      _notifExpiry=String(_s.notif_expiry).toLowerCase()==='true';
+    }
+  }catch(e){ Logger.log('Settings read error: '+e.message); }
+  if(!emails.length){ Logger.log('Expiry alert skipped: no alert emails configured'); return false; }
+  if(!_notifExpiry){ Logger.log('Expiry alerts disabled in Settings'); return false; }
+
+  var expired=alerts.filter(function(a){ return a.daysToExpiry<0; });
+  var expiring=alerts.filter(function(a){ return a.daysToExpiry>=0; });
+  var now=new Date();
+  var dateStr=now.toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  var timeStr=now.toLocaleTimeString('en-NG',{hour:'2-digit',minute:'2-digit'});
+
+  function productRow(a,isExpired){
+    var label=isExpired?'Expired '+(Math.abs(a.daysToExpiry))+' day'+(Math.abs(a.daysToExpiry)!==1?'s':'')+' ago':a.daysToExpiry+' day'+(a.daysToExpiry!==1?'s':'')+' left';
+    var color=isExpired||a.daysToExpiry<=7?'#dc2626':'#d97706';
+    var bg=isExpired||a.daysToExpiry<=7?'#fee2e2':'#fef3c7';
+    var borderColor=isExpired?'#dc2626':a.daysToExpiry<=7?'#dc2626':'#f59e0b';
+    return '<tr><td style="padding:8px 0">'+
+      '<table width="100%" cellpadding="0" cellspacing="0" style="background:'+(isExpired?'#fff5f5':'#fffbeb')+';border:1px solid '+(isExpired?'#fecaca':'#fcd34d')+';border-left:4px solid '+borderColor+';border-radius:8px">'+
+      '<tr>'+
+      '<td style="padding:14px 16px">'+
+      '<p style="margin:0;font-size:14px;font-weight:800;color:#111">'+a.name+'</p>'+
+      '<p style="margin:4px 0 0;font-size:12px;color:#6b7280">Store: '+a.store+' &nbsp;·&nbsp; Expires: '+a.expiryDate+'</p>'+
+      '</td>'+
+      '<td style="padding:14px 16px;text-align:right;white-space:nowrap">'+
+      '<span style="background:'+bg+';color:'+color+';font-size:11px;font-weight:800;padding:4px 10px;border-radius:20px">'+label+'</span>'+
+      '</td>'+
+      '</tr>'+
+      '</table>'+
+      '</td></tr>';
+  }
+
+  var html='<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0f4fa;font-family:Arial,sans-serif">';
+  html+='<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4fa;padding:24px 0">';
+  html+='<tr><td align="center">';
+  html+='<table cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">';
+
+  // Header
+  html+='<tr><td style="background:#1a48cc;padding:32px;text-align:center;border-radius:12px 12px 0 0">';
+  html+='<p style="font-size:40px;margin:0 0 10px">⏰</p>';
+  html+='<h1 style="color:#fff;margin:0;font-size:24px;font-weight:800;font-family:Arial,sans-serif">Product Expiry Alert</h1>';
+  html+='<p style="color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:13px">'+dateStr+' &nbsp;·&nbsp; '+timeStr+'</p>';
+  html+='</td></tr>';
+
+  // Summary bar
+  var summaryParts=[];
+  if(expired.length) summaryParts.push('<strong>'+expired.length+'</strong> product'+(expired.length>1?'s':'')+' expired');
+  if(expiring.length) summaryParts.push('<strong>'+expiring.length+'</strong> expiring soon');
+  var summaryColor=expired.length?'#dc2626':'#d97706';
+  var summaryBg=expired.length?'#fee2e2':'#fef3c7';
+  html+='<tr><td style="background:'+summaryBg+';padding:12px 24px">';
+  html+='<p style="margin:0;font-size:13px;color:'+summaryColor+'">'+(expired.length?'🔴':'🟡')+' &nbsp;'+summaryParts.join(' &nbsp;·&nbsp; ')+'</p>';
+  html+='</td></tr>';
+
+  // Body
+  html+='<tr><td style="background:#ffffff;border-left:1px solid #dde3f0;border-right:1px solid #dde3f0;padding:24px">';
+  html+='<table width="100%" cellpadding="0" cellspacing="0">';
+
+  // Expired section
+  if(expired.length){
+    html+='<tr><td style="padding-bottom:8px">';
+    html+='<table cellpadding="0" cellspacing="0"><tr>';
+    html+='<td style="width:10px;height:10px;background:#dc2626;border-radius:50%;vertical-align:middle"></td>';
+    html+='<td style="padding-left:8px;font-size:16px;font-weight:800;color:#dc2626;vertical-align:middle">Expired — Still in Stock</td>';
+    html+='<td style="padding-left:8px;vertical-align:middle"><span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px">'+expired.length+'</span></td>';
+    html+='</tr></table>';
+    html+='<p style="color:#6b7280;font-size:13px;margin:6px 0 12px">These products have passed their expiry date and are still in stock.</p>';
+    html+='</td></tr>';
+    expired.forEach(function(a){ html+=productRow(a,true); });
+    html+='<tr><td style="padding-bottom:20px"></td></tr>';
+  }
+
+  // Expiring section
+  if(expiring.length){
+    html+='<tr><td style="padding-bottom:8px">';
+    html+='<table cellpadding="0" cellspacing="0"><tr>';
+    html+='<td style="width:10px;height:10px;background:#f59e0b;border-radius:50%;vertical-align:middle"></td>';
+    html+='<td style="padding-left:8px;font-size:16px;font-weight:800;color:#d97706;vertical-align:middle">Expiring Soon</td>';
+    html+='<td style="padding-left:8px;vertical-align:middle"><span style="background:#fef3c7;color:#d97706;font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px">'+expiring.length+'</span></td>';
+    html+='</tr></table>';
+    html+='<p style="color:#6b7280;font-size:13px;margin:6px 0 12px">These products are approaching their expiry date.</p>';
+    html+='</td></tr>';
+    expiring.forEach(function(a){ html+=productRow(a,false); });
+    html+='<tr><td style="padding-bottom:20px"></td></tr>';
+  }
+
+  // What to do
+  html+='<tr><td>';
+  html+='<table width="100%" cellpadding="0" cellspacing="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">';
+  html+='<tr><td style="padding:18px 20px">';
+  html+='<p style="font-size:14px;font-weight:800;color:#1e40af;margin:0 0 10px">📋 Recommended Actions</p>';
+  if(expired.length){
+    html+='<p style="font-size:13px;color:#374151;margin:0 0 6px"><strong style="color:#dc2626">For expired products:</strong></p>';
+    html+='<ul style="margin:0 0 10px;padding-left:18px;color:#6b7280;font-size:13px">';
+    html+='<li style="margin-bottom:4px">Check if the product is still on the shelf</li>';
+    html+='<li style="margin-bottom:4px">Remove expired stock from display immediately</li>';
+    html+='<li style="margin-bottom:4px">Record disposal or write-off in the system</li>';
+    html+='</ul>';
+  }
+  if(expiring.length){
+    html+='<p style="font-size:13px;color:#374151;margin:0 0 6px"><strong style="color:#d97706">For expiring products:</strong></p>';
+    html+='<ul style="margin:0;padding-left:18px;color:#6b7280;font-size:13px">';
+    html+='<li style="margin-bottom:4px">Prioritise selling these items first</li>';
+    html+='<li style="margin-bottom:4px">Consider a discount to move stock faster</li>';
+    html+='<li style="margin-bottom:4px">Do not restock until current batch is cleared</li>';
+    html+='</ul>';
+  }
+  html+='</td></tr></table>';
+  html+='</td></tr>';
+  html+='</table>';
+  html+='</td></tr>';
+
+  // Footer
+  html+='<tr><td style="background:#f8fafd;border:1px solid #dde3f0;border-top:none;border-radius:0 0 12px 12px;padding:16px 24px;text-align:center">';
+  html+='<p style="font-size:12px;color:#9ca3af;margin:0">Automated alert from <strong>StarTrack POS</strong></p>';
+  html+='<p style="font-size:11px;color:#d1d5db;margin:4px 0 0">Please do not reply to this email</p>';
+  html+='</td></tr>';
+
+  html+='</table></td></tr></table></body></html>';
+
+  var ok=true;
+  emails.forEach(function(email){
+    try{ _sendEmail(email,'Expiry Alert — '+(expired.length?expired.length+' Expired, ':'')+expiring.length+' Expiring Soon',html); }
+    catch(e){ ok=false; Logger.log('Expiry email failed: '+e.message); }
+  });
+  return ok;
+}
+
+function clearProductExpiry(o){
+  var sess=_verifySession(o._token);
+  if(!sess) return _unauth();
+  var ss=SpreadsheetApp.getActive();
+  var sh=getStoreSheet(ss,o.store);
+  if(!sh) return {success:false,msg:'Store not found'};
+  var d=sh.getDataRange().getValues();
+  var h=headerMap(d[0]);
+  for(var i=1;i<d.length;i++){
+    if(String(d[i][h.productid])===String(o.productID)){
+      if(h.expirydate!==undefined) sh.getRange(i+1,h.expirydate+1).setValue('');
+      break;
+    }
+  }
+  _autoDismissExpiryAlerts(ss,o.productID,o.store);
+  return {success:true};
+}

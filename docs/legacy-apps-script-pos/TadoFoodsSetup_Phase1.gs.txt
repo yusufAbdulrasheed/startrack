@@ -1,0 +1,88 @@
+/* ================================================================
+ * Setup_Phase1.gs — Convert single-store to two-store inventory
+ * ================================================================ */
+
+function setupTwoStores() {
+  const ss = SpreadsheetApp.getActive();
+  const log = [];
+
+  // STEP 1 — Rename DimProduct to Wholesale
+  const oldSheet = ss.getSheetByName('DimProduct');
+  const wholesaleExists = ss.getSheetByName('Wholesale');
+
+  if (oldSheet && !wholesaleExists) {
+    oldSheet.setName('Wholesale');
+    log.push('RENAMED: DimProduct -> Wholesale');
+  } else if (wholesaleExists) {
+    log.push('SKIP: Wholesale already exists');
+  } else {
+    createInventorySheet(ss, 'Wholesale');
+    log.push('CREATED: Wholesale (no DimProduct found)');
+  }
+
+  // STEP 2 — Create Retail sheet
+  if (ss.getSheetByName('Retail')) {
+    log.push('SKIP: Retail already exists');
+  } else {
+    createInventorySheet(ss, 'Retail');
+    log.push('CREATED: Retail');
+  }
+
+  // STEP 3 — Update SalesPerson Store values
+  const sp = ss.getSheetByName('SalesPerson');
+  if (sp) {
+    const data = sp.getDataRange().getValues();
+    const headers = data[0].map(h => String(h).trim().toLowerCase());
+    const storeCol = headers.indexOf('store') + 1;
+    if (storeCol > 0 && data.length > 1) {
+      let updated = 0;
+      for (let i = 1; i < data.length; i++) {
+        const cur = String(data[i][storeCol - 1] || '').trim();
+        if (cur !== 'Wholesale' && cur !== 'Retail') {
+          sp.getRange(i + 1, storeCol).setValue('Wholesale');
+          updated++;
+        }
+      }
+      log.push('UPDATED: SalesPerson Store column - ' + updated + ' row(s) set to Wholesale');
+    }
+  }
+
+  const report = log.join('\n') +
+    '\n\nNEXT STEPS:\n' +
+    '1. Open SalesPerson sheet\n' +
+    '2. Change any staff Store to "Retail" if needed\n' +
+    '3. Log out and log back in';
+
+  Logger.log(report);
+  try {
+    SpreadsheetApp.getUi().alert('Two-Store Setup Complete', report, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {}
+  return report;
+}
+
+function createInventorySheet(ss, name) {
+  const sh = ss.insertSheet(name);
+  const headers = [
+    'ProductID', 'ProductName', 'Category', 'SubCategory', 'Store',
+    'Cost', 'Expense on Cost', 'ListPrice', 'Stock', 'ReorderLevel', 'Status',
+    'ExpiryDate', 'ExpiryAlertDays'
+  ];
+  const widths = [100, 220, 130, 130, 150, 90, 130, 110, 80, 110, 130, 120, 110];
+
+  sh.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setFontColor('#FFFFFF')
+    .setBackground('#1A48CC')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setFontFamily('Arial')
+    .setFontSize(11);
+
+  widths.forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  sh.setRowHeight(1, 32);
+  sh.setFrozenRows(1);
+
+  const max = sh.getMaxColumns();
+  if (max > headers.length) sh.deleteColumns(headers.length + 1, max - headers.length);
+}

@@ -1,0 +1,183 @@
+/* ================================================================
+ * Setup.gs — StarTrack POS Sheet Bootstrap
+ *
+ * HOW TO USE:
+ *   1. Open the target Google Sheet
+ *   2. Extensions → Apps Script
+ *   3. Create a new script file called "Setup" and paste this code
+ *   4. From the editor, run setupAllSheets() once
+ *   5. Grant the permission prompt
+ *   6. Check the Logger (View → Logs) to confirm what was created
+ *
+ * WHAT IT DOES:
+ *   • Creates the 12 sheets needed for StarTrack POS
+ *   • Skips SalesPerson (you set that up yourself)
+ *   • Skips any sheet that already exists — safe to re-run
+ *   • Applies header formatting: bold white text on blue background
+ *   • Sets sensible column widths and freezes the header row
+ *   • Seeds Settings with sensible defaults
+ *
+ * SAFE TO RE-RUN: existing sheets are never overwritten.
+ * ================================================================ */
+
+function setupAllSheets() {
+  const ss = SpreadsheetApp.getActive();
+  const log = [];
+
+  // ── Sheet definitions ────────────────────────────────────────
+  // Each entry: [sheetName, headerArray, columnWidths, seedRows?]
+  const sheets = [
+    {
+      name: 'Settings',
+      headers: ['Key', 'Value'],
+      widths: [180, 380],
+      seed: [
+        ['shifts_enabled',  true],
+        ['notif_low_stock', true],
+        ['notif_out_stock', true],
+        ['alert_emails',    ''],
+        ['vat_enabled',     false],
+        ['vat_rate',        7.5],
+        ['vat_base',        'after_discount'],
+        ['notif_returns',   true],
+        ['default_grace',   5]
+      ]
+    },
+    {
+      name: 'DimProduct',
+      headers: ['ProductID','ProductName','Category','SubCategory','Store','Cost','Expense on Cost','ListPrice','Stock','ReorderLevel','Status','ExpiryDate','ExpiryAlertDays'],
+      widths: [100,220,130,130,150,90,130,110,80,110,130,120,110]
+    },
+    {
+      name: 'FactSales',
+      headers: ['SaleID','Date','ProductID','Quantity','ListPrice','Total Cost','UnitSoldPrice','TotalAmount','PaymentType','SoldBy','Store','VAT','VAT %'],
+      widths: [160,140,100,80,110,110,130,130,110,130,150,80,80]
+    },
+    {
+      name: 'FactInventory',
+      headers: ['InventoryID','Date','ProductID','MovementType','Quantity','BalanceAfter','PerformedBy','Store'],
+      widths: [180,140,100,130,80,110,130,150]
+    },
+    {
+      name: 'FactExpenses',
+      headers: ['ExpenseID','Date','ExpenseType','Amount','PaidBy','Notes','Store'],
+      widths: [110,140,160,110,130,240,150]
+    },
+    {
+      name: 'DimExpenseType',
+      headers: ['ExpenseType','Expense ID'],
+      widths: [200,110]
+    },
+    {
+      name: 'Attendance',
+      headers: ['RecordID','Name','Store','ClockIn','ClockOut','HoursWorked','Date'],
+      widths: [150,150,150,160,160,110,110]
+    },
+    {
+      name: 'Shifts',
+      headers: ['Name','Start','End','Grace','StaffID'],
+      widths: [180,90,90,80,110]
+    },
+    {
+      name: 'Returns',
+      headers: ['ReturnID','Date','OriginalTxnID','ProductID','ProductName','Qty','UnitPrice','RefundAmount','RefundMethod','Reason','ReturnedBy','Store','Status','ApprovedBy','ApprovedDate'],
+      widths: [130,140,160,100,200,60,110,130,130,220,130,150,100,130,140]
+    },
+    {
+      name: 'ArchiveSales',
+      headers: ['SalesID','OriginalDate','ProductID','Quantity','ListPrice','UnitSoldPrice','TotalAmount','PaymentType','SoldBy','Store','UndoDate','UndoneBy'],
+      widths: [150,140,100,80,110,130,130,110,130,150,140,130]
+    },
+    {
+      name: 'Customers',
+      headers: ['Name','WhatsApp','TotalSpend','VisitCount','LastProduct','LastSaleID','LastVisit','FirstVisit','Store'],
+      widths: [180,130,110,90,200,150,110,110,150]
+    },
+    {
+      name: 'StaffNotifs',
+      headers: ['StaffName','Type','Perm','Date'],
+      widths: [160,130,150,150]
+    }
+  ];
+
+  // ── Create each sheet ────────────────────────────────────────
+  sheets.forEach(cfg => {
+    if (ss.getSheetByName(cfg.name)) {
+      log.push('SKIP  · ' + cfg.name + ' (already exists)');
+      return;
+    }
+
+    const sh = ss.insertSheet(cfg.name);
+
+    // Headers
+    const headerRange = sh.getRange(1, 1, 1, cfg.headers.length);
+    headerRange.setValues([cfg.headers]);
+    headerRange
+      .setFontWeight('bold')
+      .setFontColor('#FFFFFF')
+      .setBackground('#1A48CC')
+      .setHorizontalAlignment('center')
+      .setVerticalAlignment('middle')
+      .setFontFamily('Arial')
+      .setFontSize(11);
+
+    // Column widths
+    cfg.widths.forEach((w, i) => sh.setColumnWidth(i + 1, w));
+
+    // Header row height + freeze
+    sh.setRowHeight(1, 32);
+    sh.setFrozenRows(1);
+
+    // Seed rows (if any)
+    if (cfg.seed && cfg.seed.length) {
+      sh.getRange(2, 1, cfg.seed.length, cfg.seed[0].length).setValues(cfg.seed);
+    }
+
+    // Trim trailing empty columns/rows for a cleaner look
+    const maxCols = sh.getMaxColumns();
+    if (maxCols > cfg.headers.length) {
+      sh.deleteColumns(cfg.headers.length + 1, maxCols - cfg.headers.length);
+    }
+
+    log.push('CREATE · ' + cfg.name);
+  });
+
+  // ── Remove default "Sheet1" if it's still sitting empty ──────
+  const defaultSheet = ss.getSheetByName('Sheet1');
+  if (defaultSheet && defaultSheet.getLastRow() === 0 && ss.getSheets().length > 1) {
+    ss.deleteSheet(defaultSheet);
+    log.push('REMOVE · Sheet1 (empty default)');
+  }
+
+  // ── Report ───────────────────────────────────────────────────
+  const report = log.join('\n');
+  Logger.log(report);
+  try {
+    SpreadsheetApp.getUi().alert('StarTrack Setup Complete', report, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    // No UI context (e.g. run from trigger) — log is enough
+  }
+  return report;
+}
+
+/* ----------------------------------------------------------------
+ * Optional helper: wipe every sheet EXCEPT SalesPerson so you can
+ * re-run setupAllSheets() on a fresh slate. Use with caution.
+ * ---------------------------------------------------------------- */
+function resetAllSheetsExceptSalesPerson() {
+  const ui = SpreadsheetApp.getUi();
+  const r = ui.alert(
+    'Confirm reset',
+    'This will DELETE every sheet except SalesPerson. Continue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (r !== ui.Button.YES) return;
+
+  const ss = SpreadsheetApp.getActive();
+  ss.getSheets().forEach(sh => {
+    if (sh.getName() !== 'SalesPerson') ss.deleteSheet(sh);
+  });
+  // Apps Script requires at least one sheet — insert a placeholder, then setup will replace it
+  if (ss.getSheets().length === 0) ss.insertSheet('Sheet1');
+  setupAllSheets();
+}

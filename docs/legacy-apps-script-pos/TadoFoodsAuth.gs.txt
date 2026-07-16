@@ -1,0 +1,274 @@
+/* ================================================================
+ * AUTH.GS — StarTrack POS Server-Side Session Management
+ *
+ * HOW TO DEPLOY:
+ *   Option A (recommended): In Apps Script editor → "+" → New Script
+ *                            → name it "Auth" → paste this entire file.
+ *   Option B: Paste at the very top of Code.gs before all other code.
+ *
+ * HOW IT WORKS:
+ *   1. checkCode() validates the PIN and calls _createSession()
+ *   2. _createSession() stores {name, store, role, permissions} in
+ *      Apps Script CacheService (server-side, not the sheet, not the browser)
+ *   3. A UUID token is returned to the frontend and held in memory only
+ *      (never written to localStorage / the sheet)
+ *   4. Every subsequent google.script.run call passes that token
+ *   5. The receiving function calls _verifySession(token, 'required_perm')
+ *      before touching any data
+ *   6. On logout, invalidateSession() is called to destroy the token
+ *
+ * PERMISSION KEYS (match the values in the SalesPerson sheet):
+ *   sales            – record sales, undo sales
+ *   returns          – submit returns
+ *   approve_returns  – approve / reject returns (manager+)
+ *   stock            – add stock, create fabrics
+ *   expenses         – record expenses
+ *   prices           – update prices / costs
+ *   dashboard_ops    – operational dashboard, inventory movement, archive
+ *   dashboard_finance– financial dashboard view
+ *   activity         – view own transaction history
+ *   barcode          – barcode generator
+ *   attendance       – attendance hub (own clock-in only)
+ *   attendance_view  – view full attendance overview / history
+ *   staff_mgmt       – full staff management (manager+)
+ *   settings         – hub settings, alert emails, VAT (admin+)
+ *   customers        – customer tracker
+ * ================================================================ */
+
+const _S_TTL    = 21600;     // Session lifetime: 6 hours — CacheService hard max; _refreshSession slides it on activity
+const _S_PREFIX = 'stpk_';   // CacheService key prefix — avoids collisions
+
+// ── Core session helpers ──────────────────────────────────────────
+
+/**
+ * Creates a server-side session after a successful PIN login.
+ * @param   {Object} info  The verified user object from checkCode()
+ * @returns {string}       A 32-char hex session token
+ */
+function _createSession(info) {
+  const token = Utilities.getUuid().replace(/-/g, ''); // 32-char hex, no hyphens
+  const payload = JSON.stringify({
+    name:        info.name,
+    store:       info.store,
+    role:        (info.role || 'staff').toLowerCase(),
+    permissions: info.permissions || [],
+    isAdmin:     !!info.isAdmin,
+    isManager:   !!info.isManager
+  });
+  try {
+    CacheService.getScriptCache().put(_S_PREFIX + token, payload, _S_TTL);
+  } catch (e) {
+    Logger.log('_createSession error: ' + e.message);
+    throw new Error('Could not initialise session — please try again.');
+  }
+  return token;
+}
+
+/**
+ * Validates a session token and checks for an optional required permission.
+ *
+ * @param   {string}      token        The token sent from the client
+ * @param   {string|null} requiredPerm Permission key, or null for "any valid session"
+ * @returns {Object|null}              Session data if authorised, null otherwise
+ */
+function _verifySession(token, requiredPerm) {
+  // Reject obviously bad tokens before hitting the cache
+  if (!token || typeof token !== 'string' || token.length < 20) return null;
+
+  let raw;
+  try {
+    raw = CacheService.getScriptCache().get(_S_PREFIX + token);
+  } catch (e) {
+    Logger.log('_verifySession cache error: ' + e.message);
+    return null;
+  }
+  if (!raw) return null; // token expired or never existed
+
+  let sess;
+  try {
+    sess = JSON.parse(raw);
+  } catch (e) {
+    return null; // corrupted entry
+  }
+
+  // Admins bypass all per-function permission checks
+  if (sess.role === 'admin') {
+    _refreshSession(token);
+    return sess;
+  }
+
+  // No specific permission required — any valid, active session is enough
+  if (!requiredPerm) {
+    _refreshSession(token);
+    return sess;
+  }
+
+  // Check explicit permissions array
+  if ((sess.permissions || []).includes(requiredPerm)) {
+    _refreshSession(token);
+    return sess;
+  }
+
+  return null; // authenticated but not authorised for this action
+}
+
+/**
+ * Returns true if the session holds ANY of the listed permissions.
+ * Admins always pass. Used for functions that accept multiple valid roles
+ * (e.g., dashboard_ops OR dashboard_finance).
+ *
+ * @param   {Object}   sess   Session object returned by _verifySession
+ * @param   {string[]} perms  Array of permission keys — any one is sufficient
+ * @returns {boolean}
+ */
+function _hasAnyPerm(sess, perms) {
+  if (!sess) return false;
+  if (sess.role === 'admin') return true;
+  const userPerms = sess.permissions || [];
+  return perms.some(p => userPerms.includes(p));
+}
+
+/**
+ * Silently extends a session's TTL so active users do not get logged out
+ * mid-shift. Called automatically by _verifySession on every success.
+ */
+function _refreshSession(token) {
+  if (!token) return;
+  try {
+    const cache = CacheService.getScriptCache();
+    const key   = _S_PREFIX + token;
+    const raw   = cache.get(key);
+    if (raw) cache.put(key, raw, _S_TTL);
+  } catch (e) { /* non-fatal — session will just expire naturally */ }
+}
+
+// ── Public endpoints ──────────────────────────────────────────────
+
+/**
+ * Destroys a session token on logout.
+ * Called via google.script.run.invalidateSession(token) from the frontend.
+ */
+function invalidateSession(token) {
+  if (!token) return { ok: true };
+  try {
+    CacheService.getScriptCache().remove(_S_PREFIX + token);
+  } catch (e) {
+    Logger.log('invalidateSession error: ' + e.message);
+  }
+  return { ok: true };
+}
+
+// ── Standard responses ────────────────────────────────────────────
+
+/**
+ * Standard unauthorised response object.
+ * The frontend detects this by checking  r.unauthorized === true
+ * and redirects the user to the login screen.
+ */
+function _unauth() {
+  return {
+    error:        true,
+    unauthorized: true,
+    msg:          'Session expired — please sign in again'
+  };
+}
+
+
+// ── SHA-256 PIN HASHING ──────────────────────────────────────────
+
+/**
+ * Returns the SHA-256 hex digest of a PIN.
+ * Called by checkCode(), changePIN(), and adminResetPIN().
+ */
+function _hashPin(pin) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(pin),
+    Utilities.Charset.UTF_8
+  );
+  return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+/**
+ * Returns true if the stored value is already a SHA-256 hex digest.
+ * Used for lazy migration: plaintext PINs are still accepted on first
+ * login and silently replaced with their hash.
+ */
+function _isHashed(val) {
+  return /^[0-9a-f]{64}$/.test(String(val || ''));
+}
+
+// ── BRUTE-FORCE LOCKOUT ──────────────────────────────────────────
+
+const _BF_PREFIX  = 'bf_';
+const _BF_MAX     = 5;    // failed attempts before lockout
+const _BF_WIN_TTL = 300;  // rolling attempt window:  5 min (seconds)
+const _BF_LCK_TTL = 900;  // lockout duration:       15 min (seconds)
+
+function _bfKey(nonce) {
+  return _BF_PREFIX + String(nonce || 'x').slice(0, 40);
+}
+
+/**
+ * Checks whether a nonce is currently locked out.
+ * @returns {locked: bool, attempts: number}
+ */
+function _bfCheck(nonce) {
+  try {
+    const raw = CacheService.getScriptCache().get(_bfKey(nonce));
+    if (!raw) return { locked: false, attempts: 0 };
+    const d = JSON.parse(raw);
+    return { locked: !!d.locked, attempts: d.attempts || 0 };
+  } catch(e) { return { locked: false, attempts: 0 }; }
+}
+
+/**
+ * Records one failed attempt for the given nonce.
+ * @returns {locked: bool, attempts: number}
+ */
+function _bfFail(nonce) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const key   = _bfKey(nonce);
+    let   cur   = {};
+    try { cur = JSON.parse(cache.get(key) || '{}'); } catch(e) {}
+    const att    = (cur.attempts || 0) + 1;
+    const locked = att >= _BF_MAX;
+    cache.put(key, JSON.stringify({ attempts: att, locked }),
+              locked ? _BF_LCK_TTL : _BF_WIN_TTL);
+    return { attempts: att, locked };
+  } catch(e) { return { attempts: 1, locked: false }; }
+}
+
+/** Clears the failed-attempt counter after a successful login. */
+function _bfReset(nonce) {
+  try { CacheService.getScriptCache().remove(_bfKey(nonce)); } catch(e) {}
+}
+
+// ── Global soft-throttle (#26) ───────────────────────────────────
+// The nonce is client-supplied, so an attacker can rotate it to dodge the per-nonce lock.
+// We therefore also track TOTAL failures and, past a threshold, DELAY each further failed
+// attempt. We deliberately never hard-lock globally — that would let anyone freeze the
+// whole POS. A correct PIN returns before this path, so real cashiers are never delayed.
+const _BF_G_KEY  = 'bf_global';
+const _BF_G_WIN  = 300;  // rolling window: 5 min (seconds)
+const _BF_G_SOFT = 15;   // start delaying after this many failures within the window
+
+function _bfGlobalFail() {
+  try {
+    const cache = CacheService.getScriptCache();
+    let cur = {};
+    try { cur = JSON.parse(cache.get(_BF_G_KEY) || '{}'); } catch(e) {}
+    const att = (cur.attempts || 0) + 1;
+    cache.put(_BF_G_KEY, JSON.stringify({ attempts: att }), _BF_G_WIN);
+    return att;
+  } catch(e) { return 0; }
+}
+
+/** Delay a failed login once the system is seeing a burst of failures. */
+function _bfThrottle() {
+  const att = _bfGlobalFail();
+  if (att > _BF_G_SOFT) {
+    Utilities.sleep(Math.min(5000, (att - _BF_G_SOFT) * 1000));
+  }
+}
