@@ -5,8 +5,8 @@ import { config } from "../config.js";
 export const hashPassword = (plain) => bcrypt.hash(plain, 10);
 export const checkPassword = (plain, hash) => bcrypt.compare(plain, hash);
 
-export function signToken(payload) {
-  return jwt.sign(payload, config.jwtSecret, { expiresIn: "7d" });
+export function signToken(payload, opts = {}) {
+  return jwt.sign(payload, config.jwtSecret, { expiresIn: "7d", ...opts });
 }
 
 export function verifyToken(token) {
@@ -18,11 +18,13 @@ export function verifyToken(token) {
 }
 
 // Default capabilities per role (per-user overrides are added on top).
+// "costs" (see cost/profit on products) rides with dashboard_finance;
+// managers can be granted it individually via permsOverride.
 export const ROLE_PERMS = {
   owner: ["*"],
-  admin: ["sales", "returns", "approve_returns", "stock", "prices", "expenses",
-          "dashboard_ops", "dashboard_finance", "staff_mgmt", "settings", "customers", "activity"],
-  manager: ["sales", "returns", "approve_returns", "stock", "prices", "expenses",
+  admin: ["sales", "returns", "approve_returns", "void_sales", "stock", "prices", "expenses",
+          "dashboard_ops", "dashboard_finance", "staff_mgmt", "settings", "customers", "activity", "audit"],
+  manager: ["sales", "returns", "approve_returns", "void_sales", "stock", "prices", "expenses",
             "dashboard_ops", "customers", "activity"],
   staff: ["sales", "returns", "activity"],
 };

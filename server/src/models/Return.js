@@ -1,0 +1,40 @@
+import mongoose from "mongoose";
+
+// Staff submit, managers/admins approve. Approval restores stock via a
+// RETURN movement and corrects revenue/cost in the daily metrics.
+const returnSchema = new mongoose.Schema(
+  {
+    accountId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    businessId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    branchId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    saleId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    saleNo: { type: String, default: "" },
+    items: [
+      {
+        _id: false,
+        productId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        name: { type: String, required: true },
+        qty: { type: Number, required: true, min: 1 },
+        unitPrice: { type: Number, required: true }, // from the original sale line
+        unitCost: { type: Number, default: 0 },
+      },
+    ],
+    refund: {
+      method: { type: String, enum: ["cash", "pos", "transfer"], default: "cash" },
+      amount: { type: Number, required: true },
+    },
+    reason: { type: String, default: "" },
+    status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },
+    requestedBy: { type: mongoose.Schema.Types.ObjectId, required: true },
+    requestedByName: { type: String, default: "" },
+    decidedBy: { type: mongoose.Schema.Types.ObjectId },
+    decidedByName: { type: String, default: "" },
+    decidedAt: { type: Date },
+    decisionNote: { type: String, default: "" },
+  },
+  { timestamps: true }
+);
+
+returnSchema.index({ businessId: 1, branchId: 1, status: 1, createdAt: -1 });
+
+export const Return = mongoose.model("Return", returnSchema);

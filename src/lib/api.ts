@@ -2,6 +2,8 @@ const BASE = (import.meta.env.VITE_API_URL as string) || "http://localhost:4000/
 const TOKEN_KEY = "startrack.token";
 
 let token: string | null = localStorage.getItem(TOKEN_KEY);
+let businessId: string | null = null;
+let branchId: string | null = null;
 
 export function setToken(t: string | null) {
   token = t;
@@ -10,6 +12,13 @@ export function setToken(t: string | null) {
 }
 export function getToken() {
   return token;
+}
+
+// The active business/branch ride on every request as headers. The server
+// validates them against the caller's membership — they're context, not authority.
+export function setTenant(biz: string | null, branch: string | null) {
+  businessId = biz;
+  branchId = branch;
 }
 
 export class ApiError extends Error {
@@ -30,6 +39,8 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(businessId ? { "x-business-id": businessId } : {}),
+        ...(branchId ? { "x-branch-id": branchId } : {}),
         ...(opts.headers || {}),
       },
     });

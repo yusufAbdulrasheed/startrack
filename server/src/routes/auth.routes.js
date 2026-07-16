@@ -7,6 +7,8 @@ import { Branch } from "../models/Branch.js";
 import { Membership } from "../models/Membership.js";
 import { hashPassword, checkPassword, signToken, permsForRole } from "../lib/auth.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { rateLimit } from "../lib/rateLimit.js";
+import { typeTemplate } from "../lib/businessTypes.js";
 
 export const authRouter = Router();
 
@@ -42,7 +44,8 @@ authRouter.post("/register", async (req, res) => {
       accountId: created.account._id,
       name: d.businessName,
       typeKey: d.businessType,
-      settings: { currency: d.currency },
+      // The business type provisions its defaults (blueprint: type = template).
+      settings: { currency: d.currency, modules: typeTemplate(d.businessType).modules },
     });
     created.branch = await Branch.create({
       accountId: created.account._id,
@@ -97,6 +100,62 @@ authRouter.post("/login", async (req, res) => {
   const branches = await Branch.find({ accountId: account._id });
 
   return res.json(sessionPayload(user, account, membership, { businesses, branches }));
+});
+
+const tillSchema = z.object({
+  businessCode: z.string().min(4, "Enter your business code"),
+  pin: z.string().regex(/^\d{4,6}$/, "PIN must be 4–6 digits"),
+});
+
+// POST /api/auth/till — staff login: business code + PIN.
+// Rate limiting is a global throttle per business code (not per client),
+// so rotating IPs doesn't buy an attacker more attempts.
+authRouter.post("/till", async (req, res) => {
+  const parsed = tillSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const code = parsed.data.businessCode.trim().toUpperCase();
+
+  if (!rateLimit(`till:${code}`, { max: 10, windowMs: 60_000 })) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many attempts. Wait a minute and try again." });
+  }
+
+  const business = await Business.findOne({ code });
+  if (!business) return res.status(401).json({ error: "bad_credentials", message: "Business code or PIN is incorrect." });
+
+  // Small teams: compare the PIN against each active membership that has one.
+  const memberships = await Membership.find({
+    accountId: business.accountId,
+    status: "active",
+    pinHash: { $ne: "" },
+    $or: [{ businessId: business._id }, { businessId: null }],
+  });
+  let match = null;
+  for (const m of memberships) {
+    if (await checkPassword(parsed.data.pin, m.pinHash)) {
+      match = m;
+      break;
+    }
+  }
+  if (!match) return res.status(401).json({ error: "bad_credentials", message: "Business code or PIN is incorrect." });
+
+  const user = await User.findById(match.userId);
+  if (!user || user.status !== "active") {
+    return res.status(401).json({ error: "bad_credentials", message: "This staff account is suspended." });
+  }
+
+  const account = await Account.findById(business.accountId);
+  const branches = match.branchId
+    ? await Branch.find({ _id: match.branchId })
+    : await Branch.find({ businessId: business._id });
+
+  const body = sessionPayload(user, account, match, { businesses: [business], branches }, false);
+  // Till sessions are short-lived by design.
+  body.token = signToken(
+    { sub: String(user._id), accountId: String(account._id), name: user.name, mode: "till" },
+    { expiresIn: "12h" }
+  );
+  body.mode = "till";
+  return res.json(body);
 });
 
 // GET /api/auth/me — bootstrap the app after a page refresh

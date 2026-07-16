@@ -4,47 +4,54 @@ import {
   Undo2, Users, ReceiptText, UserCog, Clock, History, Settings, ScrollText,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
+import { typeMeta } from "@/lib/businessTypes";
 import { cn } from "@/lib/utils";
 
-type NavItem = { to: string; label: string; icon: React.ComponentType<{ className?: string }>; perm?: string };
+type NavItem = {
+  to: string; label: string; icon: React.ComponentType<{ className?: string }>;
+  perm?: string; module?: string;
+};
 type NavSection = { title: string; items: NavItem[] };
 
-// perm=undefined → always visible. can("*") (owner) sees everything.
-const SECTIONS: NavSection[] = [
-  {
-    title: "Sell",
-    items: [
-      { to: "/app/pos", label: "Point of Sale", icon: ShoppingCart, perm: "sales" },
-      { to: "/app/activity", label: "My Activity", icon: History, perm: "activity" },
-      { to: "/app/returns", label: "Returns", icon: Undo2, perm: "returns" },
-    ],
-  },
-  {
-    title: "Inventory",
-    items: [
-      { to: "/app/products", label: "Products", icon: Package, perm: "stock" },
-      { to: "/app/stock-in", label: "Stock In", icon: PackagePlus, perm: "stock" },
-      { to: "/app/transfers", label: "Transfers", icon: ArrowLeftRight, perm: "stock" },
-    ],
-  },
-  {
-    title: "Manage",
-    items: [
-      { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard_ops" },
-      { to: "/app/customers", label: "Customers", icon: Users, perm: "customers" },
-      { to: "/app/expenses", label: "Expenses", icon: ReceiptText, perm: "expenses" },
-      { to: "/app/staff", label: "Staff", icon: UserCog, perm: "staff_mgmt" },
-      { to: "/app/attendance", label: "Attendance", icon: Clock, perm: "dashboard_ops" },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { to: "/app/settings", label: "Settings", icon: Settings, perm: "settings" },
-      { to: "/app/audit", label: "Audit Log", icon: ScrollText, perm: "settings" },
-    ],
-  },
-];
+// perm gates by role; module gates by what this business has switched on.
+// Labels marked with terminology adapt to the business type (pharmacy → Medicines).
+function buildSections(t: { products: string; pos: string }): NavSection[] {
+  return [
+    {
+      title: "Sell",
+      items: [
+        { to: "/app/pos", label: t.pos, icon: ShoppingCart, perm: "sales" },
+        { to: "/app/activity", label: "My Activity", icon: History, perm: "activity" },
+        { to: "/app/returns", label: "Returns", icon: Undo2, perm: "returns", module: "returns" },
+      ],
+    },
+    {
+      title: "Inventory",
+      items: [
+        { to: "/app/products", label: t.products, icon: Package, perm: "stock" },
+        { to: "/app/stock-in", label: "Stock In", icon: PackagePlus, perm: "stock" },
+        { to: "/app/transfers", label: "Transfers", icon: ArrowLeftRight, perm: "stock", module: "transfers" },
+      ],
+    },
+    {
+      title: "Manage",
+      items: [
+        { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard_ops" },
+        { to: "/app/customers", label: "Customers", icon: Users, perm: "customers", module: "customers" },
+        { to: "/app/expenses", label: "Expenses", icon: ReceiptText, perm: "expenses", module: "expenses" },
+        { to: "/app/staff", label: "Staff", icon: UserCog, perm: "staff_mgmt" },
+        { to: "/app/attendance", label: "Attendance", icon: Clock, perm: "dashboard_ops", module: "attendance" },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+        { to: "/app/settings", label: "Settings", icon: Settings, perm: "settings" },
+        { to: "/app/audit", label: "Audit Log", icon: ScrollText, perm: "settings" },
+      ],
+    },
+  ];
+}
 
 function Logo() {
   return (
@@ -65,9 +72,12 @@ function Logo() {
 }
 
 export function Sidebar() {
-  const { session, can } = useSession();
-  const sections = SECTIONS
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.perm || can(i.perm)) }))
+  const { session, can, hasModule, activeBusiness } = useSession();
+  const sections = buildSections(typeMeta(activeBusiness?.typeKey))
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((i) => (!i.perm || can(i.perm)) && (!i.module || hasModule(i.module))),
+    }))
     .filter((s) => s.items.length > 0);
 
   return (

@@ -1,11 +1,17 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { api, setToken } from "./api";
+import { api, setToken, setTenant } from "./api";
 
-export type Business = { id: string; name: string; typeKey: string; settings: { currency: string; vatEnabled: boolean; vatRate: number } };
+export type Business = {
+  id: string;
+  name: string;
+  typeKey: string;
+  settings: { currency: string; vatEnabled: boolean; vatRate: number; receiptFooter?: string; modules?: string[] };
+};
 export type Branch = { id: string; businessId: string; name: string };
 export type Session = {
   token?: string;
+  mode?: "till";
   user: { id: string; name: string; email: string };
   account: { id: string; name: string; plan: string };
   role: "owner" | "admin" | "manager" | "staff";
@@ -25,12 +31,15 @@ type Ctx = {
   activeBusiness: Business | null;
   activeBranch: Branch | null;
   branchesForActive: Branch[];
+  currency: string;
   setActiveBusiness: (id: string) => void;
   setActiveBranch: (id: string) => void;
   login: (email: string, password: string) => Promise<void>;
+  tillLogin: (businessCode: string, pin: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => void;
   can: (perm: string) => boolean;
+  hasModule: (module: string) => boolean;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
@@ -55,10 +64,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (s.token) setToken(s.token);
     setSession(s);
     const biz = s.businesses[0] || null;
-    setActiveBusinessId(biz?.id ?? null);
     const branch = s.branches.find((b) => b.businessId === biz?.id) || s.branches[0] || null;
+    setActiveBusinessId(biz?.id ?? null);
     setActiveBranchId(branch?.id ?? null);
+    setTenant(biz?.id ?? null, branch?.id ?? null); // headers ready before pages fetch
   }
+
+  // Keep the API client's tenant headers in lockstep with the switcher.
+  useEffect(() => {
+    setTenant(activeBusinessId, activeBranchId);
+  }, [activeBusinessId, activeBranchId]);
 
   const value = useMemo<Ctx>(() => {
     const activeBusiness = session?.businesses.find((b) => b.id === activeBusinessId) || null;
@@ -71,14 +86,23 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       activeBusiness,
       activeBranch,
       branchesForActive,
+      currency: activeBusiness?.settings.currency || "₦",
       setActiveBusiness: (id) => {
-        setActiveBusinessId(id);
         const first = session?.branches.find((b) => b.businessId === id);
+        setActiveBusinessId(id);
         setActiveBranchId(first?.id ?? null);
+        setTenant(id, first?.id ?? null);
       },
-      setActiveBranch: (id) => setActiveBranchId(id),
+      setActiveBranch: (id) => {
+        setActiveBranchId(id);
+        setTenant(activeBusinessId, id);
+      },
       login: async (email, password) => {
         const s = await api<Session>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+        applySession(s);
+      },
+      tillLogin: async (businessCode, pin) => {
+        const s = await api<Session>("/auth/till", { method: "POST", body: JSON.stringify({ businessCode, pin }) });
         applySession(s);
       },
       register: async (input) => {
@@ -87,11 +111,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
       logout: () => {
         setToken(null);
+        setTenant(null, null);
         setSession(null);
         setActiveBusinessId(null);
         setActiveBranchId(null);
       },
       can: (perm) => !!session && (session.permissions.includes("*") || session.permissions.includes(perm)),
+      // Business-level feature switch. Missing list (legacy) = everything on.
+      hasModule: (module) => {
+        const modules = activeBusiness?.settings.modules;
+        return !modules || modules.includes(module);
+      },
     };
   }, [session, loading, activeBusinessId, activeBranchId]);
 

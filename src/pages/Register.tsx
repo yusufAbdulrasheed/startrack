@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Store, Pill, UtensilsCrossed, Shirt, MonitorSmartphone, Hotel, Scissors, Croissant, Wrench, Package,
-  ArrowRight, ArrowLeft, Check, AlertCircle,
+  Ruler, Beer, ArrowRight, ArrowLeft, Check, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
@@ -14,10 +14,12 @@ const TYPES = [
   { key: "pharmacy", label: "Pharmacy", icon: Pill },
   { key: "restaurant", label: "Restaurant / Eatery", icon: UtensilsCrossed },
   { key: "fashion", label: "Fashion / Boutique", icon: Shirt },
+  { key: "tailoring", label: "Tailoring / Fashion Design", icon: Ruler },
   { key: "electronics", label: "Electronics", icon: MonitorSmartphone },
-  { key: "hotel", label: "Hotel", icon: Hotel },
-  { key: "salon", label: "Salon / Services", icon: Scissors },
+  { key: "hotel", label: "Hotel / Guest House", icon: Hotel },
+  { key: "salon", label: "Salon / Beauty", icon: Scissors },
   { key: "bakery", label: "Bakery", icon: Croissant },
+  { key: "bar", label: "Bar / Lounge", icon: Beer },
   { key: "services", label: "General Services", icon: Wrench },
   { key: "other", label: "Something else", icon: Package },
 ];
