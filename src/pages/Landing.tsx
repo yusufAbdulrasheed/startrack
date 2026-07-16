@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const FEATURES = [
   { icon: ScanLine, title: "Lightning POS", body: "Scan or search, take payment, print or WhatsApp a receipt — in under three taps. Built for busy counters." },
@@ -61,6 +62,7 @@ function Nav() {
           <a href="#pricing" className="hover:text-t1 transition-colors">Pricing</a>
         </nav>
         <div className="ml-auto md:ml-0 flex items-center gap-2">
+          <ThemeToggle />
           <Link to="/login" className="hidden sm:block">
             <Button variant="ghost" size="sm">Sign in</Button>
           </Link>
