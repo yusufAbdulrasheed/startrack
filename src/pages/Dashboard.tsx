@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 const revenue7d = [
@@ -70,13 +71,19 @@ function ChartTooltip({ active, payload, label }: any) {
 }
 
 export function Dashboard() {
+  const { session, activeBusiness, activeBranch } = useSession();
+  const firstName = session?.user.name.split(" ")[0] || "there";
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
         <div>
-          <h1 className="font-display text-[22px] font-extrabold tracking-tight text-t1">Good afternoon, Isaac 👋</h1>
-          <p className="text-[13px] text-t3 mt-1">Here's how Tado Foods · Wholesale is doing today.</p>
+          <h1 className="font-display text-[22px] font-extrabold tracking-tight text-t1">{greeting}, {firstName} 👋</h1>
+          <p className="text-[13px] text-t3 mt-1">
+            Here's how {activeBusiness?.name || "your business"}{activeBranch ? ` · ${activeBranch.name}` : ""} is doing today.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 h-10 px-3 rounded-ctl border border-line-2 bg-surface text-[13px] font-medium text-t2">

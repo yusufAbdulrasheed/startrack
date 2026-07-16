@@ -13,8 +13,10 @@ import {
   ScrollText,
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
+import { RequireAuth } from "@/lib/session";
 import { Landing } from "@/pages/Landing";
 import { Login } from "@/pages/Login";
+import { Register } from "@/pages/Register";
 import { Dashboard } from "@/pages/Dashboard";
 import { POS } from "@/pages/POS";
 import { Placeholder } from "@/pages/Placeholder";
@@ -24,7 +26,15 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/app" element={<AppShell />}>
+      <Route path="/register" element={<Register />} />
+      <Route
+        path="/app"
+        element={
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        }
+      >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="pos" element={<POS />} />

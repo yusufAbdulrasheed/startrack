@@ -66,7 +66,7 @@ function Nav() {
           <Link to="/login" className="hidden sm:block">
             <Button variant="ghost" size="sm">Sign in</Button>
           </Link>
-          <Link to="/app/dashboard">
+          <Link to="/register">
             <Button size="sm">Try the demo</Button>
           </Link>
           <button className="md:hidden w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t2">
@@ -98,7 +98,7 @@ function Hero() {
           works the way <em>your</em> business works. Supermarket, pharmacy, restaurant, or hotel.
         </p>
         <div className="mt-8 flex items-center justify-center gap-3 flex-wrap animate-fade-up" style={{ animationDelay: "180ms" }}>
-          <Link to="/app/dashboard">
+          <Link to="/register">
             <Button size="lg" className="shadow-brand">
               Try the live demo <ArrowRight className="w-4 h-4" />
             </Button>
@@ -256,7 +256,7 @@ export function Landing() {
                   <span className="font-display font-extrabold text-[32px] text-t1">{p.price}</span>
                   {p.per && <span className="text-[13px] text-t3 mb-1.5">{p.per}</span>}
                 </div>
-                <Link to="/app/dashboard" className="block mt-5">
+                <Link to="/register" className="block mt-5">
                   <Button variant={p.highlight ? "primary" : "outline"} className="w-full">{p.cta}</Button>
                 </Link>
                 <ul className="mt-5 space-y-2.5">
@@ -287,7 +287,7 @@ export function Landing() {
               Try the live demo right now — no sign-up, no card. Click around a real shop.
             </p>
             <div className="mt-8 flex justify-center gap-3 flex-wrap">
-              <Link to="/app/dashboard">
+              <Link to="/register">
                 <Button size="lg" className="bg-white !text-brand-700 shadow-lg hover:bg-white/90">
                   Open the demo <ArrowRight className="w-4 h-4" />
                 </Button>
