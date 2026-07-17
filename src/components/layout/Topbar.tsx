@@ -1,17 +1,40 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, LogOut, Search, Store, Building2 } from "lucide-react";
+import { Bell, ChevronDown, LogOut, Menu, Search, Store, Building2 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useSession } from "@/lib/session";
+import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
 
-export function Topbar() {
+export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const navigate = useNavigate();
-  const { session, activeBusiness, activeBranch, branchesForActive, setActiveBusiness, setActiveBranch, logout } = useSession();
+  const { session, activeBusiness, activeBranch, branchesForActive, setActiveBusiness, setActiveBranch, logout, can, hasModule } = useSession();
   const [branchOpen, setBranchOpen] = useState(false);
   const [bizOpen, setBizOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLElement>(null);
+
+  // The bell is real: it counts returns awaiting a decision (for approvers).
+  const canApprove = can("approve_returns") && hasModule("returns");
+  const { data: pendingData } = useApi<{ returns: unknown[] }>(
+    canApprove ? "/returns?status=pending" : null,
+    [activeBranch?.id]
+  );
+  const pendingCount = pendingData?.returns.length ?? 0;
+
+  // Ctrl+K focuses search, like the placeholder promises.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) { setBranchOpen(false); setBizOpen(false); setUserOpen(false); } };
@@ -24,12 +47,21 @@ export function Topbar() {
 
   return (
     <header ref={ref} className="h-16 shrink-0 bg-surface border-b border-line flex items-center gap-3 px-4">
+      {/* Mobile menu button */}
+      <button
+        onClick={onMenu}
+        className="lg:hidden w-9 h-9 shrink-0 rounded-lg border border-line flex items-center justify-center text-t2 hover:bg-surface-3"
+        title="Menu"
+      >
+        <Menu className="w-[18px] h-[18px]" />
+      </button>
+
       {/* Business (shows only if 2+) → Branch switcher */}
       <div className="flex items-center gap-2">
         {multiBiz ? (
           <div className="relative">
             <button onClick={() => { setBizOpen((v) => !v); setBranchOpen(false); setUserOpen(false); }} className="flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-2 border border-line text-[13px] font-semibold text-t1 hover:bg-surface-3">
-              <Store className="w-4 h-4 text-primary" /> {activeBusiness?.name} <ChevronDown className="w-3.5 h-3.5 text-t3" />
+              <Store className="w-4 h-4 text-primary" /> <span className="max-sm:hidden">{activeBusiness?.name}</span> <ChevronDown className="w-3.5 h-3.5 text-t3" />
             </button>
             {bizOpen && (
               <div className="absolute top-full mt-1 left-0 w-52 bg-surface border border-line-2 rounded-xl shadow-e2 py-1 z-50">
@@ -43,7 +75,7 @@ export function Topbar() {
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-2 border border-line text-[13px] font-semibold text-t1">
+          <div className="max-sm:hidden flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-2 border border-line text-[13px] font-semibold text-t1">
             <Store className="w-4 h-4 text-primary" /> {activeBusiness?.name}
           </div>
         )}
@@ -64,17 +96,40 @@ export function Topbar() {
         )}
       </div>
 
-      {/* Search */}
-      <div className="flex-1 max-w-md mx-auto relative">
+      {/* Search — Enter jumps to the catalog filtered by the query */}
+      <div className="flex-1 max-w-md mx-auto relative max-sm:hidden">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
-        <input placeholder="Search anything…  (Ctrl K)" className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer" />
+        <input
+          ref={searchRef}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && q.trim()) {
+              navigate(`/app/products?q=${encodeURIComponent(q.trim())}`);
+              setQ("");
+              searchRef.current?.blur();
+            }
+          }}
+          placeholder="Search products…  (Ctrl K)"
+          className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer"
+        />
       </div>
 
       <div className="flex items-center gap-1.5 ml-auto">
-        <button className="relative w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t3 hover:bg-surface-3 hover:text-t1 transition-colors">
-          <Bell className="w-[17px] h-[17px]" />
-          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center">3</span>
-        </button>
+        {canApprove && (
+          <button
+            onClick={() => navigate("/app/returns")}
+            className="relative w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t3 hover:bg-surface-3 hover:text-t1 transition-colors"
+            title={pendingCount ? `${pendingCount} return${pendingCount === 1 ? "" : "s"} awaiting your decision` : "No pending returns"}
+          >
+            <Bell className="w-[17px] h-[17px]" />
+            {pendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[9px] font-bold flex items-center justify-center">
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        )}
         <ThemeToggle />
 
         {/* User menu */}

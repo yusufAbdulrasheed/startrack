@@ -71,7 +71,7 @@ function Logo() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ open = false }: { open?: boolean }) {
   const { session, can, hasModule, activeBusiness } = useSession();
   const sections = buildSections(typeMeta(activeBusiness?.typeKey))
     .map((s) => ({
@@ -81,7 +81,14 @@ export function Sidebar() {
     .filter((s) => s.items.length > 0);
 
   return (
-    <aside className="w-60 shrink-0 h-full bg-surface border-r border-line flex flex-col">
+    <aside
+      className={cn(
+        "w-60 shrink-0 h-full bg-surface border-r border-line flex flex-col",
+        // Mobile: slide-in drawer above the backdrop; desktop: static column.
+        "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:transition-transform max-lg:duration-200",
+        open ? "max-lg:translate-x-0" : "max-lg:-translate-x-full"
+      )}
+    >
       <Logo />
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-5">
         {sections.map((section) => (

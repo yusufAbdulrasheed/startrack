@@ -206,6 +206,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
       at: sale.at,
       staffName: sale.staffName,
       customerName: sale.customerName,
+      customerPhone: customer?.whatsapp || customer?.phone || "",
       items: lines.map((l) => ({ name: l.name, qty: l.qty, unitPrice: l.unitPrice, lineNet: l.lineNet })),
       subtotal,
       discount,

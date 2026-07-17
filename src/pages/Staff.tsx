@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy } from "lucide-react";
+import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -25,6 +25,7 @@ export function Staff() {
   const staff = data?.staff || [];
   const [adding, setAdding] = useState(false);
   const [pinFor, setPinFor] = useState<Staff | null>(null);
+  const [editFor, setEditFor] = useState<Staff | null>(null);
   const [copied, setCopied] = useState(false);
   const code = settingsData?.business.code;
 
@@ -81,7 +82,8 @@ export function Staff() {
                     </div>
                   </div>
                   {s.role !== "owner" && (
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      <Button size="sm" variant="secondary" onClick={() => setEditFor(s)}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
                       <Button size="sm" variant="secondary" onClick={() => setPinFor(s)}><KeyRound className="w-3.5 h-3.5" /> PIN</Button>
                       <Button size="sm" variant={s.status === "active" ? "secondary" : "success"} onClick={() => toggleStatus(s)}>
                         {s.status === "active" ? <><Ban className="w-3.5 h-3.5" /> Suspend</> : <><CheckCircle2 className="w-3.5 h-3.5" /> Restore</>}
@@ -97,6 +99,14 @@ export function Staff() {
 
       <AddStaff open={adding} branches={branchesForActive} isOwner={can("*")} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload(); }} />
       <ResetPin staff={pinFor} onClose={() => setPinFor(null)} onSaved={() => { setPinFor(null); reload(); }} />
+      <EditStaff
+        key={editFor?.id ?? "closed"}
+        staff={editFor}
+        branches={branchesForActive}
+        isOwner={can("*")}
+        onClose={() => setEditFor(null)}
+        onSaved={() => { setEditFor(null); reload(); }}
+      />
     </div>
   );
 }
@@ -155,6 +165,58 @@ function AddStaff({ open, branches, isOwner, onClose, onSaved }: {
           </Field>
         </div>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Adding…" : "Add staff member"}</Button>
+      </form>
+    </Modal>
+  );
+}
+
+function EditStaff({ staff, branches, isOwner, onClose, onSaved }: {
+  staff: Staff | null; branches: { id: string; name: string }[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: staff?.name || "",
+    role: staff?.role || "staff",
+    branchId: staff?.branchId || "",
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await api(`/staff/${staff!.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: form.name, role: form.role, branchId: form.branchId || null }),
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={!!staff} onClose={onClose} title={`Edit ${staff?.name}`} subtitle="Role and branch changes apply on their next request — and are audited">
+      <form onSubmit={save} className="space-y-3">
+        <ErrorBanner message={error} />
+        <Field label="Full name"><Input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Role">
+            <Select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
+              <option value="staff">Staff — sells only</option>
+              <option value="manager">Manager — runs a branch</option>
+              {isOwner && <option value="admin">Admin — runs the business</option>}
+            </Select>
+          </Field>
+          <Field label="Branch">
+            <Select value={form.branchId} onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))} required={form.role !== "admin"}>
+              <option value="">{form.role === "admin" ? "All branches" : "Choose…"}</option>
+              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
       </form>
     </Modal>
   );

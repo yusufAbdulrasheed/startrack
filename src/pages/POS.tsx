@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Banknote, CreditCard, Smartphone,
-  CheckCircle2, ScanLine, Package, UserPlus, Printer, X,
+  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
@@ -18,6 +18,7 @@ type Product = { id: string; name: string; price: number; category: string; stoc
 type Line = { id: string; name: string; price: number; stock: number; qty: number };
 type Receipt = {
   saleNo: string; businessName: string; at: string; staffName: string; customerName: string;
+  customerPhone?: string;
   items: { name: string; qty: number; unitPrice: number; lineNet: number }[];
   subtotal: number; discount: number; vat: number; total: number;
   payments: { method: string; amount: number }[];
@@ -45,6 +46,7 @@ export function POS() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [cartOpen, setCartOpen] = useState(false); // mobile slide-over
   const searchRef = useRef<HTMLInputElement>(null);
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category))).sort()], [products]);
@@ -117,6 +119,7 @@ export function POS() {
       setCart([]);
       setDiscount(0);
       setCustomer(null);
+      setCartOpen(false);
       reload();
     } catch (err: any) {
       setError(err.message || "Checkout failed");
@@ -208,12 +211,36 @@ export function POS() {
         </div>
       </div>
 
-      {/* RIGHT: cart */}
-      <aside className="w-[360px] shrink-0 border-l border-line bg-surface flex flex-col">
+      {/* Mobile: floating cart button */}
+      <button
+        onClick={() => setCartOpen(true)}
+        className={cn(
+          "lg:hidden fixed bottom-4 right-4 z-40 h-12 px-5 rounded-full bg-gradient-to-r from-brand-700 to-brand-500 text-white text-[14px] font-bold shadow-brand flex items-center gap-2",
+          cartOpen && "hidden"
+        )}
+      >
+        <ShoppingCart className="w-4 h-4" />
+        {count > 0 ? `${count} · ${fmtMoney(total, currency)}` : "Cart"}
+      </button>
+
+      {/* RIGHT: cart — desktop column, mobile slide-over */}
+      <aside
+        className={cn(
+          "w-[360px] shrink-0 border-l border-line bg-surface flex-col",
+          "max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:w-full max-lg:border-l-0",
+          cartOpen ? "flex" : "max-lg:hidden lg:flex"
+        )}
+      >
         <div className="p-4 border-b border-line flex items-center gap-2">
           <ShoppingCart className="w-4 h-4 text-primary" />
           <span className="font-bold text-[14px] text-t1">Current Sale</span>
           {count > 0 && <span className="ml-auto"><Badge tone="brand">{count} items</Badge></span>}
+          <button
+            onClick={() => setCartOpen(false)}
+            className={cn("lg:hidden w-8 h-8 rounded-lg border border-line flex items-center justify-center text-t3", count === 0 && "ml-auto")}
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3">
@@ -362,6 +389,33 @@ function CustomerQuickAdd({ open, onClose, onPick }: { open: boolean; onClose: (
   );
 }
 
+function receiptText(r: Receipt) {
+  const money = (n: number) => `${r.currency}${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
+  const lines = [
+    `*${r.businessName}*`,
+    `Receipt ${r.saleNo} · ${fmtDateTime(r.at)}`,
+    r.customerName ? `Customer: ${r.customerName}` : "",
+    "-----------------------------",
+    ...r.items.map((i) => `${i.name} ×${i.qty} — ${money(i.lineNet)}`),
+    "-----------------------------",
+    r.discount > 0 ? `Discount: -${money(r.discount)}` : "",
+    r.vat > 0 ? `VAT: ${money(r.vat)}` : "",
+    `*Total: ${money(r.total)}*`,
+    `Paid via ${r.payments.map((p) => p.method.toUpperCase()).join(" + ")}`,
+    "",
+    r.footer,
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function whatsappUrl(r: Receipt) {
+  // Nigerian local numbers (0803…) become international (234803…).
+  let digits = (r.customerPhone || "").replace(/\D/g, "");
+  if (digits.startsWith("0") && digits.length === 11) digits = "234" + digits.slice(1);
+  const text = encodeURIComponent(receiptText(r));
+  return digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+}
+
 export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: () => void }) {
   if (!receipt) return null;
   return (
@@ -392,8 +446,15 @@ export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; on
           </div>
           <div className="text-center text-[11px] text-t3 pt-3">{receipt.footer}</div>
         </div>
-        <div className="p-4 border-t border-line grid grid-cols-2 gap-2 print:hidden">
+        <div className="p-4 border-t border-line grid grid-cols-3 gap-2 print:hidden">
           <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>
+          <Button
+            variant="secondary"
+            onClick={() => window.open(whatsappUrl(receipt), "_blank")}
+            title={receipt.customerPhone ? `Send to ${receipt.customerPhone}` : "Opens WhatsApp — pick the contact"}
+          >
+            <MessageCircle className="w-4 h-4" /> WhatsApp
+          </Button>
           <Button onClick={onClose}>New Sale</Button>
         </div>
       </div>

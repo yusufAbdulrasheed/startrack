@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Package, Plus, Search, Pencil, Archive } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -25,9 +26,16 @@ export function Products() {
   const products = data?.products || [];
   const showCost = products.some((p) => p.cost !== undefined);
 
-  const [q, setQ] = useState("");
+  const [searchParams] = useSearchParams();
+  const [q, setQ] = useState(searchParams.get("q") || "");
   const [cat, setCat] = useState("All");
   const [editing, setEditing] = useState<Product | "new" | null>(null);
+
+  // Global search (topbar) lands here with ?q= — keep the box in sync.
+  useEffect(() => {
+    const fromUrl = searchParams.get("q");
+    if (fromUrl !== null) setQ(fromUrl);
+  }, [searchParams]);
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category))).sort()], [products]);
   const filtered = products.filter(
