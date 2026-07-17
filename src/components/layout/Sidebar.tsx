@@ -1,7 +1,7 @@
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard, ShoppingCart, Package, PackagePlus, ArrowLeftRight,
-  Undo2, Users, ReceiptText, UserCog, Clock, History, Settings, ScrollText,
+  Undo2, Users, ReceiptText, UserCog, Clock, History, Settings, ScrollText, Receipt,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
@@ -37,6 +37,7 @@ function buildSections(t: { products: string; pos: string }): NavSection[] {
       title: "Manage",
       items: [
         { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard_ops" },
+        { to: "/app/sales", label: "Sales History", icon: Receipt, perm: "dashboard_ops" },
         { to: "/app/customers", label: "Customers", icon: Users, perm: "customers", module: "customers" },
         { to: "/app/expenses", label: "Expenses", icon: ReceiptText, perm: "expenses", module: "expenses" },
         { to: "/app/staff", label: "Staff", icon: UserCog, perm: "staff_mgmt" },

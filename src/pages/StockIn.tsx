@@ -26,10 +26,23 @@ const TYPE_META: Record<string, { label: string; icon: any; tone: "success" | "d
   VOID_RESTOCK: { label: "Void restock", icon: RotateCcw, tone: "danger" },
 };
 
+const LEDGER_FILTERS = [
+  { key: "", label: "All" },
+  { key: "IN", label: "Stock in" },
+  { key: "OUT", label: "Sales" },
+  { key: "TRANSFER_OUT", label: "Transfers" },
+  { key: "RETURN", label: "Returns" },
+  { key: "ADJUST", label: "Adjustments" },
+];
+
 export function StockIn() {
   const { activeBranch } = useSession();
+  const [ledgerType, setLedgerType] = useState("");
   const { data: prodData, reload: reloadProducts } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const { data: moveData, loading, reload: reloadMoves } = useApi<{ movements: Movement[] }>("/inventory/movements?limit=30", [activeBranch?.id]);
+  const { data: moveData, loading, reload: reloadMoves } = useApi<{ movements: Movement[] }>(
+    `/inventory/movements?limit=40${ledgerType ? `&type=${ledgerType}` : ""}`,
+    [activeBranch?.id]
+  );
   const products = prodData?.products || [];
 
   const [lines, setLines] = useState<{ productId: string; qty: number }[]>([{ productId: "", qty: 1 }]);
@@ -105,7 +118,23 @@ export function StockIn() {
         </Card>
 
         <Card className="lg:col-span-3 overflow-hidden self-start">
-          <div className="p-4 pb-2 text-[14px] font-bold text-t1">Movement ledger</div>
+          <div className="p-4 pb-2 flex items-center gap-3 flex-wrap">
+            <span className="text-[14px] font-bold text-t1">Movement ledger</span>
+            <div className="flex gap-1.5 ml-auto flex-wrap">
+              {LEDGER_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setLedgerType(f.key)}
+                  className={cn(
+                    "px-2.5 h-7 rounded-full text-[11px] font-semibold border transition-colors",
+                    ledgerType === f.key ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1"
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {loading ? (
             <Spinner />
           ) : !moveData?.movements.length ? (

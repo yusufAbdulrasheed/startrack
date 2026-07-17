@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
-  Boxes, CalendarClock, Receipt,
+  Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -41,7 +41,7 @@ function ChartTooltip({ active, payload, label, currency }: any) {
   );
 }
 
-type Tab = "overview" | "sales" | "inventory";
+type Tab = "overview" | "sales" | "inventory" | "customers" | "staff";
 
 export function Dashboard() {
   const { session, activeBusiness, activeBranch, currency } = useSession();
@@ -89,17 +89,19 @@ export function Dashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 rounded-ctl bg-surface border border-line w-fit mb-6">
+      <div className="flex items-center gap-1 p-1 rounded-ctl bg-surface border border-line w-fit max-w-full overflow-x-auto mb-6">
         {([
           { k: "overview", label: "Overview", icon: Wallet },
           { k: "sales", label: "Sales", icon: Receipt },
           { k: "inventory", label: "Inventory", icon: Boxes },
+          { k: "customers", label: "Customers", icon: Users },
+          { k: "staff", label: "Staff", icon: UserCog },
         ] as { k: Tab; label: string; icon: any }[]).map(({ k, label, icon: Icon }) => (
           <button
             key={k}
             onClick={() => setTab(k)}
             className={cn(
-              "flex items-center gap-1.5 px-4 h-9 rounded-lg text-[13px] font-semibold transition-colors",
+              "flex items-center gap-1.5 px-4 h-9 rounded-lg text-[13px] font-semibold transition-colors whitespace-nowrap",
               tab === k ? "bg-primary-soft text-primary" : "text-t3 hover:text-t1"
             )}
           >
@@ -110,6 +112,8 @@ export function Dashboard() {
 
       {tab === "sales" && <SalesTab currency={currency} branchKey={activeBranch?.id} />}
       {tab === "inventory" && <InventoryTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "customers" && <CustomersTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "staff" && <StaffTab currency={currency} branchKey={activeBranch?.id} />}
       {tab !== "overview" ? null : (
       <>
       {/* KPI row */}
@@ -396,9 +400,132 @@ function SalesTab({ currency, branchKey }: { currency: string; branchKey?: strin
   );
 }
 
+// ── Customers tab ────────────────────────────────────────────
+type CustomersReport = {
+  totals: { customers: number; newLast30: number; activeLast30: number; repeatRate: number };
+  topSpenders: { id: string; name: string; phone: string; totalSpend: number; visits: number }[];
+  newest: { id: string; name: string; phone: string; totalSpend: number; visits: number; firstSeen: string }[];
+};
+
+function CustomersTab({ currency, branchKey }: { currency: string; branchKey?: string }) {
+  const { data: r, loading } = useApi<CustomersReport>("/metrics/customers-report", [branchKey]);
+  if (loading || !r) return <Spinner />;
+
+  return (
+    <>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <StatCard index={0} label="Customers on file" value={String(r.totals.customers)} icon={Users} />
+        <StatCard index={1} label="New · last 30 days" value={String(r.totals.newLast30)} icon={Users} />
+        <StatCard index={2} label="Active · last 30 days" value={String(r.totals.activeLast30)} icon={ShoppingCart} />
+        <StatCard index={3} label="Come back to buy again" value={`${r.totals.repeatRate}%`} icon={TrendingUp} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <div className="text-[14px] font-bold text-t1 mb-4">Top spenders</div>
+          {r.topSpenders.length === 0 ? (
+            <div className="text-[12px] text-t4 py-4 text-center">Attach customers on the POS to build this list.</div>
+          ) : (
+            <div className="divide-y divide-line">
+              {r.topSpenders.map((c, i) => (
+                <div key={c.id} className="flex items-center gap-3 py-2.5">
+                  <span className="w-5 h-5 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-t1 truncate">{c.name}</div>
+                    <div className="text-[11px] text-t3">{c.phone || "no phone"} · {c.visits} visit{c.visits === 1 ? "" : "s"}</div>
+                  </div>
+                  <span className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+        <Card className="p-5">
+          <div className="text-[14px] font-bold text-t1 mb-4">Newest customers</div>
+          {r.newest.length === 0 ? (
+            <div className="text-[12px] text-t4 py-4 text-center">New customers appear here as they're added.</div>
+          ) : (
+            <div className="divide-y divide-line">
+              {r.newest.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 py-2.5">
+                  <div className="w-8 h-8 rounded-full bg-primary-soft text-primary font-bold text-[12px] flex items-center justify-center shrink-0">
+                    {c.name[0]?.toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-t1 truncate">{c.name}</div>
+                    <div className="text-[11px] text-t3">first seen {new Date(c.firstSeen).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</div>
+                  </div>
+                  <span className="font-mono text-[12px] text-t2 tabular-nums shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
+// ── Staff tab ────────────────────────────────────────────────
+type StaffReport = {
+  days: number;
+  staff: { name: string; sales: number; voids: number; revenue: number; discounts: number; avgSale: number; hours: number; shifts: number }[];
+};
+
+function StaffTab({ currency, branchKey }: { currency: string; branchKey?: string }) {
+  const { data: r, loading } = useApi<StaffReport>("/metrics/staff-report", [branchKey]);
+  if (loading || !r) return <Spinner />;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-5 pb-3">
+        <div className="text-[14px] font-bold text-t1">Staff performance · last {r.days} days</div>
+        <div className="text-[12px] text-t3">Sales, discounts given, voids and hours — per person</div>
+      </div>
+      {r.staff.length === 0 ? (
+        <EmptyState icon={UserCog} title="No staff activity yet" body="Sales and clock-ins over the last 30 days appear here per person." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
+            <thead>
+              <tr className="text-left">
+                {["Staff", "Sales", "Revenue", "Avg sale", "Discounts", "Voids", "Hours"].map((h, i) => (
+                  <th key={h} className={cn("px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-t4 border-y border-line", i > 0 && "text-right")}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {r.staff.map((s) => (
+                <tr key={s.name} className="hover:bg-surface-2 transition-colors border-b border-line last:border-0">
+                  <td className="px-5 py-3">
+                    <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-t1">
+                      <span className="w-6 h-6 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center">{s.name[0]}</span>
+                      {s.name}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-[13px] text-t1 tabular-nums">{s.sales}</td>
+                  <td className="px-5 py-3 text-right font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(s.revenue, currency)}</td>
+                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.avgSale ? fmtMoney(s.avgSale, currency) : "—"}</td>
+                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.discounts ? fmtMoney(s.discounts, currency) : "—"}</td>
+                  <td className="px-5 py-3 text-right">
+                    {s.voids > 0 ? <Badge tone="danger">{s.voids}</Badge> : <span className="text-[12px] text-t4">0</span>}
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.hours ? `${s.hours.toFixed(1)}h` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ── Inventory tab ────────────────────────────────────────────
 type InventoryReport = {
   skus: number; units: number; retailValue: number; costValue?: number; potentialProfit?: number;
+  flow30d: { unitsIn: number; unitsOut: number };
+  topMovers: { id: string; name: string; unitsIn: number; unitsOut: number }[];
   lowStock: { id: string; name: string; stock: number; reorderLevel: number }[];
   expiringSoon: { id: string; name: string; stock: number; expiry: string; expired: boolean }[];
 };
@@ -418,6 +545,54 @@ function InventoryTab({ currency, branchKey }: { currency: string; branchKey?: s
         <StatCard index={1} label="Units on shelf" value={r.units.toLocaleString()} icon={Package} />
         <StatCard index={2} label="Stock value (retail)" value={fmtMoney(r.retailValue, currency)} icon={Wallet} />
         {showCost && <StatCard index={3} label="Profit sitting on the shelf" value={fmtMoney(r.potentialProfit!, currency)} icon={TrendingUp} />}
+      </div>
+
+      {/* In & Out — the flow through the shelf, last 30 days */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        <Card className="p-5">
+          <div className="text-[14px] font-bold text-t1 mb-4">In & Out · last 30 days</div>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-success-soft">
+              <ArrowDownToLine className="w-5 h-5 text-success shrink-0" />
+              <div>
+                <div className="font-mono text-[20px] font-bold text-success leading-none tabular-nums">{r.flow30d.unitsIn.toLocaleString()}</div>
+                <div className="text-[11px] font-medium text-t3 mt-1">units came in (stock-ins, returns, transfers in)</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-surface-2 border border-line">
+              <ArrowUpFromLine className="w-5 h-5 text-t2 shrink-0" />
+              <div>
+                <div className="font-mono text-[20px] font-bold text-t1 leading-none tabular-nums">{r.flow30d.unitsOut.toLocaleString()}</div>
+                <div className="text-[11px] font-medium text-t3 mt-1">units went out (sales, transfers out)</div>
+              </div>
+            </div>
+          </div>
+        </Card>
+        <Card className="lg:col-span-2 p-5">
+          <div className="text-[14px] font-bold text-t1 mb-4">Fastest movers · units out, last 30 days</div>
+          {r.topMovers.length === 0 ? (
+            <div className="text-[12px] text-t4 py-4 text-center">Movement builds this list as you sell and restock.</div>
+          ) : (
+            <div className="space-y-3">
+              {r.topMovers.slice(0, 6).map((m) => {
+                const max = r.topMovers[0].unitsOut || 1;
+                return (
+                  <div key={m.id}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[12px] font-medium text-t2 truncate">{m.name}</span>
+                      <span className="text-[11px] font-mono text-t3 shrink-0 ml-2">
+                        <span className="text-success">+{m.unitsIn}</span> in · <span className="text-t1 font-semibold">−{m.unitsOut}</span> out
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-400" style={{ width: `${(m.unitsOut / max) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
       </div>
 
       <div className={cn("grid grid-cols-1 gap-4", showExpiry && "lg:grid-cols-2")}>

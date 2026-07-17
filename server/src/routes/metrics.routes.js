@@ -3,6 +3,9 @@ import { DailyMetric } from "../models/DailyMetric.js";
 import { Sale } from "../models/Sale.js";
 import { Product } from "../models/Product.js";
 import { Inventory } from "../models/Inventory.js";
+import { StockMovement } from "../models/StockMovement.js";
+import { Customer } from "../models/Customer.js";
+import { Attendance } from "../models/Attendance.js";
 import { requirePerm, canSeeCost } from "../middleware/tenant.js";
 import { localDay } from "../lib/metrics.js";
 import { money } from "../lib/money.js";
@@ -123,14 +126,109 @@ metricsRouter.get("/inventory-report", requirePerm("dashboard_ops", "stock"), as
   lowStock.sort((a, b) => a.stock - b.stock);
   expiringSoon.sort((a, b) => new Date(a.expiry) - new Date(b.expiry));
 
+  // In/Out over the last 30 days: what came onto the shelf vs what left it.
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const moveBranch = req.ctx.branchId ? { branchId: req.ctx.branchId } : {};
+  const flows = await StockMovement.aggregate([
+    { $match: { businessId: req.ctx.businessId, ...moveBranch, at: { $gte: since } } },
+    {
+      $group: {
+        _id: "$productId",
+        name: { $first: "$productName" },
+        unitsIn: { $sum: { $cond: [{ $gt: ["$qty", 0] }, "$qty", 0] } },
+        unitsOut: { $sum: { $cond: [{ $lt: ["$qty", 0] }, { $abs: "$qty" }, 0] } },
+      },
+    },
+  ]);
+  let unitsIn = 0, unitsOut = 0;
+  for (const f of flows) { unitsIn += f.unitsIn; unitsOut += f.unitsOut; }
+  const topMovers = [...flows].sort((a, b) => b.unitsOut - a.unitsOut).slice(0, 10)
+    .map((f) => ({ id: f._id, name: f.name, unitsIn: f.unitsIn, unitsOut: f.unitsOut }));
+
   res.json({
     skus: products.length,
     units,
     retailValue: money(retailValue),
     ...(showFinance ? { costValue: money(costValue), potentialProfit: money(retailValue - costValue) } : {}),
+    flow30d: { unitsIn, unitsOut },
+    topMovers,
     lowStock: lowStock.slice(0, 15),
     expiringSoon: expiringSoon.slice(0, 15),
   });
+});
+
+// GET /api/metrics/customers-report — the Customers tab
+metricsRouter.get("/customers-report", requirePerm("dashboard_ops"), async (req, res) => {
+  const scope = { businessId: req.ctx.businessId };
+  const since30 = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+
+  const total = await Customer.countDocuments(scope);
+  const newThisMonth = await Customer.countDocuments({ ...scope, firstSeen: { $gte: since30 } });
+  const repeat = await Customer.countDocuments({ ...scope, visits: { $gte: 2 } });
+  const active30 = await Customer.countDocuments({ ...scope, lastSeen: { $gte: since30 } });
+
+  const top = await Customer.find(scope).sort({ totalSpend: -1 }).limit(10).select("name phone totalSpend visits lastSeen");
+  const recent = await Customer.find(scope).sort({ firstSeen: -1 }).limit(8).select("name phone totalSpend visits firstSeen");
+
+  res.json({
+    totals: {
+      customers: total,
+      newLast30: newThisMonth,
+      activeLast30: active30,
+      repeatRate: total > 0 ? Math.round((repeat / total) * 100) : 0,
+    },
+    topSpenders: top.map((c) => ({ id: c._id, name: c.name, phone: c.phone, totalSpend: c.totalSpend, visits: c.visits, lastSeen: c.lastSeen })),
+    newest: recent.map((c) => ({ id: c._id, name: c.name, phone: c.phone, totalSpend: c.totalSpend, visits: c.visits, firstSeen: c.firstSeen })),
+  });
+});
+
+// GET /api/metrics/staff-report — the Staff tab (30-day window)
+metricsRouter.get("/staff-report", requirePerm("dashboard_ops"), async (req, res) => {
+  const branchFilter = req.ctx.branchId ? { branchId: req.ctx.branchId } : {};
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const sinceDay = localDay(since);
+
+  const perf = await Sale.aggregate([
+    { $match: { businessId: req.ctx.businessId, ...branchFilter, at: { $gte: since } } },
+    {
+      $group: {
+        _id: "$staffId",
+        name: { $first: "$staffName" },
+        sales: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
+        voids: { $sum: { $cond: [{ $eq: ["$status", "voided"] }, 1, 0] } },
+        revenue: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$total", 0] } },
+        discounts: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$discount", 0] } },
+      },
+    },
+    { $sort: { revenue: -1 } },
+  ]);
+
+  const hours = await Attendance.aggregate([
+    { $match: { businessId: req.ctx.businessId, ...branchFilter, date: { $gte: sinceDay } } },
+    { $group: { _id: "$userId", name: { $first: "$staffName" }, hours: { $sum: "$hours" }, shifts: { $sum: 1 } } },
+  ]);
+  const hoursBy = new Map(hours.map((h) => [String(h._id), h]));
+
+  const staff = perf.map((p) => {
+    const h = hoursBy.get(String(p._id));
+    if (h) hoursBy.delete(String(p._id));
+    return {
+      name: p.name,
+      sales: p.sales,
+      voids: p.voids,
+      revenue: money(p.revenue),
+      discounts: money(p.discounts),
+      avgSale: p.sales > 0 ? money(p.revenue / p.sales) : 0,
+      hours: h ? money(h.hours) : 0,
+      shifts: h ? h.shifts : 0,
+    };
+  });
+  // Staff who clocked in but sold nothing still show up.
+  for (const h of hoursBy.values()) {
+    staff.push({ name: h.name, sales: 0, voids: 0, revenue: 0, discounts: 0, avgSale: 0, hours: money(h.hours), shifts: h.shifts });
+  }
+
+  res.json({ days: 30, staff });
 });
 
 // GET /api/metrics/dashboard — everything the dashboard needs in one call.

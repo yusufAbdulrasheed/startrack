@@ -6,6 +6,7 @@ import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
 import { Dashboard } from "@/pages/Dashboard";
 import { POS } from "@/pages/POS";
+import { Sales } from "@/pages/Sales";
 import { Products } from "@/pages/Products";
 import { StockIn } from "@/pages/StockIn";
 import { Transfers } from "@/pages/Transfers";
@@ -41,6 +42,7 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="pos" element={<POS />} />
+        <Route path="sales" element={<Sales />} />
         <Route path="products" element={<Products />} />
         <Route path="stock-in" element={<StockIn />} />
         <Route path="transfers" element={<Transfers />} />

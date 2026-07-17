@@ -219,13 +219,16 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
   });
 });
 
-// GET /api/sales?date=YYYY-MM-DD&limit=&mine=1 — branch sales list
+// GET /api/sales — branch sales history.
+// Filters: date=YYYY-MM-DD | from&to | staffId | status | saleNo | mine=1
 salesRouter.get("/", requirePerm("sales", "dashboard_ops"), requireBranch, async (req, res) => {
   const filter = { businessId: req.ctx.businessId, branchId: req.ctx.branchId };
   if (req.query.mine === "1" || !req.ctx.perms.includes("*") && !req.ctx.perms.includes("dashboard_ops")) {
     // Staff see their own sales only.
     filter.staffId = req.ctx.userId;
   }
+  if (req.query.staffId) filter.staffId = req.query.staffId;
+  if (req.query.status === "completed" || req.query.status === "voided") filter.status = req.query.status;
   if (req.query.saleNo) {
     filter.saleNo = { $regex: `${String(req.query.saleNo).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" };
   }
@@ -233,11 +236,29 @@ salesRouter.get("/", requirePerm("sales", "dashboard_ops"), requireBranch, async
     const day = new Date(`${req.query.date}T00:00:00`);
     const next = new Date(day.getTime() + 24 * 3600 * 1000);
     filter.at = { $gte: day, $lt: next };
+  } else if (req.query.from || req.query.to) {
+    filter.at = {};
+    if (req.query.from) filter.at.$gte = new Date(`${req.query.from}T00:00:00`);
+    if (req.query.to) filter.at.$lt = new Date(new Date(`${req.query.to}T00:00:00`).getTime() + 24 * 3600 * 1000);
   }
-  const limit = Math.min(Number(req.query.limit) || 50, 200);
+  const limit = Math.min(Number(req.query.limit) || 50, 500);
   const sales = await Sale.find(filter).sort({ at: -1 }).limit(limit);
   const showCost = canSeeCost(req.ctx);
-  res.json({ sales: sales.map((s) => shapeSale(s, showCost)) });
+
+  // Totals reflect the filter (completed sales only), so the page's
+  // summary bar always matches what the user is looking at.
+  const completed = sales.filter((s) => s.status === "completed");
+  res.json({
+    sales: sales.map((s) => shapeSale(s, showCost)),
+    totals: {
+      count: sales.length,
+      completed: completed.length,
+      voided: sales.length - completed.length,
+      revenue: money(completed.reduce((sum, s) => sum + s.total, 0)),
+      discount: money(completed.reduce((sum, s) => sum + s.discount, 0)),
+      vat: money(completed.reduce((sum, s) => sum + s.vat, 0)),
+    },
+  });
 });
 
 // GET /api/sales/:id — one sale (receipt reprint, return submission)

@@ -25,12 +25,12 @@ export function StatCard({
   return (
     <Card
       interactive
-      className="p-5 relative overflow-hidden animate-fade-up"
+      className="p-4 relative overflow-hidden animate-fade-up"
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="flex items-start justify-between">
-        <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-          <Icon className="w-5 h-5" />
+        <div className="w-9 h-9 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
+          <Icon className="w-[18px] h-[18px]" />
         </div>
         {delta && (
           <span
@@ -44,10 +44,10 @@ export function StatCard({
           </span>
         )}
       </div>
-      <div className="mt-4 text-[26px] leading-none font-bold font-mono text-t1 tabular-nums">{value}</div>
-      <div className="mt-1.5 text-[12px] font-medium text-t3">{label}</div>
+      <div className="mt-3 text-[22px] leading-none font-bold font-mono text-t1 tabular-nums truncate">{value}</div>
+      <div className="mt-1 text-[12px] font-medium text-t3 truncate">{label}</div>
       {sparkData.length > 1 && (
-        <div className="h-9 -mx-1 mt-3">
+        <div className="h-8 -mx-1 mt-2.5">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={sparkData} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
               <defs>
