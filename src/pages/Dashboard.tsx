@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
   Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
+  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -13,7 +14,7 @@ import { EmptyState, Spinner } from "@/components/ui/EmptyState";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { SalesHistoryView } from "@/pages/Sales";
-import { fmtMoney, fmtTime } from "@/lib/format";
+import { fmtMoney, fmtTime, fmtDate, fmtDateTime, todayStr } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Metrics = {
@@ -42,10 +43,10 @@ function ChartTooltip({ active, payload, label, currency }: any) {
   );
 }
 
-type Tab = "overview" | "sales" | "inventory" | "customers" | "staff" | "archive";
+type Tab = "overview" | "sales" | "expenses" | "inventory" | "movement" | "customers" | "staff" | "expiry" | "archive";
 
 export function Dashboard() {
-  const { session, activeBusiness, activeBranch, currency } = useSession();
+  const { session, activeBusiness, activeBranch, currency, hasModule } = useSession();
   const [tab, setTab] = useState<Tab>("overview");
   const { data: m, loading, error, reload } = useApi<Metrics>("/metrics/dashboard", [activeBranch?.id]);
 
@@ -94,9 +95,12 @@ export function Dashboard() {
         {([
           { k: "overview", label: "Overview", icon: Wallet },
           { k: "sales", label: "Sales", icon: Receipt },
+          ...(hasModule("expenses") ? [{ k: "expenses", label: "Expenses", icon: ReceiptText }] : []),
           { k: "inventory", label: "Inventory", icon: Boxes },
-          { k: "customers", label: "Customers", icon: Users },
+          { k: "movement", label: "Movement", icon: ArrowLeftRight },
+          ...(hasModule("customers") ? [{ k: "customers", label: "Customers", icon: Users }] : []),
           { k: "staff", label: "Staff", icon: UserCog },
+          ...(hasModule("expiry") ? [{ k: "expiry", label: "Expiry", icon: CalendarClock }] : []),
           { k: "archive", label: "Archive", icon: History },
         ] as { k: Tab; label: string; icon: any }[]).map(({ k, label, icon: Icon }) => (
           <button
@@ -113,9 +117,12 @@ export function Dashboard() {
       </div>
 
       {tab === "sales" && <SalesTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "expenses" && <ExpensesTab currency={currency} branchKey={activeBranch?.id} />}
       {tab === "inventory" && <InventoryTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "movement" && <MovementTab branchKey={activeBranch?.id} />}
       {tab === "customers" && <CustomersTab currency={currency} branchKey={activeBranch?.id} />}
       {tab === "staff" && <StaffTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "expiry" && <ExpiryTab branchKey={activeBranch?.id} />}
       {tab === "archive" && <SalesHistoryView />}
       {tab !== "overview" ? null : (
       <>
@@ -399,6 +406,209 @@ function SalesTab({ currency, branchKey }: { currency: string; branchKey?: strin
           )}
         </Card>
       </div>
+    </>
+  );
+}
+
+// ── Expenses tab ─────────────────────────────────────────────
+type ExpenseRow = { id: string; type: string; amount: number; notes: string; paidBy: string; actorName: string; at: string };
+
+function ExpensesTab({ currency, branchKey }: { currency: string; branchKey?: string }) {
+  const from = todayStr().slice(0, 8) + "01"; // this month
+  const { data: r, loading } = useApi<{ expenses: ExpenseRow[]; total: number }>(
+    `/expenses?from=${from}&to=${todayStr()}`,
+    [branchKey]
+  );
+  if (loading || !r) return <Spinner />;
+
+  const byType = new Map<string, number>();
+  for (const e of r.expenses) byType.set(e.type, (byType.get(e.type) || 0) + e.amount);
+  const typeRows = [...byType.entries()].sort((a, b) => b[1] - a[1]);
+  const biggest = typeRows[0];
+
+  return (
+    <>
+      <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
+        <StatCard index={0} label="Spent this month" value={fmtMoney(r.total, currency)} icon={ReceiptText} />
+        <StatCard index={1} label="Entries" value={String(r.expenses.length)} icon={Receipt} />
+        <StatCard index={2} label={biggest ? `Biggest: ${biggest[0]}` : "Biggest category"} value={biggest ? fmtMoney(biggest[1], currency) : "—"} icon={TrendingUp} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <div className="text-[14px] font-bold text-t1 mb-4">By type · this month</div>
+          {typeRows.length === 0 ? (
+            <div className="text-[12px] text-t4 py-4 text-center">No expenses recorded this month.</div>
+          ) : (
+            <div className="space-y-3">
+              {typeRows.map(([type, amount]) => {
+                const max = typeRows[0][1] || 1;
+                return (
+                  <div key={type}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[12px] font-medium text-t2">{type}</span>
+                      <span className="text-[11px] font-mono font-semibold text-t1">{fmtMoney(amount, currency)}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                      <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-400" style={{ width: `${(amount / max) * 100}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+        <Card className="overflow-hidden">
+          <div className="p-4 pb-2 text-[14px] font-bold text-t1">Recent entries</div>
+          {r.expenses.length === 0 ? (
+            <div className="text-[12px] text-t4 py-8 text-center">Record expenses on the Expenses page.</div>
+          ) : (
+            <div className="divide-y divide-line">
+              {r.expenses.slice(0, 8).map((e) => (
+                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-danger-soft text-danger flex items-center justify-center shrink-0">
+                    <ReceiptText className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-t1">{e.type}</div>
+                    <div className="text-[11px] text-t3 truncate">{e.actorName} · {fmtDate(e.at)}</div>
+                  </div>
+                  <span className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(e.amount, currency)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </>
+  );
+}
+
+// ── Movement tab ─────────────────────────────────────────────
+type MovementRow = {
+  id: string; productName: string; type: string; qty: number; balanceAfter: number;
+  reason: string; actorName: string; at: string;
+};
+
+const MOVE_META: Record<string, { label: string; icon: any; tone: "success" | "danger" | "brand" | "warning" | "neutral" }> = {
+  IN: { label: "Stock in", icon: ArrowDownToLine, tone: "success" },
+  OUT: { label: "Sale", icon: ArrowUpFromLine, tone: "neutral" },
+  TRANSFER_IN: { label: "Transfer in", icon: ArrowLeftRight, tone: "brand" },
+  TRANSFER_OUT: { label: "Transfer out", icon: ArrowLeftRight, tone: "warning" },
+  RETURN: { label: "Return", icon: Undo2, tone: "brand" },
+  ADJUST: { label: "Adjustment", icon: Wrench, tone: "warning" },
+  VOID_RESTOCK: { label: "Void restock", icon: RotateCcw, tone: "danger" },
+};
+
+function MovementTab({ branchKey }: { branchKey?: string }) {
+  const [type, setType] = useState("");
+  const { data, loading } = useApi<{ movements: MovementRow[] }>(
+    `/inventory/movements?limit=60${type ? `&type=${type}` : ""}`,
+    [branchKey, type]
+  );
+
+  const FILTERS = [
+    { key: "", label: "All" },
+    { key: "IN", label: "Stock in" },
+    { key: "OUT", label: "Sales" },
+    { key: "TRANSFER_OUT", label: "Transfers" },
+    { key: "RETURN", label: "Returns" },
+    { key: "ADJUST", label: "Adjustments" },
+  ];
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="p-4 pb-2 flex items-center gap-3 flex-wrap">
+        <div>
+          <div className="text-[14px] font-bold text-t1">Inventory movement</div>
+          <div className="text-[12px] text-t3">Every unit in and out — the ledger, newest first</div>
+        </div>
+        <div className="flex gap-1.5 ml-auto flex-wrap">
+          {FILTERS.map((f) => (
+            <button key={f.key} onClick={() => setType(f.key)}
+              className={cn("px-2.5 h-7 rounded-full text-[11px] font-semibold border transition-colors",
+                type === f.key ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1")}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {loading ? (
+        <Spinner />
+      ) : !data?.movements.length ? (
+        <EmptyState icon={ArrowLeftRight} title="No movements" body="Stock-ins, sales, transfers and adjustments appear here as they happen." />
+      ) : (
+        <div className="divide-y divide-line">
+          {data.movements.map((m) => {
+            const meta = MOVE_META[m.type] || MOVE_META.ADJUST;
+            const Icon = meta.icon;
+            return (
+              <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
+                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                  m.qty > 0 ? "bg-success-soft text-success" : "bg-surface-3 text-t3")}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-t1 truncate">{m.productName}</div>
+                  <div className="text-[11px] text-t3 truncate">
+                    <Badge tone={meta.tone} className="mr-1.5">{meta.label}</Badge>
+                    {m.reason && `${m.reason} · `}{m.actorName} · {fmtDateTime(m.at)}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className={cn("font-mono text-[13px] font-bold tabular-nums", m.qty > 0 ? "text-success" : "text-t1")}>
+                    {m.qty > 0 ? "+" : ""}{m.qty}
+                  </div>
+                  <div className="text-[10px] text-t4 font-mono">bal {m.balanceAfter}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Expiry tab ───────────────────────────────────────────────
+function ExpiryTab({ branchKey }: { branchKey?: string }) {
+  const { data: r, loading } = useApi<{ expiringSoon: { id: string; name: string; stock: number; expiry: string; expired: boolean }[] }>(
+    "/metrics/inventory-report",
+    [branchKey]
+  );
+  if (loading || !r) return <Spinner />;
+  const expired = r.expiringSoon.filter((e) => e.expired);
+  const soon = r.expiringSoon.filter((e) => !e.expired);
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 mb-6 xl:grid-cols-3">
+        <StatCard index={0} label="Already expired (still in stock)" value={String(expired.length)} icon={AlertTriangle} />
+        <StatCard index={1} label="Expiring within 30 days" value={String(soon.length)} icon={CalendarClock} />
+      </div>
+      <Card className="overflow-hidden">
+        <div className="p-4 pb-2 text-[14px] font-bold text-t1">Expiry watchlist</div>
+        {r.expiringSoon.length === 0 ? (
+          <EmptyState icon={CalendarClock} title="Nothing on the watchlist" body="Products with an expiry date within 30 days (and any already expired with stock left) appear here. Set expiry dates when adding or editing products." />
+        ) : (
+          <div className="divide-y divide-line">
+            {r.expiringSoon.map((e) => (
+              <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
+                  e.expired ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning")}>
+                  <CalendarClock className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-t1 truncate">{e.name}</div>
+                  <div className="text-[11px] text-t3">{e.stock} in stock</div>
+                </div>
+                <Badge tone={e.expired ? "danger" : "warning"}>
+                  {e.expired ? "EXPIRED" : `expires ${fmtDate(e.expiry)}`}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
     </>
   );
 }

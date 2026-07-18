@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet } from "lucide-react";
+import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -11,7 +11,8 @@ import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
 import { downloadCsv, parseCsv } from "@/lib/csv";
-import { fmtMoney } from "@/lib/format";
+import { printReport, mono } from "@/lib/printReport";
+import { fmtMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Product = {
@@ -32,6 +33,7 @@ export function Products() {
   const [cat, setCat] = useState("All");
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [importing, setImporting] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   // Global search (topbar) lands here with ?q= — keep the box in sync.
   useEffect(() => {
@@ -55,12 +57,17 @@ export function Products() {
       <PageHeader
         title={term}
         subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
-        actions={can("prices") && (
+        actions={
           <>
-            <Button variant="secondary" onClick={() => setImporting(true)}><Upload className="w-4 h-4" /> Import CSV</Button>
-            <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>
+            <Button variant="secondary" onClick={() => setPrinting(true)} disabled={!products.length}><Printer className="w-4 h-4" /> Print</Button>
+            {can("prices") && (
+              <>
+                <Button variant="secondary" onClick={() => setImporting(true)}><Upload className="w-4 h-4" /> Import CSV</Button>
+                <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>
+              </>
+            )}
           </>
-        )}
+        }
       />
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -157,7 +164,105 @@ export function Products() {
         onSaved={() => { setEditing(null); reload(); }}
       />
       <ImportModal open={importing} onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); }} />
+      <PrintInventoryModal
+        open={printing}
+        onClose={() => setPrinting(false)}
+        products={products}
+        businessName={activeBusiness?.name || "StarTrack"}
+        branchName={activeBranch?.name || ""}
+        currency={currency}
+        showCost={showCost}
+        showExpiry={hasModule("expiry")}
+        term={term}
+      />
     </div>
+  );
+}
+
+// Print Inventory — mirrors the legacy report: choose columns, skip
+// zero-stock, branded table with a stock-value total.
+function PrintInventoryModal({
+  open, onClose, products, businessName, branchName, currency, showCost, showExpiry, term,
+}: {
+  open: boolean; onClose: () => void; products: Product[];
+  businessName: string; branchName: string; currency: string;
+  showCost: boolean; showExpiry: boolean; term: string;
+}) {
+  const [cols, setCols] = useState({ category: true, stock: true, price: true, cost: false, value: true, status: true, expiry: false });
+  const [excludeZero, setExcludeZero] = useState(false);
+  const toggle = (k: keyof typeof cols) => setCols((c) => ({ ...c, [k]: !c[k] }));
+
+  const OPTIONS: { k: keyof typeof cols; label: string; show: boolean }[] = [
+    { k: "category", label: "Category", show: true },
+    { k: "stock", label: "Stock level", show: true },
+    { k: "price", label: "Selling price", show: true },
+    { k: "cost", label: "Cost price", show: showCost },
+    { k: "value", label: "Stock value", show: showCost },
+    { k: "status", label: "Status", show: true },
+    { k: "expiry", label: "Expiry date", show: showExpiry },
+  ];
+
+  function run() {
+    const rows = products.filter((p) => (excludeZero ? p.stock > 0 : true));
+    const columns = [
+      { label: "#", align: "left" as const, render: (_p: Product, i: number) => mono(String(i + 1)) },
+      { label: "Product", render: (p: Product) => `<b>${p.name}</b>` },
+      ...(cols.category ? [{ label: "Category", render: (p: Product) => p.category || "—" }] : []),
+      ...(cols.stock ? [{
+        label: "Stock", align: "right" as const,
+        render: (p: Product) => {
+          const color = p.stock <= 0 ? "#dc2626" : p.stock <= p.reorderLevel ? "#d97706" : "#059669";
+          return `<span style="color:${color};font-family:'Courier New',monospace;font-weight:700">${p.stock}</span>`;
+        },
+      }] : []),
+      ...(cols.price ? [{ label: "Price", align: "right" as const, render: (p: Product) => mono(fmtMoney(p.price, currency)) }] : []),
+      ...(cols.cost && showCost ? [{ label: "Cost", align: "right" as const, render: (p: Product) => mono(fmtMoney(p.cost || 0, currency)) }] : []),
+      ...(cols.value && showCost ? [{ label: "Stock Value", align: "right" as const, render: (p: Product) => mono(fmtMoney((p.cost || 0) * p.stock, currency)) }] : []),
+      ...(cols.expiry && showExpiry ? [{ label: "Expiry", align: "right" as const, render: (p: Product) => (p.expiry ? fmtDate(p.expiry) : "—") }] : []),
+      ...(cols.status ? [{
+        label: "Status", align: "center" as const,
+        render: (p: Product) => {
+          const [label, color] = p.stock <= 0 ? ["Out of Stock", "#dc2626"] : p.stock <= p.reorderLevel ? ["Low Stock", "#d97706"] : ["Available", "#059669"];
+          return `<span style="color:${color};font-weight:700;font-size:11px">${label}</span>`;
+        },
+      }] : []),
+    ];
+    const totals = columns.map((c) =>
+      c.label === "#" ? "Total" :
+      c.label === "Stock" ? String(rows.reduce((s, p) => s + p.stock, 0)) :
+      c.label === "Stock Value" ? fmtMoney(rows.reduce((s, p) => s + (p.cost || 0) * p.stock, 0), currency) : ""
+    );
+    printReport({
+      businessName,
+      title: `${term} Report${branchName ? ` — ${branchName}` : ""}`,
+      subtitle: `${rows.length} products${excludeZero ? " · zero stock excluded" : ""}`,
+      columns, rows, totals,
+    });
+    onClose();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Print inventory" subtitle="Choose what appears on the report — it opens ready to print">
+      <div className="space-y-1.5">
+        {OPTIONS.filter((o) => o.show).map((o) => (
+          <button key={o.k} type="button" onClick={() => toggle(o.k)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors">
+            <span className="text-[13px] font-semibold text-t1">{o.label}</span>
+            <span className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${cols[o.k] ? "bg-primary" : "bg-surface-3 border border-line-2"}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${cols[o.k] ? "left-[18px]" : "left-0.5"}`} />
+            </span>
+          </button>
+        ))}
+        <button type="button" onClick={() => setExcludeZero((v) => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors">
+          <span className="text-[13px] font-semibold text-t1">Skip out-of-stock items</span>
+          <span className={`w-9 h-5 rounded-full transition-colors relative shrink-0 ${excludeZero ? "bg-primary" : "bg-surface-3 border border-line-2"}`}>
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${excludeZero ? "left-[18px]" : "left-0.5"}`} />
+          </span>
+        </button>
+      </div>
+      <Button className="w-full mt-4" onClick={run}><Printer className="w-4 h-4" /> Open print view</Button>
+    </Modal>
   );
 }
 
