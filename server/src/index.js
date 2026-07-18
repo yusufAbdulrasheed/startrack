@@ -20,7 +20,8 @@ import { settingsRouter } from "./routes/settings.routes.js";
 import { auditRouter } from "./routes/audit.routes.js";
 
 const app = express();
-app.use(cors({ origin: config.webOrigin, credentials: true }));
+app.set("trust proxy", 1); // real client IPs behind Render/railway proxies (rate limits)
+app.use(cors({ origin: config.webOrigins, credentials: true }));
 app.use(express.json());
 
 // Log every request so you can watch the backend work in the terminal.
