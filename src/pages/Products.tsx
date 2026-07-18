@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, Plus, Search, Pencil, Archive } from "lucide-react";
+import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
+import { downloadCsv, parseCsv } from "@/lib/csv";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ export function Products() {
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [cat, setCat] = useState("All");
   const [editing, setEditing] = useState<Product | "new" | null>(null);
+  const [importing, setImporting] = useState(false);
 
   // Global search (topbar) lands here with ?q= — keep the box in sync.
   useEffect(() => {
@@ -53,7 +55,12 @@ export function Products() {
       <PageHeader
         title={term}
         subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
-        actions={can("prices") && <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>}
+        actions={can("prices") && (
+          <>
+            <Button variant="secondary" onClick={() => setImporting(true)}><Upload className="w-4 h-4" /> Import CSV</Button>
+            <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>
+          </>
+        )}
       />
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -149,7 +156,154 @@ export function Products() {
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); reload(); }}
       />
+      <ImportModal open={importing} onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); }} />
     </div>
+  );
+}
+
+type ImportRow = {
+  name: string; category: string; barcode: string;
+  price: number; cost: number; reorderLevel: number; openingStock: number; expiry: string;
+};
+type ImportResult = { created: number; skipped: { row: number; name: string; reason: string }[] };
+
+// Header aliases: the parser lowercases and strips non-alphanumerics, so
+// "Opening Stock", "opening_stock" and "openingstock" all match.
+const pick = (r: Record<string, string>, ...keys: string[]) => {
+  for (const k of keys) if (r[k] !== undefined && r[k] !== "") return r[k];
+  return "";
+};
+
+function ImportModal({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const [rows, setRows] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+
+  function reset() {
+    setRows([]); setFileName(""); setError(""); setResult(null);
+  }
+
+  function downloadTemplate() {
+    downloadCsv("startrack-products-template.csv", [
+      { name: "Golden Penny Semovita 2kg", category: "Grains", barcode: "6151100017341", price: 2000, cost: 1500, "reorder level": 10, "opening stock": 50, expiry: "" },
+      { name: "Peak Milk 400g", category: "Dairy", barcode: "", price: 1500, cost: 1100, "reorder level": 15, "opening stock": 24, expiry: "2027-01-31" },
+    ]);
+  }
+
+  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(""); setResult(null);
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseCsv(String(reader.result || ""));
+      if (!parsed.length) { setError("Couldn't read any rows. Check the file has a header row (use the template)."); setRows([]); return; }
+      const mapped = parsed.map((r) => ({
+        name: pick(r, "name", "product", "productname", "item"),
+        category: pick(r, "category", "cat") || "General",
+        barcode: pick(r, "barcode", "sku", "code"),
+        price: Number(pick(r, "price", "sellingprice", "sellprice")) || 0,
+        cost: Number(pick(r, "cost", "costprice")) || 0,
+        reorderLevel: Number(pick(r, "reorderlevel", "reorder")) || 5,
+        openingStock: Number(pick(r, "openingstock", "stock", "qty", "quantity")) || 0,
+        expiry: pick(r, "expiry", "expirydate"),
+      }));
+      setRows(mapped);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  async function runImport() {
+    setBusy(true); setError("");
+    try {
+      const res = await api<ImportResult>("/products/import", { method: "POST", body: JSON.stringify({ rows }) });
+      setResult(res);
+      setRows([]);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const bad = rows.filter((r) => !r.name || r.price <= 0).length;
+
+  return (
+    <Modal open={open} onClose={() => { reset(); onClose(); }} title="Import products from CSV" subtitle="Migrate from Excel, Google Sheets, or your old system in one go" wide>
+      {result ? (
+        <div>
+          <div className="px-3 py-3 rounded-ctl bg-success-soft text-success text-[13px] font-semibold">
+            ✓ {result.created} product{result.created === 1 ? "" : "s"} imported{result.skipped.length ? ` · ${result.skipped.length} skipped` : ""}
+          </div>
+          {result.skipped.length > 0 && (
+            <div className="mt-3 max-h-48 overflow-y-auto rounded-ctl border border-line divide-y divide-line">
+              {result.skipped.map((s, i) => (
+                <div key={i} className="px-3 py-2 text-[12px]">
+                  <span className="font-semibold text-t1">Row {s.row} — {s.name}:</span>{" "}
+                  <span className="text-t3">{s.reason}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button className="w-full mt-4" onClick={() => { reset(); onDone(); }}>Done</Button>
+        </div>
+      ) : rows.length === 0 ? (
+        <div>
+          <ErrorBanner message={error} />
+          <label className="mt-2 flex flex-col items-center justify-center gap-2 py-10 rounded-card border-2 border-dashed border-line-2 cursor-pointer hover:border-brand-400 hover:bg-primary-softer transition-colors">
+            <FileSpreadsheet className="w-8 h-8 text-t3" />
+            <span className="text-[13px] font-semibold text-t1">Choose a CSV file</span>
+            <span className="text-[12px] text-t3">Columns: name, category, barcode, price, cost, reorder level, opening stock, expiry</span>
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={onFile} />
+          </label>
+          <button onClick={downloadTemplate} className="mt-3 flex items-center gap-1.5 text-[12px] font-semibold text-primary hover:underline mx-auto">
+            <Download className="w-3.5 h-3.5" /> Download the template
+          </button>
+        </div>
+      ) : (
+        <div>
+          <ErrorBanner message={error} />
+          <div className="flex items-center gap-2 text-[13px] text-t2 mb-3">
+            <FileSpreadsheet className="w-4 h-4 text-primary" />
+            <span className="font-semibold text-t1">{fileName}</span> · {rows.length} row{rows.length === 1 ? "" : "s"}
+            {bad > 0 && <Badge tone="warning">{bad} missing name or price — will be skipped</Badge>}
+          </div>
+          <div className="max-h-64 overflow-auto rounded-ctl border border-line">
+            <table className="w-full min-w-[560px]">
+              <thead>
+                <tr className="text-left">
+                  {["Name", "Category", "Price", "Cost", "Opening stock"].map((h) => (
+                    <th key={h} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line bg-surface-2 sticky top-0">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.slice(0, 50).map((r, i) => (
+                  <tr key={i} className={cn("border-b border-line last:border-0", (!r.name || r.price <= 0) && "opacity-40")}>
+                    <td className="px-3 py-1.5 text-[12px] font-medium text-t1">{r.name || "—"}</td>
+                    <td className="px-3 py-1.5 text-[12px] text-t3">{r.category}</td>
+                    <td className="px-3 py-1.5 text-[12px] font-mono text-t1">{r.price}</td>
+                    <td className="px-3 py-1.5 text-[12px] font-mono text-t3">{r.cost}</td>
+                    <td className="px-3 py-1.5 text-[12px] font-mono text-t3">{r.openingStock}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {rows.length > 50 && <div className="px-3 py-2 text-[11px] text-t4">…and {rows.length - 50} more rows</div>}
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button variant="secondary" onClick={reset}>Choose another file</Button>
+            <Button className="flex-1" disabled={busy || rows.length === bad} onClick={runImport}>
+              <Upload className="w-4 h-4" /> {busy ? "Importing…" : `Import ${rows.length - bad} products`}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

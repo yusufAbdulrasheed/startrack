@@ -120,6 +120,85 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
   res.status(201).json({ product: { ...shape(product, null, canSeeCost(req.ctx)), stock: d.openingStock } });
 });
 
+const importRowSchema = z.object({
+  name: z.string().min(1),
+  category: z.string().default("General"),
+  barcode: z.string().default(""),
+  price: z.number().min(0),
+  cost: z.number().min(0).default(0),
+  reorderLevel: z.number().min(0).default(5),
+  openingStock: z.number().int().min(0).default(0),
+  expiry: z.string().default(""),
+});
+
+// POST /api/products/import — bulk import (CSV parsed client-side into rows).
+// All-or-nothing per row: bad rows are reported and skipped, good rows land.
+// Duplicate names (case-insensitive) and barcodes already in the catalog are skipped.
+productsRouter.post("/import", requirePerm("prices"), async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: "invalid", message: "No rows to import." });
+  if (rows.length > 2000) return res.status(400).json({ error: "too_many", message: "Import at most 2,000 products at a time." });
+
+  const existing = await Product.find({ businessId: req.ctx.businessId, status: "active" }).select("name barcode");
+  const namesTaken = new Set(existing.map((p) => p.name.trim().toLowerCase()));
+  const barcodesTaken = new Set(existing.filter((p) => p.barcode).map((p) => p.barcode));
+
+  const { applyMovement } = await import("../lib/inventoryService.js");
+  const results = { created: 0, skipped: [] };
+
+  for (let i = 0; i < rows.length; i++) {
+    const parsed = importRowSchema.safeParse(rows[i]);
+    if (!parsed.success) {
+      results.skipped.push({ row: i + 1, name: rows[i]?.name || "(no name)", reason: parsed.error.issues[0].message });
+      continue;
+    }
+    const d = parsed.data;
+    const nameKey = d.name.trim().toLowerCase();
+    if (namesTaken.has(nameKey)) {
+      results.skipped.push({ row: i + 1, name: d.name, reason: "Already in catalog (same name)" });
+      continue;
+    }
+    if (d.barcode && barcodesTaken.has(d.barcode)) {
+      results.skipped.push({ row: i + 1, name: d.name, reason: "Barcode already in use" });
+      continue;
+    }
+    const expiryDate = d.expiry && !Number.isNaN(new Date(d.expiry).getTime()) ? new Date(d.expiry) : undefined;
+
+    const product = await Product.create({
+      accountId: req.ctx.accountId,
+      businessId: req.ctx.businessId,
+      name: d.name.trim(),
+      barcode: d.barcode.trim(),
+      category: d.category.trim() || "General",
+      price: money(d.price),
+      cost: money(d.cost),
+      reorderLevel: d.reorderLevel,
+      expiry: expiryDate,
+    });
+    namesTaken.add(nameKey);
+    if (d.barcode) barcodesTaken.add(d.barcode);
+
+    if (d.openingStock > 0 && req.ctx.branchId) {
+      await applyMovement(req.ctx, {
+        branchId: req.ctx.branchId,
+        productId: product._id,
+        productName: product.name,
+        type: "IN",
+        qty: d.openingStock,
+        refType: "manual",
+        reason: "CSV import — opening stock",
+      });
+    }
+    results.created++;
+  }
+
+  audit(req.ctx, "product.import", { type: "product", label: `${results.created} imported` }, undefined, {
+    created: results.created,
+    skipped: results.skipped.length,
+  });
+  res.status(201).json(results);
+});
+
 // PATCH /api/products/:id — price changes are audited with before/after
 productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   const parsed = productSchema.partial().safeParse(req.body);
