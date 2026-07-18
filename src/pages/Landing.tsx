@@ -14,9 +14,41 @@ import {
   WifiOff,
   Zap,
 } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useSession } from "@/lib/session";
+
+// One-click sandbox: seeded business, no signup, resets in 24h.
+function DemoButton({ size = "sm", children, className }: { size?: "sm" | "md" | "lg"; children: React.ReactNode; className?: string }) {
+  const { demoLogin } = useSession();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function go() {
+    setBusy(true);
+    setError("");
+    try {
+      await demoLogin();
+      navigate("/app/dashboard");
+    } catch (err: any) {
+      setError(err.message || "Could not start the demo");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="inline-flex flex-col items-center gap-1">
+      <Button size={size} className={className} onClick={go} disabled={busy}>
+        {busy ? "Setting up your shop…" : children}
+      </Button>
+      {error && <span className="text-[11px] font-semibold text-danger">{error}</span>}
+    </span>
+  );
+}
 
 const FEATURES = [
   { icon: ScanLine, title: "Lightning POS", body: "Scan or search, take payment, print or WhatsApp a receipt — in under three taps. Built for busy counters." },
@@ -66,9 +98,7 @@ function Nav() {
           <Link to="/login" className="hidden sm:block">
             <Button variant="ghost" size="sm">Sign in</Button>
           </Link>
-          <Link to="/register">
-            <Button size="sm">Try the demo</Button>
-          </Link>
+          <DemoButton size="sm">Try the demo</DemoButton>
           <button className="md:hidden w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t2">
             <Menu className="w-4 h-4" />
           </button>
@@ -98,11 +128,9 @@ function Hero() {
           works the way <em>your</em> business works. Supermarket, pharmacy, restaurant, or hotel.
         </p>
         <div className="mt-8 flex items-center justify-center gap-3 flex-wrap animate-fade-up" style={{ animationDelay: "180ms" }}>
-          <Link to="/register">
-            <Button size="lg" className="shadow-brand">
-              Try the live demo <ArrowRight className="w-4 h-4" />
-            </Button>
-          </Link>
+          <DemoButton size="lg" className="shadow-brand">
+            <>Try the live demo <ArrowRight className="w-4 h-4" /></>
+          </DemoButton>
           <Button variant="outline" size="lg">
             <PlayCircle className="w-4 h-4" /> Watch 2-min tour
           </Button>

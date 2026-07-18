@@ -8,6 +8,8 @@ const accountSchema = new mongoose.Schema(
     ownerUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     plan: { type: String, enum: ["free", "growth", "pro"], default: "free" },
     status: { type: String, enum: ["active", "suspended"], default: "active" },
+    // Throwaway "Try the demo" sandboxes — swept after 24h.
+    isSandbox: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );

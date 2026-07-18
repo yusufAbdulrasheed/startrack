@@ -72,6 +72,10 @@ app.use((err, _req, res, _next) => {
 async function start() {
   try {
     await connectDb();
+    // Sweep expired demo sandboxes on boot and hourly thereafter.
+    const { cleanupSandboxes } = await import("./lib/demoSeed.js");
+    cleanupSandboxes().catch((e) => console.error("sandbox sweep failed:", e.message));
+    setInterval(() => cleanupSandboxes().catch((e) => console.error("sandbox sweep failed:", e.message)), 60 * 60 * 1000).unref();
     app.listen(config.port, () => {
       console.log(`\n🚀 StarTrack API running on http://localhost:${config.port}`);
       console.log(`   Health: http://localhost:${config.port}/api/health\n`);

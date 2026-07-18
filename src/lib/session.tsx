@@ -12,6 +12,7 @@ export type Branch = { id: string; businessId: string; name: string };
 export type Session = {
   token?: string;
   mode?: "till";
+  demo?: boolean;
   user: { id: string; name: string; email: string };
   account: { id: string; name: string; plan: string };
   role: "owner" | "admin" | "manager" | "staff";
@@ -36,6 +37,7 @@ type Ctx = {
   setActiveBranch: (id: string) => void;
   login: (email: string, password: string) => Promise<void>;
   tillLogin: (businessCode: string, pin: string) => Promise<void>;
+  demoLogin: () => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => void;
   can: (perm: string) => boolean;
@@ -103,6 +105,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
       tillLogin: async (businessCode, pin) => {
         const s = await api<Session>("/auth/till", { method: "POST", body: JSON.stringify({ businessCode, pin }) });
+        applySession(s);
+      },
+      demoLogin: async () => {
+        const s = await api<Session>("/auth/demo", { method: "POST", body: JSON.stringify({}) });
         applySession(s);
       },
       register: async (input) => {

@@ -9,6 +9,7 @@ import { hashPassword, checkPassword, signToken, permsForRole } from "../lib/aut
 import { requireAuth } from "../middleware/requireAuth.js";
 import { rateLimit } from "../lib/rateLimit.js";
 import { typeTemplate } from "../lib/businessTypes.js";
+import { createDemoSandbox } from "../lib/demoSeed.js";
 
 export const authRouter = Router();
 
@@ -102,6 +103,21 @@ authRouter.post("/login", async (req, res) => {
   return res.json(sessionPayload(user, account, membership, { businesses, branches }));
 });
 
+// POST /api/auth/demo — no-signup sandbox: a seeded business, gone in 24h.
+// Rate-limited per IP so the endpoint can't be used to flood the database.
+authRouter.post("/demo", async (req, res) => {
+  const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+  if (!rateLimit(`demo:${ip}`, { max: 3, windowMs: 60 * 60 * 1000 })) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many demo sessions from this device. Try again in an hour." });
+  }
+
+  const { user, account, business, branch, membership } = await createDemoSandbox();
+  const body = sessionPayload(user, account, membership, { businesses: [business], branches: [branch] }, false);
+  // Demo tokens die with the sandbox.
+  body.token = signToken({ sub: String(user._id), accountId: String(account._id), name: user.name }, { expiresIn: "24h" });
+  return res.status(201).json(body);
+});
+
 const tillSchema = z.object({
   businessCode: z.string().min(4, "Enter your business code"),
   pin: z.string().regex(/^\d{4,6}$/, "PIN must be 4–6 digits"),
@@ -175,6 +191,7 @@ function sessionPayload(user, account, membership, { businesses, branches }, wit
   const body = {
     user: { id: user._id, name: user.name, email: user.email },
     account: { id: account._id, name: account.name, plan: account.plan },
+    demo: !!account.isSandbox,
     role: membership?.role || "staff",
     permissions: permsForRole(membership?.role || "staff", membership?.permsOverride || []),
     businesses: businesses.map((b) => ({ id: b._id, name: b.name, typeKey: b.typeKey, settings: b.settings })),
