@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
-  Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine,
+  Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -12,6 +12,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
+import { SalesHistoryView } from "@/pages/Sales";
 import { fmtMoney, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +42,7 @@ function ChartTooltip({ active, payload, label, currency }: any) {
   );
 }
 
-type Tab = "overview" | "sales" | "inventory" | "customers" | "staff";
+type Tab = "overview" | "sales" | "inventory" | "customers" | "staff" | "archive";
 
 export function Dashboard() {
   const { session, activeBusiness, activeBranch, currency } = useSession();
@@ -96,6 +97,7 @@ export function Dashboard() {
           { k: "inventory", label: "Inventory", icon: Boxes },
           { k: "customers", label: "Customers", icon: Users },
           { k: "staff", label: "Staff", icon: UserCog },
+          { k: "archive", label: "Archive", icon: History },
         ] as { k: Tab; label: string; icon: any }[]).map(({ k, label, icon: Icon }) => (
           <button
             key={k}
@@ -114,6 +116,7 @@ export function Dashboard() {
       {tab === "inventory" && <InventoryTab currency={currency} branchKey={activeBranch?.id} />}
       {tab === "customers" && <CustomersTab currency={currency} branchKey={activeBranch?.id} />}
       {tab === "staff" && <StaffTab currency={currency} branchKey={activeBranch?.id} />}
+      {tab === "archive" && <SalesHistoryView />}
       {tab !== "overview" ? null : (
       <>
       {/* KPI row */}

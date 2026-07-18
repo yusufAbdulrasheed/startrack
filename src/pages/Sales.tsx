@@ -23,6 +23,21 @@ type Sale = {
 type Totals = { count: number; completed: number; voided: number; revenue: number; discount: number; vat: number };
 
 export function Sales() {
+  const { activeBranch } = useSession();
+  return (
+    <div className="p-6 lg:p-8 max-w-[1200px] mx-auto">
+      <PageHeader
+        title="Sales History"
+        subtitle={`${activeBranch?.name || ""} · every sale on record — voided ones stay, flagged`}
+      />
+      <SalesHistoryView />
+    </div>
+  );
+}
+
+// The archive itself — used by the Sales History page AND the dashboard's
+// Archive tab, so both always show exactly the same truth.
+export function SalesHistoryView() {
   const { activeBranch, currency, can } = useSession();
   const [from, setFrom] = useState(() => todayStr().slice(0, 8) + "01"); // this month
   const [to, setTo] = useState(todayStr);
@@ -55,13 +70,7 @@ export function Sales() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-[1200px] mx-auto">
-      <PageHeader
-        title="Sales History"
-        subtitle={`${activeBranch?.name || ""} · every sale on record — voided ones stay, flagged`}
-        actions={<Button variant="secondary" onClick={exportCsv} disabled={!sales.length}><Download className="w-4 h-4" /> Export CSV</Button>}
-      />
-
+    <div>
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="!w-40" />
@@ -76,6 +85,9 @@ export function Sales() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
           <Input value={saleNo} onChange={(e) => setSaleNo(e.target.value)} placeholder="Receipt no." className="!w-40 !pl-9" />
         </div>
+        <Button variant="secondary" className="ml-auto" onClick={exportCsv} disabled={!sales.length}>
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
       </div>
 
       {/* Totals bar */}
