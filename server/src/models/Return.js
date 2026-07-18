@@ -17,6 +17,8 @@ const returnSchema = new mongoose.Schema(
         qty: { type: Number, required: true, min: 1 },
         unitPrice: { type: Number, required: true }, // from the original sale line
         unitCost: { type: Number, default: 0 },
+        // Custom-made items refund money but can't restock (the fabric is cut).
+        restock: { type: Boolean, default: true },
       },
     ],
     refund: {

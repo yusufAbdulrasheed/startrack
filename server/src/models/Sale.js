@@ -23,6 +23,18 @@ const saleSchema = new mongoose.Schema(
         lineCost: { type: Number, default: 0 }, // qty * unit cost at time of sale
         lineNet: { type: Number, required: true }, // qty * unitPrice
         returnedQty: { type: Number, default: 0 }, // maintained by the returns module
+        // Made-to-order lines: the order's dimensions and the exact
+        // components consumed (void restores THESE, not the MTO product).
+        width: { type: Number },
+        height: { type: Number },
+        components: [
+          {
+            _id: false,
+            productId: { type: mongoose.Schema.Types.ObjectId, required: true },
+            name: { type: String, required: true },
+            qty: { type: Number, required: true },
+          },
+        ],
       },
     ],
     subtotal: { type: Number, required: true },

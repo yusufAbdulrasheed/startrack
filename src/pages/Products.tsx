@@ -16,10 +16,19 @@ import { printBarcodeLabels, type LabelSize } from "@/lib/barcodes";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+type BomLine = { productId: string; per: "sqm" | "width" | "height" | "unit"; factor: number };
 type Product = {
   id: string; name: string; barcode: string; category: string;
-  price: number; cost?: number; reorderLevel: number; stock: number; status: string;
+  archetype?: string; bom?: BomLine[];
+  price: number; cost?: number; reorderLevel: number; stock: number | null; status: string;
   expiry?: string | null;
+};
+
+const PER_LABELS: Record<BomLine["per"], string> = {
+  sqm: "per m² of the order",
+  width: "per meter of width",
+  height: "per meter of height",
+  unit: "per item (fixed)",
 };
 
 export function Products() {
@@ -121,7 +130,7 @@ export function Products() {
               </thead>
               <tbody>
                 {filtered.map((p) => {
-                  const low = p.stock <= p.reorderLevel;
+                  const low = p.stock !== null && p.stock <= p.reorderLevel;
                   return (
                     <tr key={p.id} className="hover:bg-surface-2 transition-colors border-b border-line last:border-0">
                       <td className="px-4 py-3">
@@ -134,8 +143,14 @@ export function Products() {
                         <td className="px-4 py-3 font-mono text-[12px] text-t3 tabular-nums">{p.cost !== undefined ? fmtMoney(p.cost, currency) : "—"}</td>
                       )}
                       <td className="px-4 py-3">
-                        <span className={cn("font-mono text-[13px] font-bold tabular-nums", low ? "text-danger" : "text-t1")}>{p.stock}</span>
-                        {low && <span className="ml-2"><Badge tone="warning">Reorder</Badge></span>}
+                        {p.stock === null ? (
+                          <Badge tone="brand">Made to order</Badge>
+                        ) : (
+                          <>
+                            <span className={cn("font-mono text-[13px] font-bold tabular-nums", low ? "text-danger" : "text-t1")}>{p.stock}</span>
+                            {low && <span className="ml-2"><Badge tone="warning">Reorder</Badge></span>}
+                          </>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         {can("prices") && (
@@ -163,6 +178,8 @@ export function Products() {
         editing={editing}
         showCost={can("prices")}
         showExpiry={hasModule("expiry")}
+        mtoAllowed={hasModule("made_to_order")}
+        componentChoices={products.filter((p) => p.archetype !== "made_to_order")}
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); reload(); }}
       />
@@ -284,7 +301,8 @@ function PrintInventoryModal({
   ];
 
   function run() {
-    const rows = products.filter((p) => (excludeZero ? p.stock > 0 : true));
+    // Made-to-order items carry no stock — the stock report is shelf goods only.
+    const rows = products.filter((p) => p.stock !== null && (excludeZero ? p.stock > 0 : true));
     const columns = [
       { label: "#", align: "left" as const, render: (_p: Product, i: number) => mono(String(i + 1)) },
       { label: "Product", render: (p: Product) => `<b>${p.name}</b>` },
@@ -292,26 +310,28 @@ function PrintInventoryModal({
       ...(cols.stock ? [{
         label: "Stock", align: "right" as const,
         render: (p: Product) => {
-          const color = p.stock <= 0 ? "#dc2626" : p.stock <= p.reorderLevel ? "#d97706" : "#059669";
-          return `<span style="color:${color};font-family:'Courier New',monospace;font-weight:700">${p.stock}</span>`;
+          const stock = p.stock ?? 0;
+          const color = stock <= 0 ? "#dc2626" : stock <= p.reorderLevel ? "#d97706" : "#059669";
+          return `<span style="color:${color};font-family:'Courier New',monospace;font-weight:700">${stock}</span>`;
         },
       }] : []),
       ...(cols.price ? [{ label: "Price", align: "right" as const, render: (p: Product) => mono(fmtMoney(p.price, currency)) }] : []),
       ...(cols.cost && showCost ? [{ label: "Cost", align: "right" as const, render: (p: Product) => mono(fmtMoney(p.cost || 0, currency)) }] : []),
-      ...(cols.value && showCost ? [{ label: "Stock Value", align: "right" as const, render: (p: Product) => mono(fmtMoney((p.cost || 0) * p.stock, currency)) }] : []),
+      ...(cols.value && showCost ? [{ label: "Stock Value", align: "right" as const, render: (p: Product) => mono(fmtMoney((p.cost || 0) * (p.stock ?? 0), currency)) }] : []),
       ...(cols.expiry && showExpiry ? [{ label: "Expiry", align: "right" as const, render: (p: Product) => (p.expiry ? fmtDate(p.expiry) : "—") }] : []),
       ...(cols.status ? [{
         label: "Status", align: "center" as const,
         render: (p: Product) => {
-          const [label, color] = p.stock <= 0 ? ["Out of Stock", "#dc2626"] : p.stock <= p.reorderLevel ? ["Low Stock", "#d97706"] : ["Available", "#059669"];
+          const stock = p.stock ?? 0;
+          const [label, color] = stock <= 0 ? ["Out of Stock", "#dc2626"] : stock <= p.reorderLevel ? ["Low Stock", "#d97706"] : ["Available", "#059669"];
           return `<span style="color:${color};font-weight:700;font-size:11px">${label}</span>`;
         },
       }] : []),
     ];
     const totals = columns.map((c) =>
       c.label === "#" ? "Total" :
-      c.label === "Stock" ? String(rows.reduce((s, p) => s + p.stock, 0)) :
-      c.label === "Stock Value" ? fmtMoney(rows.reduce((s, p) => s + (p.cost || 0) * p.stock, 0), currency) : ""
+      c.label === "Stock" ? String(rows.reduce((s, p) => s + (p.stock ?? 0), 0)) :
+      c.label === "Stock Value" ? fmtMoney(rows.reduce((s, p) => s + (p.cost || 0) * (p.stock ?? 0), 0), currency) : ""
     );
     printReport({
       businessName,
@@ -494,16 +514,20 @@ function ImportModal({ open, onClose, onDone }: { open: boolean; onClose: () => 
 }
 
 function ProductModal({
-  editing, showCost, showExpiry, onClose, onSaved,
+  editing, showCost, showExpiry, mtoAllowed, componentChoices, onClose, onSaved,
 }: {
   editing: Product | "new" | null;
   showCost: boolean;
   showExpiry: boolean;
+  mtoAllowed: boolean;
+  componentChoices: Product[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const isNew = editing === "new";
   const p = isNew || !editing ? null : editing;
+  const [mto, setMto] = useState(p?.archetype === "made_to_order");
+  const [bom, setBom] = useState<BomLine[]>(p?.bom?.length ? p.bom : [{ productId: "", per: "sqm", factor: 1 }]);
   const [form, setForm] = useState({
     name: p?.name || "",
     category: p?.category || "General",
@@ -517,21 +541,31 @@ function ProductModal({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
+  const setBomLine = (i: number, patch: Partial<BomLine>) =>
+    setBom((b) => b.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
+      const bomClean = bom
+        .filter((l) => l.productId)
+        .map((l) => ({ productId: l.productId, per: l.per, factor: Number(l.factor) || 1 }));
+      if (mto && !bomClean.length) {
+        setError("Add at least one component."); setBusy(false); return;
+      }
       const body = {
         name: form.name.trim(),
         category: form.category.trim() || "General",
-        barcode: form.barcode.trim(),
+        barcode: mto ? "" : form.barcode.trim(),
+        archetype: mto ? "made_to_order" : "stock",
+        ...(mto ? { bom: bomClean } : {}),
         price: Number(form.price) || 0,
         cost: Number(form.cost) || 0,
         reorderLevel: Number(form.reorderLevel) || 0,
-        ...(showExpiry ? { expiry: form.expiry } : {}),
-        ...(isNew ? { openingStock: Number(form.openingStock) || 0 } : {}),
+        ...(showExpiry && !mto ? { expiry: form.expiry } : {}),
+        ...(isNew && !mto ? { openingStock: Number(form.openingStock) || 0 } : {}),
       };
       if (isNew) await api("/products", { method: "POST", body: JSON.stringify(body) });
       else await api(`/products/${p!.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -544,26 +578,79 @@ function ProductModal({
   }
 
   return (
-    <Modal open={!!editing} onClose={onClose} title={isNew ? "Add product" : `Edit ${p?.name}`} subtitle={isNew ? "It appears on the POS immediately" : "Price changes are logged to the audit trail"}>
+    <Modal open={!!editing} onClose={onClose} title={isNew ? "Add product" : `Edit ${p?.name}`} subtitle={isNew ? "It appears on the POS immediately" : "Price changes are logged to the audit trail"} wide={mto}>
       <form onSubmit={save} className="space-y-3">
         <ErrorBanner message={error} />
-        <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Golden Penny Semovita 2kg" /></Field>
+
+        {mtoAllowed && isNew && (
+          <button
+            type="button"
+            onClick={() => setMto((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors"
+          >
+            <span>
+              <span className="block text-[13px] font-semibold text-t1">Made to order</span>
+              <span className="block text-[11px] text-t3">Built per order from components (blinds, curtains, tailoring). Priced by size.</span>
+            </span>
+            <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", mto ? "bg-primary" : "bg-surface-3 border border-line-2")}>
+              <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", mto ? "left-[22px]" : "left-0.5")} />
+            </span>
+          </button>
+        )}
+
+        <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={mto ? "e.g. Day & Night Window Blind" : "e.g. Golden Penny Semovita 2kg"} /></Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Category"><Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder="Grains" /></Field>
-          <Field label="Barcode" hint="Optional — scan into this box"><Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>
+          <Field label="Category"><Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder={mto ? "Blinds" : "Grains"} /></Field>
+          {!mto && <Field label="Barcode" hint="Optional — scan into this box"><Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={`Selling price`}><Input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} /></Field>
-          {showCost && <Field label="Cost price" hint="Only finance roles see this"><Input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set("cost", e.target.value)} /></Field>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Reorder level" hint="Low-stock alert threshold"><Input type="number" min="0" value={form.reorderLevel} onChange={(e) => set("reorderLevel", e.target.value)} /></Field>
-          {isNew && <Field label="Opening stock" hint="Booked as a stock-in"><Input type="number" min="0" value={form.openingStock} onChange={(e) => set("openingStock", e.target.value)} /></Field>}
-        </div>
-        {showExpiry && (
-          <Field label="Expiry date" hint="Optional — feeds the expiring-soon report">
-            <Input type="date" value={form.expiry} onChange={(e) => set("expiry", e.target.value)} />
+          <Field label={mto ? "Price per m²" : "Selling price"} hint={mto ? "Order price = this × width × height (adjustable at sale)" : undefined}>
+            <Input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} />
           </Field>
+          {showCost && !mto && <Field label="Cost price" hint="Only finance roles see this"><Input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set("cost", e.target.value)} /></Field>}
+        </div>
+
+        {mto ? (
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">Components — your own recipe</div>
+            <div className="text-[11px] text-t4 mb-2">Cost and stock deduction come from these. Quantities are calculated from each order's size.</div>
+            <div className="space-y-2">
+              {bom.map((line, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Select value={line.productId} onChange={(e) => setBomLine(i, { productId: e.target.value })} className="flex-1" required>
+                    <option value="">Choose component…</option>
+                    {componentChoices.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </Select>
+                  <Select value={line.per} onChange={(e) => setBomLine(i, { per: e.target.value as BomLine["per"] })} className="!w-44">
+                    {Object.entries(PER_LABELS).map(([k, label]) => (
+                      <option key={k} value={k}>{label}</option>
+                    ))}
+                  </Select>
+                  <Input type="number" min="0.01" step="0.01" value={line.factor} onChange={(e) => setBomLine(i, { factor: Number(e.target.value) })} className="!w-20 text-right" title="Multiplier (e.g. 1.1 = 10% wastage)" />
+                  {bom.length > 1 && (
+                    <button type="button" onClick={() => setBom((b) => b.filter((_, idx) => idx !== i))} className="h-10 w-9 shrink-0 rounded-ctl border border-line-2 flex items-center justify-center text-t4 hover:text-danger">×</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setBom((b) => [...b, { productId: "", per: "unit", factor: 1 }])} className="mt-2 text-[12px] font-semibold text-primary hover:underline">
+              + Add component
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Reorder level" hint="Low-stock alert threshold"><Input type="number" min="0" value={form.reorderLevel} onChange={(e) => set("reorderLevel", e.target.value)} /></Field>
+              {isNew && <Field label="Opening stock" hint="Booked as a stock-in"><Input type="number" min="0" value={form.openingStock} onChange={(e) => set("openingStock", e.target.value)} /></Field>}
+            </div>
+            {showExpiry && (
+              <Field label="Expiry date" hint="Optional — feeds the expiring-soon report">
+                <Input type="date" value={form.expiry} onChange={(e) => set("expiry", e.target.value)} />
+              </Field>
+            )}
+          </>
         )}
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : isNew ? "Add product" : "Save changes"}</Button>
       </form>

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Banknote, CreditCard, Smartphone,
-  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle, CloudOff, RefreshCw,
+  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle, CloudOff, RefreshCw, Ruler,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
 import { Spinner, EmptyState } from "@/components/ui/EmptyState";
-import { Input } from "@/components/ui/Field";
+import { Field, Input } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -15,8 +15,11 @@ import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale 
 import { fmtMoney, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Product = { id: string; name: string; price: number; category: string; stock: number; barcode: string };
-type Line = { id: string; name: string; price: number; stock: number; qty: number };
+type Product = { id: string; name: string; price: number; category: string; stock: number | null; barcode: string; archetype?: string };
+type Line = {
+  uid: string; id: string; name: string; price: number; stock: number; qty: number;
+  mto?: { width: number; height: number };
+};
 type Receipt = {
   saleNo: string; businessName: string; at: string; staffName: string; customerName: string;
   customerPhone?: string;
@@ -105,24 +108,40 @@ export function POS() {
     }
   }
 
-  const inCart = (id: string) => cart.find((l) => l.id === id)?.qty || 0;
+  const [mtoFor, setMtoFor] = useState<Product | null>(null);
+  const isMto = (p: Product) => p.archetype === "made_to_order";
+  const inCart = (id: string) => cart.filter((l) => l.id === id && !l.mto).reduce((s, l) => s + l.qty, 0);
 
   const add = (p: Product) => {
-    if (p.stock - inCart(p.id) <= 0) return;
     setError("");
+    if (isMto(p)) {
+      setMtoFor(p); // custom items need dimensions first
+      return;
+    }
+    if ((p.stock ?? 0) - inCart(p.id) <= 0) return;
     setCart((c) => {
-      const ex = c.find((l) => l.id === p.id);
-      if (ex) return c.map((l) => (l.id === p.id ? { ...l, qty: l.qty + 1 } : l));
-      return [...c, { id: p.id, name: p.name, price: p.price, stock: p.stock, qty: 1 }];
+      const ex = c.find((l) => l.id === p.id && !l.mto);
+      if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
+      return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: p.stock ?? 0, qty: 1 }];
     });
   };
-  const setQty = (id: string, d: number) =>
+  const addMtoLine = (p: Product, width: number, height: number, qty: number, unitPrice: number) => {
+    setCart((c) => [
+      ...c,
+      {
+        uid: crypto.randomUUID(), id: p.id, name: `${p.name} — ${width}×${height}m`,
+        price: unitPrice, stock: Infinity, qty, mto: { width, height },
+      },
+    ]);
+    setMtoFor(null);
+  };
+  const setQty = (uid: string, d: number) =>
     setCart((c) =>
       c
-        .map((l) => (l.id === id ? { ...l, qty: Math.min(l.stock, Math.max(0, l.qty + d)) } : l))
+        .map((l) => (l.uid === uid ? { ...l, qty: Math.min(l.stock, Math.max(0, l.qty + d)) } : l))
         .filter((l) => l.qty > 0)
     );
-  const remove = (id: string) => setCart((c) => c.filter((l) => l.id !== id));
+  const remove = (uid: string) => setCart((c) => c.filter((l) => l.uid !== uid));
 
   const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
   const safeDiscount = Math.min(discount, subtotal);
@@ -137,7 +156,11 @@ export function POS() {
     setError("");
     setSavedOffline(false);
     const body = {
-      items: cart.map((l) => ({ productId: l.id, qty: l.qty })),
+      items: cart.map((l) =>
+        l.mto
+          ? { productId: l.id, qty: l.qty, width: l.mto.width, height: l.mto.height, price: l.price }
+          : { productId: l.id, qty: l.qty }
+      ),
       discount: safeDiscount,
       payments: [{ method: pay, amount: total }],
       ...(customer?.name ? { customer } : {}),
@@ -224,9 +247,10 @@ export function POS() {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {filtered.map((p) => {
-                const left = p.stock - inCart(p.id);
-                const oos = left <= 0;
-                const low = left > 0 && left <= 5;
+                const custom = isMto(p);
+                const left = custom ? Infinity : (p.stock ?? 0) - inCart(p.id);
+                const oos = !custom && left <= 0;
+                const low = !custom && left > 0 && left <= 5;
                 return (
                   <button
                     key={p.id}
@@ -237,15 +261,18 @@ export function POS() {
                       oos ? "opacity-40 cursor-not-allowed" : "hover:border-brand-400 hover:shadow-e1 hover:-translate-y-0.5 active:translate-y-0"
                     )}
                   >
+                    {custom && <span className="absolute top-2.5 right-2.5"><Badge tone="brand">Custom</Badge></span>}
                     {low && <span className="absolute top-2.5 right-2.5"><Badge tone="warning">Low</Badge></span>}
                     {oos && <span className="absolute top-2.5 right-2.5"><Badge tone="danger">Out</Badge></span>}
                     <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center mb-3">
-                      <Package className="w-5 h-5" />
+                      {custom ? <Ruler className="w-5 h-5" /> : <Package className="w-5 h-5" />}
                     </div>
                     <div className="text-[13px] font-semibold text-t1 leading-tight line-clamp-2 h-9">{p.name}</div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="font-mono font-bold text-[14px] text-primary">{fmtMoney(p.price, currency)}</span>
-                      <span className="text-[11px] text-t4">{left} left</span>
+                      <span className="font-mono font-bold text-[14px] text-primary">
+                        {fmtMoney(p.price, currency)}{custom && <span className="text-[10px] text-t4 font-sans">/m²</span>}
+                      </span>
+                      {!custom && <span className="text-[11px] text-t4">{left} left</span>}
                     </div>
                     <span className="absolute bottom-3 right-3 w-6 h-6 rounded-lg bg-primary text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Plus className="w-4 h-4" />
@@ -302,20 +329,23 @@ export function POS() {
           ) : (
             <div className="space-y-2">
               {cart.map((l) => (
-                <div key={l.id} className="bg-surface-2 border border-line rounded-xl p-3 animate-fade-in">
+                <div key={l.uid} className="bg-surface-2 border border-line rounded-xl p-3 animate-fade-in">
                   <div className="flex items-start justify-between gap-2">
-                    <span className="text-[13px] font-semibold text-t1 leading-tight">{l.name}</span>
-                    <button onClick={() => remove(l.id)} className="text-t4 hover:text-danger transition-colors shrink-0">
+                    <span className="text-[13px] font-semibold text-t1 leading-tight">
+                      {l.name}
+                      {l.mto && <span className="ml-1.5 align-middle"><Badge tone="brand">Custom</Badge></span>}
+                    </span>
+                    <button onClick={() => remove(l.uid)} className="text-t4 hover:text-danger transition-colors shrink-0">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <button onClick={() => setQty(l.id, -1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
+                      <button onClick={() => setQty(l.uid, -1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
                         <Minus className="w-3.5 h-3.5" />
                       </button>
                       <span className="w-8 text-center font-mono font-bold text-[13px] text-t1">{l.qty}</span>
-                      <button onClick={() => setQty(l.id, 1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
+                      <button onClick={() => setQty(l.uid, 1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
                         <Plus className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -439,12 +469,64 @@ export function POS() {
         </div>
       </aside>
 
+      {/* made-to-order dimensions modal */}
+      <MtoModal key={mtoFor?.id ?? "closed"} product={mtoFor} currency={currency} onClose={() => setMtoFor(null)} onAdd={addMtoLine} />
+
       {/* customer modal */}
       <CustomerQuickAdd open={customerOpen} onClose={() => setCustomerOpen(false)} onPick={(c) => { setCustomer(c); setCustomerOpen(false); }} />
 
       {/* receipt modal */}
       <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
     </div>
+  );
+}
+
+// Dimensions + price for made-to-order items. The suggested price is
+// rate × width × height; the seller can adjust the final figure.
+function MtoModal({ product, currency, onClose, onAdd }: {
+  product: Product | null;
+  currency: string;
+  onClose: () => void;
+  onAdd: (p: Product, width: number, height: number, qty: number, unitPrice: number) => void;
+}) {
+  const [width, setWidth] = useState("");
+  const [height, setHeight] = useState("");
+  const [qty, setQtyN] = useState(1);
+  const [price, setPrice] = useState<string>("");
+  const [touched, setTouched] = useState(false);
+  if (!product) return null;
+
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  const suggested = Math.round(product.price * w * h * 100) / 100;
+  const effective = touched && price !== "" ? Number(price) : suggested;
+
+  return (
+    <Modal open={!!product} onClose={onClose} title={product.name} subtitle={`${fmtMoney(product.price, currency)} per m² — enter the order's size`}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (w > 0 && h > 0 && effective >= 0) onAdd(product, w, h, Math.max(1, qty), Math.round(effective * 100) / 100);
+        }}
+        className="space-y-3"
+      >
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Width (m)"><Input autoFocus required type="number" min="0.01" step="0.01" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="1.2" /></Field>
+          <Field label="Height (m)"><Input required type="number" min="0.01" step="0.01" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="1.5" /></Field>
+          <Field label="Quantity"><Input type="number" min="1" value={qty} onChange={(e) => setQtyN(Number(e.target.value) || 1)} /></Field>
+        </div>
+        <Field label="Price each" hint={w > 0 && h > 0 ? `Suggested: ${fmtMoney(suggested, currency)} (${(w * h).toFixed(2)} m²)` : "Fills in from the size"}>
+          <Input
+            type="number" min="0" step="0.01"
+            value={touched ? price : suggested || ""}
+            onChange={(e) => { setTouched(true); setPrice(e.target.value); }}
+          />
+        </Field>
+        <Button type="submit" className="w-full" disabled={!(w > 0 && h > 0)}>
+          <Plus className="w-4 h-4" /> Add to sale · {fmtMoney((effective || 0) * Math.max(1, qty), currency)}
+        </Button>
+      </form>
+    </Modal>
   );
 }
 

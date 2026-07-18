@@ -70,9 +70,12 @@ returnsRouter.post("/", requirePerm("returns"), requireBranch, async (req, res) 
       });
     }
 
+    const isCustom = !!line.components?.length;
     const unitNet = money((line.lineNet / line.qty) * paidFactor);
-    const unitCost = line.qty > 0 ? money(line.lineCost / line.qty) : 0;
-    items.push({ productId: line.productId, name: line.name, qty: item.qty, unitPrice: unitNet, unitCost });
+    // Custom-made items: money comes back, cost doesn't (the fabric is cut)
+    // and nothing restocks.
+    const unitCost = isCustom ? 0 : line.qty > 0 ? money(line.lineCost / line.qty) : 0;
+    items.push({ productId: line.productId, name: line.name, qty: item.qty, unitPrice: unitNet, unitCost, restock: !isCustom });
     refundAmount += unitNet * item.qty;
   }
 
@@ -117,16 +120,18 @@ returnsRouter.post("/:id/approve", requirePerm("approve_returns"), async (req, r
   const sale = await Sale.findById(ret.saleId);
 
   for (const item of ret.items) {
-    await applyMovement(req.ctx, {
-      branchId: ret.branchId,
-      productId: item.productId,
-      productName: item.name,
-      type: "RETURN",
-      qty: item.qty,
-      refType: "return",
-      refId: ret._id,
-      reason: ret.reason,
-    });
+    if (item.restock !== false) {
+      await applyMovement(req.ctx, {
+        branchId: ret.branchId,
+        productId: item.productId,
+        productName: item.name,
+        type: "RETURN",
+        qty: item.qty,
+        refType: "return",
+        refId: ret._id,
+        reason: ret.reason,
+      });
+    }
     if (sale) {
       const line = sale.items.find((l) => String(l.productId) === String(item.productId));
       if (line) line.returnedQty += item.qty;

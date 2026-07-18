@@ -9,20 +9,45 @@ import { money, isValidAmount } from "../lib/money.js";
 export const productsRouter = Router();
 
 function shape(p, stockByProduct, showCost) {
+  const mto = p.archetype === "made_to_order";
   const out = {
     id: p._id,
     name: p.name,
     barcode: p.barcode,
     category: p.category,
+    archetype: p.archetype,
     price: p.price,
     reorderLevel: p.reorderLevel,
     expiry: p.expiry || null,
     status: p.status,
-    stock: stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
+    // MTO items carry no stock of their own — their components do.
+    stock: mto ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
+    bom: mto ? (p.bom || []).map((c) => ({ productId: c.productId, per: c.per, factor: c.factor })) : undefined,
     createdAt: p.createdAt,
   };
   if (showCost) out.cost = p.cost;
   return out;
+}
+
+const bomSchema = z
+  .array(
+    z.object({
+      productId: z.string(),
+      per: z.enum(["sqm", "width", "height", "unit"]),
+      factor: z.number().positive().max(1000).default(1),
+    })
+  )
+  .min(1, "A made-to-order item needs at least one component")
+  .max(20);
+
+// Components must be real, active stock products of this business.
+async function validateBom(businessId, bom) {
+  const ids = bom.map((c) => c.productId);
+  const comps = await Product.find({ _id: { $in: ids }, businessId, status: "active", archetype: "stock" });
+  if (comps.length !== new Set(ids.map(String)).size) {
+    return { error: "Each component must be an existing stock product (no nesting made-to-order items)." };
+  }
+  return { comps };
 }
 
 // GET /api/products?q=&category=&status= — catalog with the active branch's stock.
@@ -64,6 +89,8 @@ const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
   barcode: z.string().default(""),
   category: z.string().min(1).default("General"),
+  archetype: z.enum(["stock", "made_to_order"]).default("stock"),
+  bom: bomSchema.optional(),
   price: z.number().min(0, "Price can't be negative"),
   cost: z.number().min(0).default(0),
   reorderLevel: z.number().min(0).default(5),
@@ -87,12 +114,21 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
     if (dupe) return res.status(409).json({ error: "barcode_taken", message: `Barcode already on "${dupe.name}".` });
   }
 
+  const isMto = d.archetype === "made_to_order";
+  if (isMto) {
+    if (!d.bom) return res.status(400).json({ error: "invalid", message: "Add the components this item is made from." });
+    const check = await validateBom(req.ctx.businessId, d.bom);
+    if (check.error) return res.status(400).json({ error: "invalid", message: check.error });
+  }
+
   const product = await Product.create({
     accountId: req.ctx.accountId,
     businessId: req.ctx.businessId,
     name: d.name,
     barcode: d.barcode,
     category: d.category,
+    archetype: d.archetype,
+    bom: isMto ? d.bom : [],
     price: money(d.price),
     cost: money(d.cost),
     reorderLevel: d.reorderLevel,
@@ -100,7 +136,7 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
   });
 
   // Opening stock lands as a proper IN movement so the ledger starts correct.
-  if (d.openingStock > 0 && req.ctx.branchId) {
+  if (!isMto && d.openingStock > 0 && req.ctx.branchId) {
     const { applyMovement } = await import("../lib/inventoryService.js");
     await applyMovement(req.ctx, {
       branchId: req.ctx.branchId,
@@ -117,7 +153,7 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
     price: product.price,
     cost: product.cost,
   });
-  res.status(201).json({ product: { ...shape(product, null, canSeeCost(req.ctx)), stock: d.openingStock } });
+  res.status(201).json({ product: { ...shape(product, null, canSeeCost(req.ctx)), ...(isMto ? {} : { stock: d.openingStock }) } });
 });
 
 const importRowSchema = z.object({
@@ -211,6 +247,12 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   if (d.barcode && d.barcode !== product.barcode) {
     const dupe = await Product.findOne({ businessId: req.ctx.businessId, barcode: d.barcode, status: "active", _id: { $ne: product._id } });
     if (dupe) return res.status(409).json({ error: "barcode_taken", message: `Barcode already on "${dupe.name}".` });
+  }
+
+  if (d.bom !== undefined && product.archetype === "made_to_order") {
+    const check = await validateBom(req.ctx.businessId, d.bom);
+    if (check.error) return res.status(400).json({ error: "invalid", message: check.error });
+    product.bom = d.bom;
   }
 
   const before = { name: product.name, price: product.price, cost: product.cost };

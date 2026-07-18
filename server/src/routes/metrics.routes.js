@@ -94,7 +94,7 @@ metricsRouter.get("/sales-report", requirePerm("dashboard_ops"), async (req, res
 // GET /api/metrics/inventory-report — the Inventory tab: value, gaps, expiry
 metricsRouter.get("/inventory-report", requirePerm("dashboard_ops", "stock"), async (req, res) => {
   const showFinance = canSeeCost(req.ctx);
-  const products = await Product.find({ businessId: req.ctx.businessId, status: "active" })
+  const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })
     .select("name category price cost reorderLevel expiry");
   const invFilter = req.ctx.branchId
     ? { branchId: req.ctx.branchId }
@@ -282,7 +282,7 @@ metricsRouter.get("/dashboard", requirePerm("dashboard_ops"), async (req, res) =
   // Low stock for the active branch (consolidated view skips it).
   let lowStock = [];
   if (req.ctx.branchId) {
-    const products = await Product.find({ businessId: req.ctx.businessId, status: "active" }).select("name reorderLevel");
+    const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }).select("name reorderLevel");
     const inv = await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: products.map((p) => p._id) } });
     const stockBy = new Map(inv.map((i) => [String(i.productId), i.stock]));
     lowStock = products

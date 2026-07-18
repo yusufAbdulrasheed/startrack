@@ -12,6 +12,7 @@ export const TOGGLEABLE_MODULES = [
   { key: "expenses", label: "Expenses", hint: "Record spending against profit" },
   { key: "attendance", label: "Attendance", hint: "Staff clock in / clock out" },
   { key: "expiry", label: "Expiry tracking", hint: "Expiry dates and expiring-soon alerts" },
+  { key: "made_to_order", label: "Made-to-order items", hint: "Blinds, curtains, tailoring — items built from components you configure" },
 ];
 
 export const ALL_TOGGLEABLE = TOGGLEABLE_MODULES.map((m) => m.key);
@@ -57,14 +58,14 @@ export const BUSINESS_TYPES = {
     label: "Tailoring / Fashion Design",
     ...T("Items & Fabrics", "Point of Sale",
       ["Fabrics", "Sewing Jobs", "Alterations", "Accessories"],
-      ["customers", "expenses", "attendance"],
-      "Made-to-measure (job orders arrive in v1.5)"),
+      ["customers", "expenses", "attendance", "made_to_order"],
+      "Made-to-measure, from your own recipes"),
   },
   electronics: {
     label: "Electronics",
     ...T("Products", "Point of Sale",
       ["Phones", "Computers", "Audio & TV", "Accessories", "Repairs"],
-      ["returns", "transfers", "customers", "expenses", "attendance"],
+      ["returns", "transfers", "customers", "expenses", "attendance", "made_to_order"],
       "Serial-number-grade care"),
   },
   hotel: {
@@ -106,7 +107,7 @@ export const BUSINESS_TYPES = {
     label: "General Business",
     ...T("Products", "Point of Sale",
       ["General"],
-      ["returns", "transfers", "customers", "expenses", "attendance", "expiry"],
+      ["returns", "transfers", "customers", "expenses", "attendance", "expiry", "made_to_order"],
       "Everything on, trim later"),
   },
 };
