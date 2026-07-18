@@ -174,6 +174,37 @@ authRouter.post("/till", async (req, res) => {
   return res.json(body);
 });
 
+const changePinSchema = z.object({
+  businessId: z.string(),
+  currentPin: z.string().default(""),
+  newPin: z.string().regex(/^\d{4,6}$/, "New PIN must be 4–6 digits"),
+});
+
+// POST /api/auth/change-pin — staff change their OWN till PIN.
+// Requires the current PIN when one is set; rate-limited per user.
+authRouter.post("/change-pin", requireAuth, async (req, res) => {
+  const parsed = changePinSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const d = parsed.data;
+
+  if (!rateLimit(`changepin:${req.auth.userId}`, { max: 5, windowMs: 60_000 })) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many attempts. Wait a minute." });
+  }
+
+  const membership =
+    (await Membership.findOne({ userId: req.auth.userId, accountId: req.auth.accountId, businessId: d.businessId, status: "active" })) ||
+    (await Membership.findOne({ userId: req.auth.userId, accountId: req.auth.accountId, businessId: null, status: "active" }));
+  if (!membership) return res.status(404).json({ error: "not_found", message: "No membership found for this business." });
+
+  if (membership.pinHash && !(await checkPassword(d.currentPin, membership.pinHash))) {
+    return res.status(401).json({ error: "bad_pin", message: "Your current PIN is incorrect." });
+  }
+
+  membership.pinHash = await hashPassword(d.newPin);
+  await membership.save();
+  res.json({ ok: true });
+});
+
 // GET /api/auth/me — bootstrap the app after a page refresh
 authRouter.get("/me", requireAuth, async (req, res) => {
   const user = await User.findById(req.auth.userId);

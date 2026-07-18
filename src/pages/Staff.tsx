@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil } from "lucide-react";
+import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil, Clock, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -12,7 +12,9 @@ import { useSession } from "@/lib/session";
 type Staff = {
   id: string; userId: string; name: string; email: string; role: string;
   branchId: string | null; branchName: string; hasPin: boolean; status: string; permsOverride: string[];
+  shiftId: string | null; shiftName: string;
 };
+type ShiftRow = { id: string; name: string; start: string; end: string };
 
 const ROLE_TONE: Record<string, "brand" | "success" | "warning" | "neutral"> = {
   owner: "brand", admin: "success", manager: "warning", staff: "neutral",
@@ -21,6 +23,8 @@ const ROLE_TONE: Record<string, "brand" | "success" | "warning" | "neutral"> = {
 export function Staff() {
   const { session, branchesForActive, can } = useSession();
   const { data, loading, reload } = useApi<{ staff: Staff[] }>("/staff", []);
+  const { data: shiftData, reload: reloadShifts } = useApi<{ shifts: ShiftRow[] }>("/staff/shifts", []);
+  const shifts = shiftData?.shifts || [];
   const { data: settingsData } = useApi<{ business: { code: string } }>(can("settings") ? "/settings" : null, []);
   const staff = data?.staff || [];
   const [adding, setAdding] = useState(false);
@@ -78,7 +82,7 @@ export function Staff() {
                       {s.userId === session?.user.id && <Badge tone="neutral">you</Badge>}
                     </div>
                     <div className="text-[11px] text-t3 truncate">
-                      {s.branchName}{s.email ? ` · ${s.email}` : " · till-only (PIN)"}{s.hasPin ? "" : " · no PIN set"}
+                      {s.branchName}{s.shiftName ? ` · ${s.shiftName}` : ""}{s.email ? ` · ${s.email}` : " · till-only (PIN)"}{s.hasPin ? "" : " · no PIN set"}
                     </div>
                   </div>
                   {s.role !== "owner" && (
@@ -97,17 +101,84 @@ export function Staff() {
         </Card>
       )}
 
+      <ShiftsCard shifts={shifts} onChanged={() => { reloadShifts(); reload(); }} />
+
       <AddStaff open={adding} branches={branchesForActive} isOwner={can("*")} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload(); }} />
       <ResetPin staff={pinFor} onClose={() => setPinFor(null)} onSaved={() => { setPinFor(null); reload(); }} />
       <EditStaff
         key={editFor?.id ?? "closed"}
         staff={editFor}
         branches={branchesForActive}
+        shifts={shifts}
         isOwner={can("*")}
         onClose={() => setEditFor(null)}
         onSaved={() => { setEditFor(null); reload(); }}
       />
     </div>
+  );
+}
+
+function ShiftsCard({ shifts, onChanged }: { shifts: ShiftRow[]; onChanged: () => void }) {
+  const [form, setForm] = useState({ name: "", start: "08:00", end: "17:00" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await api("/staff/shifts", { method: "POST", body: JSON.stringify(form) });
+      setForm({ name: "", start: "08:00", end: "17:00" });
+      onChanged();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(s: ShiftRow) {
+    if (!confirm(`Delete the "${s.name}" shift? Anyone assigned to it becomes unassigned.`)) return;
+    await api(`/staff/shifts/${s.id}`, { method: "DELETE" });
+    onChanged();
+  }
+
+  return (
+    <Card className="p-5 mt-4">
+      <div className="flex items-center gap-2 mb-1">
+        <Clock className="w-4 h-4 text-primary" />
+        <div className="text-[14px] font-bold text-t1">Shifts</div>
+      </div>
+      <div className="text-[12px] text-t3 mb-3">Define work windows, then assign each staff member to one via Edit.</div>
+      {error && <div className="px-3 py-2 mb-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
+      <div className="space-y-2 mb-3">
+        {shifts.length === 0 ? (
+          <div className="text-[12px] text-t4 py-2">No shifts yet — add your first below.</div>
+        ) : (
+          shifts.map((s) => (
+            <div key={s.id} className="flex items-center gap-3 px-3 py-2 rounded-ctl bg-surface-2 border border-line">
+              <span className="text-[13px] font-semibold text-t1">{s.name}</span>
+              <span className="font-mono text-[12px] text-t3">{s.start} – {s.end}</span>
+              <button onClick={() => remove(s)} className="ml-auto p-1.5 rounded-lg text-t4 hover:text-danger hover:bg-danger-soft transition-colors">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+      <form onSubmit={add} className="flex items-end gap-2 flex-wrap">
+        <Field label="Shift name" className="flex-1 min-w-[140px]">
+          <Input required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Morning" />
+        </Field>
+        <Field label="Starts" className="w-28">
+          <Input required type="time" value={form.start} onChange={(e) => setForm((f) => ({ ...f, start: e.target.value }))} />
+        </Field>
+        <Field label="Ends" className="w-28">
+          <Input required type="time" value={form.end} onChange={(e) => setForm((f) => ({ ...f, end: e.target.value }))} />
+        </Field>
+        <Button type="submit" disabled={busy}><Plus className="w-4 h-4" /> Add shift</Button>
+      </form>
+    </Card>
   );
 }
 
@@ -170,13 +241,14 @@ function AddStaff({ open, branches, isOwner, onClose, onSaved }: {
   );
 }
 
-function EditStaff({ staff, branches, isOwner, onClose, onSaved }: {
-  staff: Staff | null; branches: { id: string; name: string }[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
+function EditStaff({ staff, branches, shifts, isOwner, onClose, onSaved }: {
+  staff: Staff | null; branches: { id: string; name: string }[]; shifts: ShiftRow[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const [form, setForm] = useState({
     name: staff?.name || "",
     role: staff?.role || "staff",
     branchId: staff?.branchId || "",
+    shiftId: staff?.shiftId || "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -187,7 +259,7 @@ function EditStaff({ staff, branches, isOwner, onClose, onSaved }: {
     try {
       await api(`/staff/${staff!.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: form.name, role: form.role, branchId: form.branchId || null }),
+        body: JSON.stringify({ name: form.name, role: form.role, branchId: form.branchId || null, shiftId: form.shiftId || null }),
       });
       onSaved();
     } catch (err: any) {
@@ -216,6 +288,12 @@ function EditStaff({ staff, branches, isOwner, onClose, onSaved }: {
             </Select>
           </Field>
         </div>
+        <Field label="Shift" hint="Optional — manage shifts at the bottom of the Staff page">
+          <Select value={form.shiftId} onChange={(e) => setForm((f) => ({ ...f, shiftId: e.target.value }))}>
+            <option value="">No shift</option>
+            {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start}–{s.end})</option>)}
+          </Select>
+        </Field>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
       </form>
     </Modal>

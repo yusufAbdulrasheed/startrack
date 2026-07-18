@@ -11,6 +11,7 @@ const membershipSchema = new mongoose.Schema(
     role: { type: String, enum: ["owner", "admin", "manager", "staff"], default: "staff" },
     permsOverride: { type: [String], default: [] },
     pinHash: { type: String, default: "" }, // set when staff can log in at a till
+    shiftId: { type: mongoose.Schema.Types.ObjectId, ref: "Shift", default: null },
     status: { type: String, enum: ["active", "inactive"], default: "active" },
   },
   { timestamps: true }

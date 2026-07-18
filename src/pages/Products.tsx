@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer } from "lucide-react";
+import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
-import { ErrorBanner, Field, Input } from "@/components/ui/Field";
+import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -12,6 +12,7 @@ import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
 import { downloadCsv, parseCsv } from "@/lib/csv";
 import { printReport, mono } from "@/lib/printReport";
+import { printBarcodeLabels, type LabelSize } from "@/lib/barcodes";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ export function Products() {
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [importing, setImporting] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [labeling, setLabeling] = useState(false);
 
   // Global search (topbar) lands here with ?q= — keep the box in sync.
   useEffect(() => {
@@ -59,6 +61,7 @@ export function Products() {
         subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
         actions={
           <>
+            <Button variant="secondary" onClick={() => setLabeling(true)} disabled={!products.some((p) => p.barcode)}><Barcode className="w-4 h-4" /> Labels</Button>
             <Button variant="secondary" onClick={() => setPrinting(true)} disabled={!products.length}><Printer className="w-4 h-4" /> Print</Button>
             {can("prices") && (
               <>
@@ -164,6 +167,7 @@ export function Products() {
         onSaved={() => { setEditing(null); reload(); }}
       />
       <ImportModal open={importing} onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); }} />
+      <BarcodeLabelsModal open={labeling} onClose={() => setLabeling(false)} products={products} currency={currency} />
       <PrintInventoryModal
         open={printing}
         onClose={() => setPrinting(false)}
@@ -176,6 +180,83 @@ export function Products() {
         term={term}
       />
     </div>
+  );
+}
+
+// Barcode label sheets — pick products, size, copies, cut lines; prints
+// CODE128 stickers exactly like the legacy barcode page.
+function BarcodeLabelsModal({ open, onClose, products, currency }: {
+  open: boolean; onClose: () => void; products: Product[]; currency: string;
+}) {
+  const withCodes = products.filter((p) => p.barcode);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [size, setSize] = useState<LabelSize>("medium");
+  const [copies, setCopies] = useState(1);
+  const [cutLines, setCutLines] = useState(true);
+
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  function run() {
+    const items = withCodes
+      .filter((p) => selected.has(p.id))
+      .map((p) => ({ name: p.name, barcode: p.barcode, priceLabel: fmtMoney(p.price, currency) }));
+    if (!items.length) return;
+    if (!printBarcodeLabels(items, { size, copies: Math.max(1, copies), cutLines })) {
+      alert("Allow pop-ups for this site to print labels.");
+      return;
+    }
+    onClose();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Print barcode labels" subtitle={`${withCodes.length} products have barcodes — pick the ones to print`} wide>
+      <div className="flex items-center gap-2 mb-2">
+        <Button size="sm" variant="secondary" onClick={() => setSelected(new Set(withCodes.map((p) => p.id)))}>Select all</Button>
+        <Button size="sm" variant="secondary" onClick={() => setSelected(new Set())}>Clear</Button>
+        <span className="ml-auto text-[12px] text-t3">{selected.size} selected</span>
+      </div>
+      <div className="max-h-56 overflow-y-auto rounded-ctl border border-line divide-y divide-line mb-3">
+        {withCodes.map((p) => (
+          <button key={p.id} type="button" onClick={() => toggle(p.id)}
+            className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-2 transition-colors">
+            <span className={cn("w-4 h-4 rounded border flex items-center justify-center shrink-0",
+              selected.has(p.id) ? "bg-primary border-primary text-white" : "border-line-2")}>
+              {selected.has(p.id) && <span className="text-[10px] font-bold">✓</span>}
+            </span>
+            <span className="min-w-0 flex-1 text-[13px] font-medium text-t1 truncate">{p.name}</span>
+            <span className="font-mono text-[11px] text-t4 shrink-0">{p.barcode}</span>
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Label size">
+          <Select value={size} onChange={(e) => setSize(e.target.value as LabelSize)}>
+            <option value="small">Small · 4 per row</option>
+            <option value="medium">Medium · 3 per row</option>
+            <option value="large">Large · 2 per row</option>
+            <option value="sheet">Sheet · 5 per row</option>
+          </Select>
+        </Field>
+        <Field label="Copies each">
+          <Input type="number" min="1" max="50" value={copies} onChange={(e) => setCopies(Number(e.target.value) || 1)} />
+        </Field>
+        <Field label="Cut lines">
+          <button type="button" onClick={() => setCutLines((v) => !v)}
+            className="w-full h-10 rounded-ctl border border-line-2 bg-surface-2 text-[13px] font-semibold text-t1">
+            {cutLines ? "Dashed guides on" : "Off"}
+          </button>
+        </Field>
+      </div>
+      <Button className="w-full mt-4" onClick={run} disabled={!selected.size}>
+        <Barcode className="w-4 h-4" /> Print {selected.size * Math.max(1, copies) || ""} label{selected.size * copies === 1 ? "" : "s"}
+      </Button>
+    </Modal>
   );
 }
 

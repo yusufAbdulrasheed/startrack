@@ -1,10 +1,54 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, LogOut, Menu, Search, Store, Building2 } from "lucide-react";
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, Search, Store, Building2 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { ErrorBanner, Field, Input } from "@/components/ui/Field";
+import { Modal } from "@/components/ui/Modal";
+import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useApi } from "@/lib/useApi";
 import { cn } from "@/lib/utils";
+
+// Staff change their own till PIN — requires the current one when set.
+function ChangePinModal({ open, onClose, businessId }: { open: boolean; onClose: () => void; businessId: string }) {
+  const [currentPin, setCurrentPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await api("/auth/change-pin", { method: "POST", body: JSON.stringify({ businessId, currentPin, newPin }) });
+      setDone(true);
+      setCurrentPin(""); setNewPin("");
+      setTimeout(() => { setDone(false); onClose(); }, 1200);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Change my PIN" subtitle="Your till login PIN for this business">
+      <form onSubmit={submit} className="space-y-3">
+        <ErrorBanner message={error} />
+        {done && <div className="px-3 py-2.5 rounded-ctl bg-success-soft text-success text-[12px] font-semibold">PIN changed.</div>}
+        <Field label="Current PIN" hint="Leave blank if you've never had one">
+          <Input type="password" inputMode="numeric" maxLength={6} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))} />
+        </Field>
+        <Field label="New PIN">
+          <Input required type="password" inputMode="numeric" pattern="\d{4,6}" maxLength={6} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} />
+        </Field>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Changing…" : "Change PIN"}</Button>
+      </form>
+    </Modal>
+  );
+}
 
 export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const navigate = useNavigate();
@@ -12,6 +56,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const [branchOpen, setBranchOpen] = useState(false);
   const [bizOpen, setBizOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
   const [q, setQ] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLElement>(null);
@@ -145,6 +190,9 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
                 <div className="text-[11px] text-t3 truncate">{session.user.email}</div>
                 <div className="mt-1 inline-flex text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary-soft text-primary capitalize">{session.role}</div>
               </div>
+              <button onClick={() => { setUserOpen(false); setPinOpen(true); }} className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-[13px] text-t2 hover:bg-surface-3">
+                <KeyRound className="w-4 h-4" /> Change my PIN
+              </button>
               <button onClick={() => { logout(); navigate("/login"); }} className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-[13px] text-danger hover:bg-danger-soft">
                 <LogOut className="w-4 h-4" /> Sign out
               </button>
@@ -152,6 +200,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
           )}
         </div>
       </div>
+      <ChangePinModal open={pinOpen} onClose={() => setPinOpen(false)} businessId={activeBusiness?.id || ""} />
     </header>
   );
 }
