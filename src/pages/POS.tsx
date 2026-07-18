@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Banknote, CreditCard, Smartphone,
-  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle,
+  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle, CloudOff, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
+import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale } from "@/lib/outbox";
 import { fmtMoney, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,8 @@ export function POS() {
   const { activeBusiness, activeBranch, currency } = useSession();
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   const products = data?.products || [];
+  const bizId = activeBusiness?.id || "";
+  const branchId = activeBranch?.id || "";
 
   const [cat, setCat] = useState("All");
   const [q, setQ] = useState("");
@@ -47,7 +50,35 @@ export function POS() {
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [cartOpen, setCartOpen] = useState(false); // mobile slide-over
+  const [queued, setQueued] = useState<QueuedSale[]>([]);
+  const [savedOffline, setSavedOffline] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  const refreshQueue = () => {
+    if (bizId && branchId) setQueued(outboxList(bizId, branchId));
+  };
+
+  async function syncOutbox() {
+    if (!bizId || !branchId || syncing) return;
+    setSyncing(true);
+    try {
+      const r = await outboxFlush(bizId, branchId);
+      refreshQueue();
+      if (r.sent > 0) reload(); // stock moved server-side; refresh the grid
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  // On entry and whenever the network returns, push queued sales through.
+  useEffect(() => {
+    refreshQueue();
+    syncOutbox();
+    const onOnline = () => syncOutbox();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [bizId, branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category))).sort()], [products]);
 
@@ -104,17 +135,16 @@ export function POS() {
     if (!cart.length || busy) return;
     setBusy(true);
     setError("");
+    setSavedOffline(false);
+    const body = {
+      items: cart.map((l) => ({ productId: l.id, qty: l.qty })),
+      discount: safeDiscount,
+      payments: [{ method: pay, amount: total }],
+      ...(customer?.name ? { customer } : {}),
+      clientSaleId: crypto.randomUUID(),
+    };
     try {
-      const res = await api<{ receipt: Receipt }>("/sales", {
-        method: "POST",
-        body: JSON.stringify({
-          items: cart.map((l) => ({ productId: l.id, qty: l.qty })),
-          discount: safeDiscount,
-          payments: [{ method: pay, amount: total }],
-          ...(customer?.name ? { customer } : {}),
-          clientSaleId: crypto.randomUUID(),
-        }),
-      });
+      const res = await api<{ receipt: Receipt }>("/sales", { method: "POST", body: JSON.stringify(body) });
       setReceipt(res.receipt);
       setCart([]);
       setDiscount(0);
@@ -122,8 +152,25 @@ export function POS() {
       setCartOpen(false);
       reload();
     } catch (err: any) {
-      setError(err.message || "Checkout failed");
-      if (err.code === "insufficient_stock") reload();
+      if (err.status === 0) {
+        // No network: queue the sale, keep selling. It syncs itself later.
+        outboxEnqueue(bizId, branchId, {
+          clientSaleId: body.clientSaleId,
+          body,
+          total,
+          itemCount: count,
+          queuedAt: new Date().toISOString(),
+        });
+        refreshQueue();
+        setCart([]);
+        setDiscount(0);
+        setCustomer(null);
+        setSavedOffline(true);
+        setTimeout(() => setSavedOffline(false), 4000);
+      } else {
+        setError(err.message || "Checkout failed");
+        if (err.code === "insufficient_stock") reload();
+      }
     } finally {
       setBusy(false);
     }
@@ -281,6 +328,41 @@ export function POS() {
         </div>
 
         <div className="border-t border-line p-4 space-y-3">
+          {/* offline queue */}
+          {savedOffline && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-ctl bg-warning-soft text-warning text-[12px] font-semibold">
+              <CloudOff className="w-4 h-4 shrink-0" /> No network — sale saved on this device. It will sync automatically.
+            </div>
+          )}
+          {queued.length > 0 && (
+            <div className="rounded-ctl border border-line bg-warning-soft/50 px-3 py-2.5 space-y-2">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-warning">
+                <CloudOff className="w-4 h-4 shrink-0" />
+                {queued.length} sale{queued.length === 1 ? "" : "s"} waiting to sync
+                <button
+                  onClick={syncOutbox}
+                  disabled={syncing}
+                  className="ml-auto flex items-center gap-1 px-2 h-7 rounded-lg border border-line-2 bg-surface text-[11px] font-semibold text-t2 hover:text-t1 disabled:opacity-50"
+                >
+                  <RefreshCw className={cn("w-3 h-3", syncing && "animate-spin")} /> {syncing ? "Syncing…" : "Sync now"}
+                </button>
+              </div>
+              {queued.filter((s) => s.error).map((s) => (
+                <div key={s.clientSaleId} className="flex items-center gap-2 text-[11px] text-danger">
+                  <span className="flex-1 min-w-0 truncate">
+                    {fmtMoney(s.total, currency)} ({s.itemCount} items) rejected: {s.error}
+                  </span>
+                  <button
+                    onClick={() => { outboxDiscard(bizId, branchId, s.clientSaleId); refreshQueue(); }}
+                    className="shrink-0 font-semibold underline"
+                  >
+                    Discard
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* customer */}
           {customer ? (
             <div className="flex items-center gap-2 px-3 py-2 rounded-ctl bg-primary-softer border border-line text-[12px]">
