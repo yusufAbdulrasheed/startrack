@@ -1,0 +1,257 @@
+@import "tailwindcss";
+
+/* ────────────────────────────────────────────────
+   StarTrack Design Tokens
+   Brand: the StarTrack blue (#1a48cc family)
+   Light-first · dark mode via .dark on <html>
+──────────────────────────────────────────────── */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Brand — read straight out of the Figma PDFs (fill operators).
+     #0058be is the primary; #2170e4 and #d8e2ff are its lighter steps. */
+  --st-brand-950: #001a42;
+  --st-brand-900: #002d70;
+  --st-brand-800: #004395;
+  --st-brand-700: #0058be; /* primary */
+  --st-brand-600: #0f66d2;
+  --st-brand-500: #2170e4;
+  --st-brand-400: #5b92ee;
+  --st-brand-300: #adc6ff;
+  --st-brand-200: #d8e2ff;
+  --st-brand-100: #e7eeff;
+  --st-brand-50:  #f4f7ff;
+
+  /* Semantic — light. The neutrals are warm greys, not blue-tinted: the
+     design's surfaces run #fcf8fa → #f6f3f5 → #f0edef. */
+  --st-bg:        #f6f3f5;
+  --st-surface:   #ffffff;
+  --st-surface-2: #fcf8fa;
+  --st-surface-3: #f0edef;
+  --st-border:    #e4e2e4;
+  --st-border-2:  #c6c6cd;
+  --st-text-1:    #1b1b1d;
+  --st-text-2:    #45464d;
+  --st-text-3:    #76777d;
+  --st-text-4:    #a9aab1;
+
+  --st-primary:          var(--st-brand-700);
+  --st-primary-hover:    var(--st-brand-500);
+  --st-primary-soft:     #d8e2ff;
+  --st-primary-softer:   #eef3ff;
+  --st-on-primary:       #ffffff;
+
+  --st-success:      #0a7f5a;
+  --st-success-soft: #cdf3e4;
+  --st-warning:      #8a5b00;
+  --st-warning-soft: #fcdeb5;
+  --st-danger:       #ba1a1a;
+  --st-danger-soft:  #ffdad6;
+
+  /* Sidebar. Light surface with a solid primary pill on the active item —
+     the dark navy (#131b2e) in the design belongs to the marketing page and
+     the sign-up panel, not the app shell. */
+  --st-nav-bg:        #ffffff;
+  --st-nav-bg-2:      #fcf8fa;
+  --st-nav-fg:        #45464d;
+  --st-nav-fg-strong: #1b1b1d;
+  --st-nav-active:    #0058be;
+  --st-nav-hover:     #f0edef;
+  --st-nav-border:    #e4e2e4;
+
+  /* The dark panel used by the landing page and the sign-up split screen. */
+  --st-ink:           #131b2e;
+
+  --st-shadow-1: 0 1px 2px rgba(27, 27, 29, 0.05);
+  --st-shadow-2: 0 4px 14px rgba(27, 27, 29, 0.10), 0 1px 3px rgba(27, 27, 29, 0.06);
+  --st-shadow-brand: 0 2px 8px rgba(0, 88, 190, 0.24);
+
+  /* Chart categoricals — validated with the dataviz checker (light mode) */
+  --chart-1: #2254e0;
+  --chart-2: #0f9f76;
+  --chart-3: #e8930f;
+  --chart-4: #8b5cf6;
+  --chart-grid: rgba(18, 42, 92, 0.08);
+  --chart-axis: #6b84af;
+}
+
+.dark {
+  /* Dark counterpart: an elevated slate, deliberately NOT near-black —
+     surfaces step up in lightness so cards read as raised rather than as
+     holes cut in a black page. */
+  --st-bg:        #171a21;
+  --st-surface:   #1e222b;
+  --st-surface-2: #242935;
+  --st-surface-3: #2c323f;
+  --st-border:    #333a48;
+  --st-border-2:  #454e60;
+  --st-text-1:    #e8ebf2;
+  --st-text-2:    #b6becd;
+  --st-text-3:    #8892a4;
+  --st-text-4:    #626c7d;
+
+  --st-primary:        #8cb4ff;
+  --st-primary-hover:  #adc6ff;
+  --st-primary-soft:   #00376f;
+  --st-primary-softer: #002343;
+  --st-on-primary:     #002f6b;
+
+  --st-success:      #6bd7ab;
+  --st-success-soft: #054733;
+  --st-warning:      #f0c07a;
+  --st-warning-soft: #3f2c00;
+  --st-danger:       #ffb4ab;
+  --st-danger-soft:  #5c0f0f;
+
+  --st-nav-bg:        #1e222b;
+  --st-nav-bg-2:      #242935;
+  --st-nav-fg:        #b6becd;
+  --st-nav-fg-strong: #ffffff;
+  --st-nav-active:    #0058be;
+  --st-nav-hover:     #2c323f;
+  --st-nav-border:    #333a48;
+
+  --st-ink:           #131b2e;
+
+  --st-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.32);
+  --st-shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4);
+  --st-shadow-brand: 0 2px 10px rgba(0, 88, 190, 0.4);
+
+  /* Chart categoricals — lifted for the dark surface */
+  --chart-1: #6b9dff;
+  --chart-2: #34d399;
+  --chart-3: #e0a961;
+  --chart-4: #a78bfa;
+  --chart-grid: rgba(255, 255, 255, 0.08);
+  --chart-axis: #76777d;
+}
+
+/* Map tokens into Tailwind utilities (bg-surface, text-t1, border-line, bg-primary…) */
+@theme inline {
+  --color-brand-50:  var(--st-brand-50);
+  --color-brand-100: var(--st-brand-100);
+  --color-brand-200: var(--st-brand-200);
+  --color-brand-300: var(--st-brand-300);
+  --color-brand-400: var(--st-brand-400);
+  --color-brand-500: var(--st-brand-500);
+  --color-brand-600: var(--st-brand-600);
+  --color-brand-700: var(--st-brand-700);
+  --color-brand-800: var(--st-brand-800);
+  --color-brand-900: var(--st-brand-900);
+  --color-brand-950: var(--st-brand-950);
+
+  --color-canvas:    var(--st-bg);
+  --color-surface:   var(--st-surface);
+  --color-surface-2: var(--st-surface-2);
+  --color-surface-3: var(--st-surface-3);
+  --color-ink:        var(--st-ink);
+  --color-nav:        var(--st-nav-bg);
+  --color-nav-2:      var(--st-nav-bg-2);
+  --color-nav-fg:     var(--st-nav-fg);
+  --color-nav-strong: var(--st-nav-fg-strong);
+  --color-nav-active: var(--st-nav-active);
+  --color-nav-hover:  var(--st-nav-hover);
+  --color-nav-line:   var(--st-nav-border);
+  --color-line:      var(--st-border);
+  --color-line-2:    var(--st-border-2);
+  --color-t1:        var(--st-text-1);
+  --color-t2:        var(--st-text-2);
+  --color-t3:        var(--st-text-3);
+  --color-t4:        var(--st-text-4);
+
+  --color-primary:        var(--st-primary);
+  --color-primary-hover:  var(--st-primary-hover);
+  --color-primary-soft:   var(--st-primary-soft);
+  --color-primary-softer: var(--st-primary-softer);
+  --color-on-primary:     var(--st-on-primary);
+
+  --color-success:      var(--st-success);
+  --color-success-soft: var(--st-success-soft);
+  --color-warning:      var(--st-warning);
+  --color-warning-soft: var(--st-warning-soft);
+  --color-danger:       var(--st-danger);
+  --color-danger-soft:  var(--st-danger-soft);
+
+  --shadow-e1: var(--st-shadow-1);
+  --shadow-e2: var(--st-shadow-2);
+  --shadow-brand: var(--st-shadow-brand);
+
+  --radius-card: 10px;
+  --radius-ctl: 8px;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-display: "Sora", "Inter", system-ui, sans-serif;
+}
+
+/* Reusable animation utilities */
+@keyframes st-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes st-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes st-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+.animate-fade-up { animation: st-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.animate-fade-in { animation: st-fade-in 0.4s ease both; }
+.st-grid-bg {
+  background-image:
+    linear-gradient(var(--st-border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--st-border) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--st-bg);
+  color: var(--st-text-1);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Receipt printing: hide the app, show only the receipt card */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-receipt,
+  .print-receipt * {
+    visibility: visible;
+  }
+  .print-receipt {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--st-border-2);
+  border-radius: 6px;
+}
+
+/* Slow ambient drift for the sign-up panel. Long, offset durations so the two
+   blooms never sync up into an obvious pulse. */
+@keyframes st-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(28px, -22px, 0) scale(1.08); }
+}
+.animate-drift      { animation: st-drift 18s ease-in-out infinite; }
+.animate-drift-slow { animation: st-drift 26s ease-in-out infinite reverse; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-drift, .animate-drift-slow { animation: none; }
+}
