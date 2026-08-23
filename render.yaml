@@ -1,12 +1,16 @@
-# Render blueprint: deploys the StarTrack API from this repo's server/ folder.
-# Connect the GitHub repo on render.com and it reads this file.
+# Render blueprint: one service for the whole of StarTrack.
+#
+# The API process serves the built web client from dist/, so there is a single
+# deployment on a single URL — no separate frontend host, and no CORS between
+# them. Connect the GitHub repo on render.com and it reads this file.
 services:
   - type: web
-    name: startrack-api
+    name: startrack
     runtime: node
-    rootDir: server
     plan: free
-    buildCommand: npm install --omit=dev
+    # Dev dependencies are needed at build time (Vite, TypeScript) and pruned
+    # afterwards, so the running container only carries what it needs.
+    buildCommand: npm ci && npm run build && npm prune --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
@@ -16,5 +20,14 @@ services:
         sync: false # paste your Atlas connection string in the Render dashboard
       - key: JWT_SECRET
         generateValue: true
-      - key: WEB_ORIGIN
-        sync: false # your Vercel URL, e.g. https://startrack.vercel.app
+      # Optional — alerts appear in the app regardless; these add the email copy.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false

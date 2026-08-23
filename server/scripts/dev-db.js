@@ -2,15 +2,20 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 /**
  * Runs the local dev MongoDB as its own long-lived process, on a fixed port,
- * with data stored in server/.data/mongo (so it survives restarts).
+ * with data stored in .data/ at the repo root (so it survives restarts).
  * The API connects to it via MONGODB_URI — API restarts never touch the DB.
+ *
+ * It is a one-member REPLICA SET, not a standalone: MongoDB only offers
+ * multi-document transactions on a replica set, and checkout needs one
+ * (blueprint §2). Atlas is a replica set too, so dev matches production.
  */
 const PORT = 27818;
-const dbPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.data/mongo");
+const REPL_SET = "rs0";
+const dbPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.data/mongo");
 
 function portInUse(port) {
   return new Promise((resolve) => {
@@ -29,11 +34,12 @@ if (await portInUse(PORT)) {
   setInterval(() => {}, 60_000);
 } else {
   fs.mkdirSync(dbPath, { recursive: true });
-  const mem = await MongoMemoryServer.create({
-    instance: { port: PORT, dbName: "startrack", dbPath, storageEngine: "wiredTiger" },
+  const mem = await MongoMemoryReplSet.create({
+    replSet: { count: 1, name: REPL_SET, dbName: "startrack", storageEngine: "wiredTiger" },
+    instanceOpts: [{ port: PORT, dbPath }],
   });
-  console.log(`✓ Dev MongoDB running on ${mem.getUri()}`);
-  console.log(`  Data persists in server/.data/mongo`);
+  console.log(`✓ Dev MongoDB (replica set ${REPL_SET}) running on ${mem.getUri()}`);
+  console.log(`  Data persists in .data/mongo · transactions enabled`);
 
   const stop = async () => {
     await mem.stop({ doCleanup: false }); // clean shutdown, keep the data

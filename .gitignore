@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Server runtime
+.env
+.env.*.local
+.data
+.mongodb-binaries
