@@ -2,9 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, Check, Search, Rocket, Store, MapPin, User,
-  ShoppingBasket, Pill, Wine, Scissors, Blinds, Croissant, Smartphone, Snowflake,
-  Shirt, Wrench, Hammer, BedDouble, UtensilsCrossed, Droplets, Egg, Fuel,
-  Sparkles, Dumbbell, Sprout, Sofa, Printer, Fish, Car, Package,
+  Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg, Snowflake,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
@@ -13,12 +11,8 @@ import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, any> = {
-  retail: ShoppingBasket, pharmacy: Pill, bar: Wine, tailoring: Scissors, blinds: Blinds,
-  bakery: Croissant, electronics: Smartphone, coldroom: Snowflake, laundry: Shirt,
-  autorepair: Wrench, buildingmaterials: Hammer, hotel: BedDouble, restaurant: UtensilsCrossed,
-  water: Droplets, poultry: Egg, filling: Fuel, salon: Sparkles, gym: Dumbbell,
-  agro: Sprout, furniture: Sofa, printing: Printer, fishfarm: Fish, carwash: Car,
-  services: Package, other: Store,
+  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
+  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg, coldroom: Snowflake,
 };
 
 const STEPS = [
@@ -84,8 +78,8 @@ export function Register() {
       <aside className="hidden lg:flex w-[42%] max-w-[560px] shrink-0 flex-col justify-between p-10 relative overflow-hidden" style={{ background: "var(--st-ink)" }}>
         {/* A slow, quiet field of light — motion that doesn't ask for attention. */}
         <div aria-hidden className="absolute inset-0 opacity-70">
-          <div className="absolute -top-32 -left-24 w-[420px] h-[420px] rounded-full blur-3xl animate-drift" style={{ background: "radial-gradient(circle, rgba(0,88,190,.55), transparent 70%)" }} />
-          <div className="absolute bottom-[-140px] right-[-80px] w-[380px] h-[380px] rounded-full blur-3xl animate-drift-slow" style={{ background: "radial-gradient(circle, rgba(33,112,228,.4), transparent 70%)" }} />
+          <div className="absolute -top-32 -left-24 w-[420px] h-[420px] rounded-full blur-3xl animate-drift" style={{ background: "radial-gradient(circle, rgba(0,40,142,.55), transparent 70%)" }} />
+          <div className="absolute bottom-[-140px] right-[-80px] w-[380px] h-[380px] rounded-full blur-3xl animate-drift-slow" style={{ background: "radial-gradient(circle, rgba(30,64,175,.4), transparent 70%)" }} />
         </div>
 
         <div className="relative">

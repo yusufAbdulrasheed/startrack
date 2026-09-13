@@ -4,9 +4,9 @@
 export type ToggleableModule = { key: string; label: string; hint: string };
 
 export type Capability =
-  | "rooms" | "folio" | "kitchen" | "production" | "cohorts" | "jobs"
-  | "serials" | "variants" | "appointments" | "weighing" | "meters"
-  | "memberships" | "credit" | "lots";
+  | "rooms" | "folio" | "kitchen" | "kitchenQueue" | "production" | "cohorts" | "jobs"
+  | "serials" | "medication" | "variants" | "appointments" | "weighing" | "meters"
+  | "memberships" | "credit" | "lots" | "loyalty" | "coldChain";
 
 export type BusinessTypeTemplate = {
   label: string;
@@ -16,6 +16,9 @@ export type BusinessTypeTemplate = {
   modules: string[];
   tagline: string;
   capabilities: Capability[];
+  skuPrefix?: string;
+  allowedUnits?: string[];
+  positions?: string[];
 };
 
 export declare const TOGGLEABLE_MODULES: ToggleableModule[];

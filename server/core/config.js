@@ -22,13 +22,16 @@ export const config = {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
-  // Outbound email for alerts. Absent = alerts stay in-app only (see mailer.js).
-  smtp: {
-    host: process.env.SMTP_HOST || "",
-    port: Number(process.env.SMTP_PORT) || 587,
-    user: process.env.SMTP_USER || "",
-    pass: process.env.SMTP_PASS || "",
-    from: process.env.MAIL_FROM || process.env.SMTP_USER || "alerts@startrack.app",
+  // Outbound email — every kind the app sends (alerts today, whatever comes
+  // next) goes through Resend; see mailer.js. Absent RESEND_API_KEY = email
+  // stays off and alerts stay in-app only, same fallback as before.
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || "",
+    // Resend's own shared testing address — works with no domain setup, but
+    // can only send to the account's own verified email. Set MAIL_FROM to a
+    // "Name <you@yourdomain.com>" address once a sending domain is verified
+    // in the Resend dashboard.
+    from: process.env.MAIL_FROM || "StarTrack <onboarding@resend.dev>",
   },
   // How often the background sweep looks for expiring stock and unattended
   // returns. Every 6 hours by default; 0 turns the sweep off entirely.
@@ -36,5 +39,11 @@ export const config = {
   // The email promoted to platform overseer on boot, so StarTrack always has
   // a way in without editing the database by hand.
   platformOwnerEmail: (process.env.PLATFORM_OWNER_EMAIL || "").trim().toLowerCase(),
+  // Render's free tier spins a web service down after 15 minutes with no
+  // inbound HTTP request — RENDER_EXTERNAL_URL is set automatically there,
+  // so this needs no manual configuration on Render itself. PING_URL
+  // overrides it for any other host that wants the same trick. Blank
+  // (local dev, or a paid tier that never sleeps) = the ping never runs.
+  keepAwakeUrl: (process.env.PING_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, ""),
   isProd,
 };

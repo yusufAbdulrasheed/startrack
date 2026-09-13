@@ -37,8 +37,12 @@ function shapeBusiness(b) {
       },
       // Legacy businesses without the field get everything on.
       modules: b.settings.modules ?? ALL_TOGGLEABLE,
+      loyalty: {
+        sachetBagsPerToken: b.settings.loyalty?.sachetBagsPerToken ?? 2,
+        tokensPerFreePack: b.settings.loyalty?.tokensPerFreePack ?? 5,
+      },
     },
-    // So the UI can say "email is off because nobody configured SMTP"
+    // So the UI can say "email is off because nobody configured Resend"
     // rather than leaving the owner to wonder why nothing arrives.
     emailConfigured: mailEnabled(),
   };
@@ -73,6 +77,12 @@ const updateSchema = z.object({
     })
     .optional(),
   modules: z.array(z.enum(ALL_TOGGLEABLE)).optional(),
+  loyalty: z
+    .object({
+      sachetBagsPerToken: z.number().int().min(1).max(1000).optional(),
+      tokensPerFreePack: z.number().int().min(1).max(1000).optional(),
+    })
+    .optional(),
 });
 
 // PATCH /api/settings — audited (VAT changes move money)
@@ -100,6 +110,10 @@ settingsRouter.patch("/", requirePerm("settings"), async (req, res) => {
     business.settings.alerts = merged;
   }
   if (d.modules !== undefined) business.settings.modules = d.modules;
+  if (d.loyalty !== undefined) {
+    const merged = { ...(business.settings.loyalty?.toObject?.() || business.settings.loyalty || {}), ...d.loyalty };
+    business.settings.loyalty = merged;
+  }
   await business.save();
 
   audit(req.ctx, "settings.update", { type: "settings", id: business._id, label: business.name }, before.settings, shapeBusiness(business).settings);
@@ -140,7 +154,7 @@ settingsRouter.patch("/branches/:id", requirePerm("*"), async (req, res) => {
 
 const newBusinessSchema = z.object({
   name: z.string().min(2, "Name the business"),
-  businessType: z.string().default("retail"),
+  businessType: z.string().default("restaurant"),
   tradingName: z.string().default(""),
   taxId: z.string().default(""),
   currency: z.string().min(1).max(4).default("₦"),
@@ -151,8 +165,8 @@ const newBusinessSchema = z.object({
  * POST /api/settings/businesses — a second (or fifth) shop under this account.
  *
  * The account layer stays invisible until exactly this moment. Owning a
- * pharmacy and a bar is one login and two completely separate sets of books —
- * they share nothing but the person paying for them.
+ * restaurant and a hotel is one login and two completely separate sets of
+ * books — they share nothing but the person paying for them.
  */
 settingsRouter.post("/businesses", requirePerm("*"), async (req, res) => {
   const parsed = newBusinessSchema.safeParse(req.body);
@@ -214,8 +228,8 @@ settingsRouter.post("/businesses", requirePerm("*"), async (req, res) => {
  */
 settingsRouter.get("/businesses", async (req, res) => {
   // Owning the account is what grants the whole list. Anyone else sees only
-  // the shops they were actually hired into — a cashier at the supermarket
-  // has no business knowing the owner also runs a pharmacy.
+  // the shops they were actually hired into — a waiter at the restaurant
+  // has no business knowing the owner also runs a hotel.
   const ownsAccount = req.ctx.perms.includes("*");
   let scope = { accountId: req.ctx.accountId };
   if (!ownsAccount) {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, ShoppingCart, Package, Settings, Receipt,
-  HelpCircle, LogOut, Globe2,
+  HelpCircle, LogOut, Globe2, Home, Plus,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
@@ -33,6 +33,8 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
       children: [
         { to: "/app/pos", label: "Sell", perm: "sales" },
         { to: "/app/front-desk", label: "Front Desk", perm: "sales", capability: "rooms" },
+        { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain" },
+        { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue" },
         { to: "/app/jobs", label: "Job Tickets", perm: "sales", capability: "jobs" },
         { to: "/app/returns", label: "Returns", perm: "returns", module: "returns" },
         { to: "/app/activity", label: "My Activity", perm: "activity" },
@@ -46,6 +48,7 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
         { to: "/app/expenses", label: "Expenses", perm: "expenses", module: "expenses" },
         { to: "/app/staff", label: "Staff", perm: "staff_mgmt" },
         { to: "/app/attendance", label: "Attendance", perm: "dashboard_ops", module: "attendance" },
+        { to: "/app/vaccinations", label: "Vaccination & Medication", perm: "dashboard_ops", capability: "medication" },
       ],
     },
     {
@@ -54,6 +57,11 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
         { to: "/app/products", label: "Catalog", perm: "stock" },
         { to: "/app/stock-in", label: "Stock In", perm: "stock" },
         { to: "/app/transfers", label: "Transfers", perm: "stock", module: "transfers" },
+        { to: "/app/serials", label: "Serial Numbers", perm: "stock", capability: "serials" },
+        { to: "/app/production", label: "Production", perm: "stock", capability: "production" },
+        { to: "/app/suppliers", label: "Suppliers", perm: "stock", module: "suppliers" },
+        { to: "/app/stock-count", label: "Stock Counts", perm: "stock", module: "stock_count" },
+        { to: "/app/cohorts", label: "Batches", perm: "stock", capability: "cohorts" },
       ],
     },
     { to: "/app/sales", label: "History", icon: Receipt, perm: "dashboard_ops" },
@@ -120,12 +128,38 @@ export function Sidebar({ open = false }: { open?: boolean }) {
         <div className="text-[11px] text-nav-fg truncate mt-0.5">{activeBranch?.name || activeBusiness?.name || "—"}</div>
       </div>
 
+      {can("sales") && (
+        <div className="px-3 pt-3" data-tour="new-sale-btn">
+          <NavLink
+            to="/app/pos"
+            className="w-full flex items-center justify-center gap-1.5 h-9 rounded-ctl bg-nav-active text-white text-[13px] font-semibold hover:brightness-110 transition-all"
+          >
+            <Plus className="w-4 h-4" /> New Sale
+          </NavLink>
+        </div>
+      )}
+
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
+        {/* Staff without a dashboard land on POS for speed; this is how they
+            get back to their own home hub (tasks/schedule/announcements). */}
+        {!can("dashboard_ops") && (
+          <NavLink
+            to="/app/home"
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 px-3 h-10 rounded-ctl text-[13px] font-medium transition-colors",
+                isActive ? "bg-nav-active text-white font-semibold" : "text-nav-fg hover:bg-nav-hover hover:text-nav-strong"
+              )
+            }
+          >
+            <Home className="w-[18px] h-[18px] shrink-0" /> Home
+          </NavLink>
+        )}
         {groups.map((g) => {
           const active = isGroupActive(g);
           const Icon = g.icon;
           return (
-            <div key={g.label}>
+            <div key={g.label} data-tour={`nav-${g.to.replace("/app/", "")}`}>
               <NavLink
                 to={g.to}
                 className={cn(
@@ -177,6 +211,7 @@ export function Sidebar({ open = false }: { open?: boolean }) {
           </NavLink>
         )}
         <button
+          data-tour="sidebar-help"
           onClick={() => setHelpOpen(true)}
           className="w-full flex items-center gap-3 px-3 h-9 rounded-ctl text-[13px] font-medium text-nav-fg hover:bg-nav-hover hover:text-nav-strong transition-colors"
         >

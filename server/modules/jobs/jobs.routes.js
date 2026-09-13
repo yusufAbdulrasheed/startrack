@@ -29,6 +29,9 @@ const lineSchema = z.object({
 const createSchema = z.object({
   title: z.string().min(2, "Describe the job"),
   reference: z.string().default(""),
+  // Links this ticket to a specific tracked unit (server/modules/products/
+  // serial.model.js) so its repair history shows up on the serial lookup.
+  serialNo: z.string().default(""),
   notes: z.string().default(""),
   customerId: z.string().optional(),
   customer: z.object({ name: z.string().min(1), phone: z.string().default("") }).optional(),
@@ -76,6 +79,7 @@ jobsRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
         customerPhone: customer?.phone || "",
         title: d.title.trim(),
         reference: d.reference.trim(),
+        serialNo: d.serialNo.trim(),
         notes: d.notes,
         lines,
         ...totals,
@@ -101,6 +105,7 @@ jobsRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
 jobsRouter.get("/", requirePerm("sales", "dashboard_ops"), requireBranch, async (req, res) => {
   const filter = { businessId: req.ctx.businessId, branchId: req.ctx.branchId };
   if (req.query.stage && JOB_STAGES.includes(String(req.query.stage))) filter.stage = req.query.stage;
+  if (req.query.serialNo) filter.serialNo = String(req.query.serialNo);
   if (req.query.open === "1") filter.stage = { $in: ["received", "in_progress", "ready"] };
   if (req.query.overdue === "1") {
     filter.stage = { $in: ["received", "in_progress", "ready"] };
@@ -149,6 +154,7 @@ jobsRouter.get("/:id", requirePerm("sales", "dashboard_ops"), async (req, res) =
 const updateSchema = z.object({
   title: z.string().min(2).optional(),
   reference: z.string().optional(),
+  serialNo: z.string().optional(),
   notes: z.string().optional(),
   lines: z.array(lineSchema).optional(),
   discount: z.number().min(0).optional(),
@@ -176,6 +182,7 @@ jobsRouter.patch("/:id", requirePerm("sales"), async (req, res) => {
 
       if (d.title !== undefined) job.title = d.title.trim();
       if (d.reference !== undefined) job.reference = d.reference.trim();
+      if (d.serialNo !== undefined) job.serialNo = d.serialNo.trim();
       if (d.notes !== undefined) job.notes = d.notes;
       if (d.promisedAt !== undefined) job.promisedAt = d.promisedAt ? new Date(d.promisedAt) : undefined;
 

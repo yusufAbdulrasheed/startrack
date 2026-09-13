@@ -21,7 +21,12 @@ export class InsufficientStockError extends Error {
  */
 export async function applyMovement(
   ctx,
-  { branchId, productId, productName, type, qty, refType = "", refId = null, reason = "", session = null }
+  {
+    branchId, productId, productName, type, qty, refType = "", refId = null, reason = "", session = null,
+    // Optional passthroughs, stored on the ledger row only when given —
+    // every existing caller omits them and sees no change in behavior.
+    unitCost = undefined, supplierId = null, supplierName = "", wasteReason = undefined,
+  }
 ) {
   let inv;
   if (qty < 0) {
@@ -62,6 +67,9 @@ export async function applyMovement(
         reason,
         actorId: ctx.userId,
         actorName: ctx.actorName,
+        ...(unitCost !== undefined ? { unitCost } : {}),
+        ...(supplierId ? { supplierId, supplierName } : {}),
+        ...(wasteReason ? { wasteReason } : {}),
       },
     ],
     { session }

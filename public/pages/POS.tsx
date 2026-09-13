@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Banknote, CreditCard, Smartphone,
   CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle, CloudOff, RefreshCw, Ruler,
-  Split as SplitIcon,
+  Split as SplitIcon, ScanBarcode,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
@@ -17,10 +17,18 @@ import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale 
 import { fmtMoney, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type Product = { id: string; name: string; price: number; category: string; stock: number | null; barcode: string; archetype?: string };
+type Product = {
+  id: string; name: string; price: number; category: string; stock: number | null; barcode: string;
+  archetype?: string; tracksSerials?: boolean;
+  bom?: { productId: string; per: string; factor: number }[];
+};
 type Line = {
   uid: string; id: string; name: string; price: number; stock: number; qty: number;
-  mto?: { width: number; height: number };
+  // Present for any made-to-order line; width/height only when the recipe
+  // actually needs a dimension (blinds) — a plain "unit" recipe (a bowl of
+  // jollof) omits them and sells like a stock tap, straight to the cart.
+  mto?: { width?: number; height?: number };
+  serialNos?: string[]; // chosen units, for a tracksSerials product — optional, never blocks checkout
 };
 type Receipt = {
   saleNo: string; businessName: string; at: string; staffName: string; customerName: string;
@@ -99,6 +107,7 @@ export function POS() {
   }, [bizId, branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category))).sort()], [products]);
+  const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
   const filtered = useMemo(
     () =>
@@ -124,13 +133,27 @@ export function POS() {
   }
 
   const [mtoFor, setMtoFor] = useState<Product | null>(null);
+  const [serialFor, setSerialFor] = useState<Line | null>(null);
   const isMto = (p: Product) => p.archetype === "made_to_order";
+  // A recipe scales by area/side only if some component's bom line says so
+  // (blinds, priced per m²). A plain "unit" recipe — rice, chicken, tomato
+  // behind a bowl of jollof — needs no dimensions at all.
+  const needsDims = (p: Product) => (p.bom || []).some((l) => l.per !== "unit");
   const inCart = (id: string) => cart.filter((l) => l.id === id && !l.mto).reduce((s, l) => s + l.qty, 0);
 
   const add = (p: Product) => {
     setError("");
     if (isMto(p)) {
-      setMtoFor(p); // custom items need dimensions first
+      if (needsDims(p)) {
+        setMtoFor(p); // custom items need dimensions first
+        return;
+      }
+      // Plain recipe item — sells in one tap, same feel as a stock product.
+      setCart((c) => {
+        const ex = c.find((l) => l.id === p.id && l.mto && !l.mto.width);
+        if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
+        return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: Infinity, qty: 1, mto: {} }];
+      });
       return;
     }
     if ((p.stock ?? 0) - inCart(p.id) <= 0) return;
@@ -157,6 +180,8 @@ export function POS() {
         .filter((l) => l.qty > 0)
     );
   const remove = (uid: string) => setCart((c) => c.filter((l) => l.uid !== uid));
+  const setSerials = (uid: string, serialNos: string[]) =>
+    setCart((c) => c.map((l) => (l.uid === uid ? { ...l, serialNos } : l)));
 
   const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
   const safeDiscount = Math.min(discount, subtotal);
@@ -217,8 +242,8 @@ export function POS() {
     const body = {
       items: cart.map((l) =>
         l.mto
-          ? { productId: l.id, qty: l.qty, width: l.mto.width, height: l.mto.height, price: l.price }
-          : { productId: l.id, qty: l.qty }
+          ? { productId: l.id, qty: l.qty, ...(l.mto.width ? { width: l.mto.width, height: l.mto.height } : {}), price: l.price }
+          : { productId: l.id, qty: l.qty, ...(l.serialNos?.length ? { serialNos: l.serialNos } : {}) }
       ),
       discount: safeDiscount,
       payments: mergedPayments,
@@ -270,18 +295,18 @@ export function POS() {
       {/* LEFT: products */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="p-4 border-b border-line bg-surface flex items-center gap-3">
-          <div className="w-10 h-10 rounded-ctl border border-line-2 flex items-center justify-center text-t3 shrink-0" title="Scan barcode — scanners type into search">
-            <ScanLine className="w-[18px] h-[18px]" />
+          <div className="w-12 h-12 rounded-ctl border border-line-2 bg-surface-2 flex items-center justify-center text-t3 shrink-0" title="Scan barcode — scanners type into search">
+            <ScanLine className="w-5 h-5" />
           </div>
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-t4 pointer-events-none" />
             <input
               ref={searchRef}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={onSearchKey}
               placeholder="Search or scan…"
-              className="w-full h-10 pl-9 pr-3 rounded-ctl bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer"
+              className="w-full h-12 pl-11 pr-4 rounded-full bg-surface-2 border border-line text-[14px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer transition-colors"
             />
           </div>
         </div>
@@ -292,8 +317,8 @@ export function POS() {
               key={c}
               onClick={() => setCat(c)}
               className={cn(
-                "px-3.5 h-8 rounded-full text-[12px] font-semibold whitespace-nowrap border transition-colors",
-                cat === c ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1"
+                "px-4 h-9 rounded-full text-[12px] font-semibold whitespace-nowrap border transition-colors shrink-0",
+                cat === c ? "bg-primary border-primary text-on-primary" : "bg-surface-2 border-line-2 text-t2 hover:bg-surface-3"
               )}
             >
               {c}
@@ -309,23 +334,25 @@ export function POS() {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {filtered.map((p) => {
-                const custom = isMto(p);
-                const left = custom ? Infinity : (p.stock ?? 0) - inCart(p.id);
-                const oos = !custom && left <= 0;
-                const low = !custom && left > 0 && left <= 5;
+                const mto = isMto(p);
+                const custom = mto && needsDims(p); // only a dimensioned recipe counts as "Custom"
+                const left = mto ? Infinity : (p.stock ?? 0) - inCart(p.id);
+                const oos = !mto && left <= 0;
+                const low = !mto && left > 0 && left <= 5;
                 return (
                   <button
                     key={p.id}
                     onClick={() => add(p)}
                     disabled={oos}
                     className={cn(
-                      "group relative text-left bg-surface border border-line rounded-card p-4 transition-all duration-150",
+                      "group relative text-left bg-surface border border-line rounded-card p-4 pt-5 overflow-hidden transition-all duration-150",
                       oos ? "opacity-40 cursor-not-allowed" : "hover:border-brand-400 hover:shadow-e1 hover:-translate-y-0.5 active:translate-y-0"
                     )}
                   >
-                    {custom && <span className="absolute top-2.5 right-2.5"><Badge tone="brand">Custom</Badge></span>}
-                    {low && <span className="absolute top-2.5 right-2.5"><Badge tone="warning">Low</Badge></span>}
-                    {oos && <span className="absolute top-2.5 right-2.5"><Badge tone="danger">Out</Badge></span>}
+                    <span className="absolute top-0 inset-x-0 h-0.75 bg-primary/80" />
+                    {custom && <span className="absolute top-3 right-2.5"><Badge tone="brand">Custom</Badge></span>}
+                    {low && <span className="absolute top-3 right-2.5"><Badge tone="warning">Low</Badge></span>}
+                    {oos && <span className="absolute top-3 right-2.5"><Badge tone="danger">Out</Badge></span>}
                     <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center mb-3">
                       {custom ? <Ruler className="w-5 h-5" /> : <Package className="w-5 h-5" />}
                     </div>
@@ -334,9 +361,9 @@ export function POS() {
                       <span className="font-mono font-bold text-[14px] text-primary">
                         {fmtMoney(p.price, currency)}{custom && <span className="text-[10px] text-t4 font-sans">/m²</span>}
                       </span>
-                      {!custom && <span className="text-[11px] text-t4">{left} left</span>}
+                      {!mto && <span className="text-[11px] text-t4">{left} left</span>}
                     </div>
-                    <span className="absolute bottom-3 right-3 w-6 h-6 rounded-lg bg-primary text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="absolute bottom-3 right-3 w-6 h-6 rounded-lg bg-primary text-on-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Plus className="w-4 h-4" />
                     </span>
                   </button>
@@ -351,7 +378,7 @@ export function POS() {
       <button
         onClick={() => setCartOpen(true)}
         className={cn(
-          "lg:hidden fixed bottom-4 right-4 z-40 h-12 px-5 rounded-full bg-gradient-to-r from-brand-700 to-brand-500 text-white text-[14px] font-bold shadow-brand flex items-center gap-2",
+          "lg:hidden fixed bottom-4 right-4 z-40 h-12 px-5 rounded-full bg-primary text-on-primary text-[14px] font-display font-bold shadow-e2 flex items-center gap-2 active:scale-[0.98] transition-transform",
           cartOpen && "hidden"
         )}
       >
@@ -391,27 +418,43 @@ export function POS() {
           ) : (
             <div className="space-y-2">
               {cart.map((l) => (
-                <div key={l.uid} className="bg-surface-2 border border-line rounded-xl p-3 animate-fade-in">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-[13px] font-semibold text-t1 leading-tight">
-                      {l.name}
-                      {l.mto && <span className="ml-1.5 align-middle"><Badge tone="brand">Custom</Badge></span>}
-                    </span>
-                    <button onClick={() => remove(l.uid)} className="text-t4 hover:text-danger transition-colors shrink-0">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                <div key={l.uid} className="flex items-start gap-2.5 bg-surface-2 border border-line rounded-xl p-3 animate-fade-in">
+                  <div className="w-8 h-8 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
+                    {l.mto ? <Ruler className="w-4 h-4" /> : <Package className="w-4 h-4" />}
                   </div>
-                  <div className="mt-2.5 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={() => setQty(l.uid, -1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-                      <span className="w-8 text-center font-mono font-bold text-[13px] text-t1">{l.qty}</span>
-                      <button onClick={() => setQty(l.uid, 1)} className="w-7 h-7 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:border-brand-400 hover:text-primary transition-colors">
-                        <Plus className="w-3.5 h-3.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-[13px] font-semibold text-t1 leading-tight">
+                        {l.name}
+                        {l.mto && <span className="ml-1.5 align-middle"><Badge tone="brand">Custom</Badge></span>}
+                      </span>
+                      <button onClick={() => remove(l.uid)} className="text-t4 hover:text-danger transition-colors shrink-0">
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                    <span className="font-mono font-bold text-[14px] text-t1 tabular-nums">{fmtMoney(l.price * l.qty, currency)}</span>
+                    <div className="text-[11px] text-t3 font-mono mt-0.5">{fmtMoney(l.price, currency)} each</div>
+                    {!l.mto && productById.get(l.id)?.tracksSerials && (
+                      <button
+                        type="button"
+                        onClick={() => setSerialFor(l)}
+                        className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                      >
+                        <ScanBarcode className="w-3 h-3" />
+                        {l.serialNos?.length ? `${l.serialNos.length}/${l.qty} serials picked` : "Pick serial (optional)"}
+                      </button>
+                    )}
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => setQty(l.uid, -1)} className="w-8 h-8 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:bg-surface-3 hover:text-primary transition-colors">
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-8 text-center font-mono font-bold text-[13px] text-t1">{l.qty}</span>
+                        <button onClick={() => setQty(l.uid, 1)} className="w-8 h-8 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:bg-surface-3 hover:text-primary transition-colors">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <span className="font-mono font-bold text-[14px] text-t1 tabular-nums">{fmtMoney(l.price * l.qty, currency)}</span>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -494,20 +537,22 @@ export function POS() {
             <div className="grid grid-cols-3 gap-2">
               {PAY_METHODS.map(({ k, label, icon: Icon }) => {
                 const used = splits.some((s) => s.method === k);
+                const selected = !used && pay === k;
                 return (
                   <button
                     key={k}
                     onClick={() => !used && setPay(k)}
                     disabled={used}
                     className={cn(
-                      "h-11 rounded-ctl border flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors",
+                      "relative h-12 rounded-ctl border flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors",
                       used
                         ? "bg-surface-3 border-line text-t4 cursor-not-allowed"
-                        : pay === k
-                          ? "bg-primary-soft border-brand-400 text-primary"
-                          : "bg-surface-2 border-line-2 text-t3 hover:text-t1"
+                        : selected
+                          ? "bg-primary-softer border-primary text-primary"
+                          : "bg-surface-2 border-line-2 text-t2 hover:bg-surface-3"
                     )}
                   >
+                    {selected && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />}
                     <Icon className="w-4 h-4" />
                     {label}
                     {splitting && pay === k && outstanding > 0 && (
@@ -613,14 +658,14 @@ export function POS() {
               </div>
             )}
             <div className="flex justify-between items-center pt-1.5 border-t border-line">
-              <span className="text-[13px] font-bold text-t1">Total</span>
-              <span className="font-mono font-extrabold text-[18px] text-primary tabular-nums">{fmtMoney(total, currency)}</span>
+              <span className="font-display text-[14px] font-bold text-t1">Total</span>
+              <span className="font-mono font-extrabold text-[20px] text-primary tabular-nums">{fmtMoney(total, currency)}</span>
             </div>
           </div>
 
           {error && <div className="px-3 py-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
 
-          <Button variant="success" size="lg" className="w-full" onClick={checkout} disabled={!cart.length || busy || shortTender}>
+          <Button variant="success" size="lg" className="w-full font-display" onClick={checkout} disabled={!cart.length || busy || shortTender}>
             <CheckCircle2 className="w-5 h-5" />
             {busy ? "Processing…" : `Complete Sale · ${fmtMoney(total, currency)}`}
           </Button>
@@ -628,7 +673,15 @@ export function POS() {
       </aside>
 
       {/* made-to-order dimensions modal */}
-      <MtoModal key={mtoFor?.id ?? "closed"} product={mtoFor} currency={currency} onClose={() => setMtoFor(null)} onAdd={addMtoLine} />
+      <MtoModal key={mtoFor?.id ?? "mto-closed"} product={mtoFor} currency={currency} onClose={() => setMtoFor(null)} onAdd={addMtoLine} />
+
+      {/* serial picker — optional, never blocks checkout */}
+      <SerialPickerModal
+        key={serialFor?.uid ?? "serial-closed"}
+        line={serialFor}
+        onClose={() => setSerialFor(null)}
+        onSave={(serialNos) => { if (serialFor) setSerials(serialFor.uid, serialNos); setSerialFor(null); }}
+      />
 
       {/* customer modal */}
       <CustomerQuickAdd open={customerOpen} onClose={() => setCustomerOpen(false)} onPick={(c) => { setCustomer(c); setCustomerOpen(false); }} />
@@ -684,6 +737,63 @@ function MtoModal({ product, currency, onClose, onAdd }: {
           <Plus className="w-4 h-4" /> Add to sale · {fmtMoney((effective || 0) * Math.max(1, qty), currency)}
         </Button>
       </form>
+    </Modal>
+  );
+}
+
+// Optional: pick which specific in-stock unit(s) this cart line sells. Skip
+// it and checkout still goes through with no serial attached — this is a
+// nicety for serial-tracked products, never a requirement.
+function SerialPickerModal({ line, onClose, onSave }: {
+  line: Line | null;
+  onClose: () => void;
+  onSave: (serialNos: string[]) => void;
+}) {
+  const { data, loading } = useApi<{ serials: { serialNo: string }[] }>(
+    line ? `/serials?productId=${line.id}&status=in_stock` : null,
+    [line?.id]
+  );
+  const [picked, setPicked] = useState<string[]>(line?.serialNos || []);
+  if (!line) return null;
+  const available = data?.serials || [];
+
+  function toggle(serialNo: string) {
+    setPicked((p) =>
+      p.includes(serialNo) ? p.filter((s) => s !== serialNo) : p.length < line!.qty ? [...p, serialNo] : p
+    );
+  }
+
+  return (
+    <Modal open={!!line} onClose={onClose} title={`Pick serial — ${line.name}`} subtitle={`Choose up to ${line.qty} unit(s), or skip this`}>
+      {loading ? (
+        <Spinner />
+      ) : available.length === 0 ? (
+        <EmptyState icon={ScanBarcode} title="No serials registered yet" body="Register units for this product on the Stock In page, then come back here." />
+      ) : (
+        <div className="space-y-1.5 max-h-72 overflow-y-auto">
+          {available.map((s) => {
+            const checked = picked.includes(s.serialNo);
+            return (
+              <label
+                key={s.serialNo}
+                className={cn(
+                  "flex items-center gap-2.5 px-3 py-2 rounded-ctl border cursor-pointer transition-colors",
+                  checked ? "border-brand-400 bg-primary-softer" : "border-line hover:bg-surface-2"
+                )}
+              >
+                <input type="checkbox" checked={checked} onChange={() => toggle(s.serialNo)} className="accent-primary" />
+                <span className="font-mono text-[13px] text-t1">{s.serialNo}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <div className="flex gap-2 mt-4">
+        <Button type="button" variant="secondary" className="flex-1" onClick={() => onSave([])}>Skip</Button>
+        <Button type="button" className="flex-1" disabled={!picked.length} onClick={() => onSave(picked)}>
+          Use {picked.length || ""} selected
+        </Button>
+      </div>
     </Modal>
   );
 }

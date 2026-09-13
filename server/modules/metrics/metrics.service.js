@@ -2,10 +2,10 @@ import { DailyMetric } from "#modules/metrics/dailyMetric.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Return } from "#modules/returns/return.model.js";
 import { Expense } from "#modules/expenses/expense.model.js";
+import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { money } from "#core/money.js";
 
-// Business-local calendar day. v1 uses the server's local day (pilot shops
-// share the server timezone); per-business timezones slot in here later.
+
 export function localDay(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -13,17 +13,10 @@ export function localDay(d = new Date()) {
   return `${y}-${m}-${day}`;
 }
 
-const NUMERIC = ["revenue", "cost", "profit", "txns", "discountTotal", "vatTotal", "refundTotal", "expenses"];
+const NUMERIC = ["revenue", "cost", "profit", "txns", "discountTotal", "vatTotal", "refundTotal", "wasteTotal", "expenses"];
 const METHODS = ["cash", "pos", "transfer"];
 
-/**
- * Incrementally applies a delta to the day's pre-rolled metrics.
- * delta: { revenue, cost, profit, txns, discountTotal, vatTotal, refundTotal,
- *          expenses, payments: {cash, pos, transfer} }
- *
- * Pass the caller's `session` so the roll-up commits with the sale that
- * caused it — otherwise a rolled-back sale leaves its revenue behind.
- */
+
 export async function bumpDailyMetric(ctx, branchId, date, delta, session = null) {
   const inc = {};
   for (const k of NUMERIC) {
@@ -40,24 +33,13 @@ export async function bumpDailyMetric(ctx, branchId, date, delta, session = null
   );
 }
 
-/**
- * Recomputes the pre-rolled metrics for a date range straight from the source
- * rows (sales, approved returns, expenses) and overwrites them.
- *
- * The incremental path above is the fast one, but any lost increment is
- * permanent — dashboards would stay wrong forever with no way back. This is
- * that way back: an owner can rebuild a range and get numbers that provably
- * match the sales list. Days in range with no activity are zeroed, not left
- * stale.
- *
- * Returns { days, branches, rebuilt } for the caller to report.
- */
+
 export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {
   const start = new Date(`${from}T00:00:00`);
   const end = new Date(new Date(`${to}T00:00:00`).getTime() + 24 * 3600 * 1000);
   const inRange = { businessId, at: { $gte: start, $lt: end } };
 
-  // key = `${branchId}|${YYYY-MM-DD}` — one accumulator per branch-day.
+  
   const acc = new Map();
   const bucket = (branchId, date) => {
     const key = `${branchId}|${date}`;
@@ -66,7 +48,7 @@ export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {
         branchId,
         date,
         revenue: 0, cost: 0, profit: 0, txns: 0,
-        discountTotal: 0, vatTotal: 0, refundTotal: 0, expenses: 0,
+        discountTotal: 0, vatTotal: 0, refundTotal: 0, wasteTotal: 0, expenses: 0,
         paymentSplit: { cash: 0, pos: 0, transfer: 0 },
       });
     }
@@ -111,7 +93,18 @@ export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {
     if (METHODS.includes(r.refund.method)) b.paymentSplit[r.refund.method] -= r.refund.amount;
   }
 
-  // 3. Expenses — kept apart from profit; dashboards subtract them themselves.
+  // 3. Waste — never sold, so no revenue/cost to reverse, just a straight
+  //    profit hit valued at each movement's own snapshotted unitCost (not
+  //    the product's current cost, which may have moved on since).
+  const waste = await StockMovement.find({ ...inRange, refType: "waste" }).select("branchId at qty unitCost").lean();
+  for (const w of waste) {
+    const b = bucket(String(w.branchId), localDay(w.at));
+    const value = Math.abs(w.qty) * (w.unitCost || 0);
+    b.wasteTotal += value;
+    b.profit -= value;
+  }
+
+  // 4. Expenses — kept apart from profit; dashboards subtract them themselves.
   const expenses = await Expense.find(inRange).select("branchId at amount").lean();
   for (const e of expenses) {
     bucket(String(e.branchId), localDay(e.at)).expenses += e.amount;
@@ -133,7 +126,7 @@ export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {
         $set: {
           revenue: money(v.revenue), cost: money(v.cost), profit: money(v.profit),
           txns: v.txns, discountTotal: money(v.discountTotal), vatTotal: money(v.vatTotal),
-          refundTotal: money(v.refundTotal), expenses: money(v.expenses),
+          refundTotal: money(v.refundTotal), wasteTotal: money(v.wasteTotal), expenses: money(v.expenses),
           paymentSplit: {
             cash: money(v.paymentSplit.cash),
             pos: money(v.paymentSplit.pos),
@@ -153,6 +146,7 @@ export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {
     branches: new Set([...acc.values()].map((v) => v.branchId)).size,
     sales: sales.length,
     returns: returns.length,
+    waste: waste.length,
     expenses: expenses.length,
   };
 }

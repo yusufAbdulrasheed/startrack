@@ -5,24 +5,72 @@ import { Inventory } from "#modules/inventory/inventory.model.js";
 import { requirePerm, canSeeCost } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { money, isValidAmount } from "#core/money.js";
+import { typeTemplate } from "#shared/businessTypes.js";
 
 export const productsRouter = Router();
 
+// A store cannot have two products with the same name, matched case- and
+// whitespace-insensitively — "Egg Crate" and "egg crate " are the same
+// product. Scoped per business; another business can have its own.
+async function findNameTaken(businessId, name, excludeId) {
+  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const filter = { businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } };
+  if (excludeId) filter._id = { $ne: excludeId };
+  return Product.findOne(filter);
+}
+
+// Some trades genuinely can't sell in every unit a supermarket can (a
+// poultry farm has no "bottle"), and a "bird" only means something once
+// it's a layer or a broiler. Declared per type as `allowedUnits` in
+// businessTypes.js — most types have none and stay unrestricted.
+function checkUnitAndCategory(template, unit, category) {
+  if (template.allowedUnits?.length && !template.allowedUnits.includes(unit)) {
+    return `Unit must be one of: ${template.allowedUnits.join(", ")}.`;
+  }
+  if (unit === "bird" && category !== "layer" && category !== "broiler") {
+    return `A "bird" unit needs a category of "layer" or "broiler".`;
+  }
+  return null;
+}
+
+// SKUs are never typed by a user — generated here, retried on the rare
+// collision, and falling back to a timestamp suffix if it still can't find
+// a free one.
+async function generateSku(businessId, prefix) {
+  const p = prefix || "GEN";
+  for (let i = 0; i < 5; i++) {
+    const suffix = Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, "0");
+    const candidate = `${p}-${suffix}`;
+    if (!(await Product.findOne({ businessId, sku: candidate }).select("_id"))) return candidate;
+  }
+  return `${p}-${Date.now().toString(36).toUpperCase()}`;
+}
+
 function shape(p, stockByProduct, showCost) {
   const mto = p.archetype === "made_to_order";
+  const hasBom = (p.bom || []).length > 0;
   const out = {
     id: p._id,
     name: p.name,
+    sku: p.sku || "",
     barcode: p.barcode,
     category: p.category,
     archetype: p.archetype,
     price: p.price,
     reorderLevel: p.reorderLevel,
+    unit: p.unit || "unit",
+    purchaseUnit: p.purchaseUnit || "",
+    unitsPerPurchase: p.unitsPerPurchase || 1,
     expiry: p.expiry || null,
+    tracksSerials: !!p.tracksSerials,
+    warrantyMonths: p.warrantyMonths || 0,
     status: p.status,
     // MTO items carry no stock of their own — their components do.
     stock: mto ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
-    bom: mto ? (p.bom || []).map((c) => ({ productId: c.productId, per: c.per, factor: c.factor })) : undefined,
+    // A recipe now belongs to either archetype: an MTO item's bom is expanded
+    // live at checkout; a stock item's bom is what a Production Run consumes.
+    bom: hasBom ? (p.bom || []).map((c) => ({ productId: c.productId, per: c.per, factor: c.factor, includeLeakage: c.includeLeakage !== false })) : undefined,
+    ...(hasBom && !mto ? { producedUnitsPerStockUnit: p.producedUnitsPerStockUnit || 1 } : {}),
     createdAt: p.createdAt,
   };
   if (showCost) out.cost = p.cost;
@@ -35,6 +83,7 @@ const bomSchema = z
       productId: z.string(),
       per: z.enum(["sqm", "width", "height", "unit"]),
       factor: z.number().positive().max(1000).default(1),
+      includeLeakage: z.boolean().default(true),
     })
   )
   .min(1, "A made-to-order item needs at least one component")
@@ -87,6 +136,10 @@ productsRouter.get("/barcode/:code", async (req, res) => {
 
 const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
+  // Never typed by a user in the normal flow — left blank, the server
+  // generates one. Accepted here only so CSV import / API callers can carry
+  // one over from elsewhere.
+  sku: z.string().default(""),
   barcode: z.string().default(""),
   category: z.string().min(1).default("General"),
   archetype: z.enum(["stock", "made_to_order"]).default("stock"),
@@ -94,6 +147,17 @@ const productSchema = z.object({
   price: z.number().min(0, "Price can't be negative"),
   cost: z.number().min(0).default(0),
   reorderLevel: z.number().min(0).default(5),
+  // Display unit ("kg", "litre", "bag"…) plus an optional purchase-unit
+  // conversion for goods bought in one unit and consumed in another.
+  unit: z.string().max(20).default("unit"),
+  purchaseUnit: z.string().max(30).default(""),
+  unitsPerPurchase: z.number().min(0.001).max(1000000).default(1),
+  tracksSerials: z.boolean().default(false),
+  // Warranty period in months, applied to each Serial at the moment it's
+  // sold. Meaningless without tracksSerials, harmless otherwise.
+  warrantyMonths: z.number().int().min(0).max(600).default(0),
+  // Production-run yield: "12 bottles = 1 pack". Meaningless without a bom.
+  producedUnitsPerStockUnit: z.number().int().min(1).max(100000).default(1),
   // Accepts "YYYY-MM-DD" from a date input; empty string clears it.
   expiry: z
     .string()
@@ -114,25 +178,45 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
     if (dupe) return res.status(409).json({ error: "barcode_taken", message: `Barcode already on "${dupe.name}".` });
   }
 
+  const nameDupe = await findNameTaken(req.ctx.businessId, d.name);
+  if (nameDupe) return res.status(409).json({ error: "name_taken", message: `"${nameDupe.name}" is already in your catalog.` });
+
+  const template = typeTemplate(req.ctx.business.typeKey);
+  const unitError = checkUnitAndCategory(template, d.unit, d.category);
+  if (unitError) return res.status(400).json({ error: "invalid", message: unitError });
+
   const isMto = d.archetype === "made_to_order";
-  if (isMto) {
-    if (!d.bom) return res.status(400).json({ error: "invalid", message: "Add the components this item is made from." });
+  if (isMto && !d.bom) {
+    return res.status(400).json({ error: "invalid", message: "Add the components this item is made from." });
+  }
+  // A stock item's recipe (for Production Runs) is optional — most stock
+  // products have none.
+  if (d.bom?.length) {
     const check = await validateBom(req.ctx.businessId, d.bom);
     if (check.error) return res.status(400).json({ error: "invalid", message: check.error });
   }
+
+  const sku = d.sku.trim() || (await generateSku(req.ctx.businessId, template.skuPrefix));
 
   const product = await Product.create({
     accountId: req.ctx.accountId,
     businessId: req.ctx.businessId,
     name: d.name,
+    sku,
     barcode: d.barcode,
     category: d.category,
     archetype: d.archetype,
-    bom: isMto ? d.bom : [],
+    bom: d.bom?.length ? d.bom : [],
+    producedUnitsPerStockUnit: d.producedUnitsPerStockUnit,
     price: money(d.price),
     cost: money(d.cost),
     reorderLevel: d.reorderLevel,
+    unit: d.unit,
+    purchaseUnit: d.purchaseUnit,
+    unitsPerPurchase: d.unitsPerPurchase,
     expiry: d.expiry ? new Date(d.expiry) : undefined,
+    tracksSerials: !isMto && d.tracksSerials,
+    warrantyMonths: !isMto && d.tracksSerials ? d.warrantyMonths : 0,
   });
 
   // Opening stock lands as a proper IN movement so the ledger starts correct.
@@ -178,6 +262,7 @@ productsRouter.post("/import", requirePerm("prices"), async (req, res) => {
   const existing = await Product.find({ businessId: req.ctx.businessId, status: "active" }).select("name barcode");
   const namesTaken = new Set(existing.map((p) => p.name.trim().toLowerCase()));
   const barcodesTaken = new Set(existing.filter((p) => p.barcode).map((p) => p.barcode));
+  const template = typeTemplate(req.ctx.business.typeKey);
 
   const { applyMovement } = await import("#modules/inventory/inventory.service.js");
   const results = { created: 0, skipped: [] };
@@ -199,11 +284,13 @@ productsRouter.post("/import", requirePerm("prices"), async (req, res) => {
       continue;
     }
     const expiryDate = d.expiry && !Number.isNaN(new Date(d.expiry).getTime()) ? new Date(d.expiry) : undefined;
+    const sku = await generateSku(req.ctx.businessId, template.skuPrefix);
 
     const product = await Product.create({
       accountId: req.ctx.accountId,
       businessId: req.ctx.businessId,
       name: d.name.trim(),
+      sku,
       barcode: d.barcode.trim(),
       category: d.category.trim() || "General",
       price: money(d.price),
@@ -249,11 +336,29 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
     if (dupe) return res.status(409).json({ error: "barcode_taken", message: `Barcode already on "${dupe.name}".` });
   }
 
-  if (d.bom !== undefined && product.archetype === "made_to_order") {
+  if (d.name !== undefined && d.name.trim().toLowerCase() !== product.name.trim().toLowerCase()) {
+    const nameDupe = await findNameTaken(req.ctx.businessId, d.name, product._id);
+    if (nameDupe) return res.status(409).json({ error: "name_taken", message: `"${nameDupe.name}" is already in your catalog.` });
+  }
+
+  if (d.unit !== undefined || d.category !== undefined) {
+    const template = typeTemplate(req.ctx.business.typeKey);
+    const unitError = checkUnitAndCategory(
+      template,
+      d.unit !== undefined ? d.unit : product.unit,
+      d.category !== undefined ? d.category : product.category
+    );
+    if (unitError) return res.status(400).json({ error: "invalid", message: unitError });
+  }
+
+  // A recipe can be edited on either archetype: MTO (checkout expansion) or
+  // stock (Production Runs, see server/modules/production/).
+  if (d.bom !== undefined) {
     const check = await validateBom(req.ctx.businessId, d.bom);
     if (check.error) return res.status(400).json({ error: "invalid", message: check.error });
     product.bom = d.bom;
   }
+  if (d.producedUnitsPerStockUnit !== undefined) product.producedUnitsPerStockUnit = d.producedUnitsPerStockUnit;
 
   const before = { name: product.name, price: product.price, cost: product.cost };
   const expiryBefore = product.expiry ? new Date(product.expiry).getTime() : null;
@@ -264,7 +369,12 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   if (d.price !== undefined && isValidAmount(d.price)) product.price = money(d.price);
   if (d.cost !== undefined && isValidAmount(d.cost)) product.cost = money(d.cost);
   if (d.reorderLevel !== undefined) product.reorderLevel = d.reorderLevel;
+  if (d.unit !== undefined) product.unit = d.unit;
+  if (d.purchaseUnit !== undefined) product.purchaseUnit = d.purchaseUnit;
+  if (d.unitsPerPurchase !== undefined) product.unitsPerPurchase = d.unitsPerPurchase;
   if (d.expiry !== undefined) product.expiry = d.expiry ? new Date(d.expiry) : undefined;
+  if (d.tracksSerials !== undefined) product.tracksSerials = d.tracksSerials;
+  if (d.warrantyMonths !== undefined) product.warrantyMonths = d.warrantyMonths;
   await product.save();
 
   // A new expiry date (or none) makes the old warnings wrong — clear them and

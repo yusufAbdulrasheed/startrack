@@ -6,6 +6,7 @@ import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
 import { fmtDateTime } from "@/lib/format";
 
@@ -21,6 +22,7 @@ export function Transfers() {
     [activeBranch?.id]
   );
   const products = prodData?.products || [];
+  const paged = usePaged(moveData?.movements || []);
 
   const [toBranchId, setToBranchId] = useState("");
   const [lines, setLines] = useState<{ productId: string; qty: number }[]>([{ productId: "", qty: 1 }]);
@@ -127,20 +129,23 @@ export function Transfers() {
           ) : !moveData?.movements.length ? (
             <EmptyState icon={ArrowLeftRight} title="No transfers yet" body="Outgoing transfers from this branch will show here." />
           ) : (
-            <div className="divide-y divide-line">
-              {moveData.movements.map((m) => (
-                <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
-                    <ArrowLeftRight className="w-4 h-4" />
+            <>
+              <div className="divide-y divide-line">
+                {paged.rows.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
+                      <ArrowLeftRight className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold text-t1 truncate">{m.productName}</div>
+                      <div className="text-[11px] text-t3 truncate">{m.reason} · {m.actorName} · {fmtDateTime(m.at)}</div>
+                    </div>
+                    <div className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{m.qty}</div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold text-t1 truncate">{m.productName}</div>
-                    <div className="text-[11px] text-t3 truncate">{m.reason} · {m.actorName} · {fmtDateTime(m.at)}</div>
-                  </div>
-                  <div className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{m.qty}</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+              <Pager {...paged} onPage={paged.setPage} noun="transfers" />
+            </>
           )}
         </Card>
       </div>

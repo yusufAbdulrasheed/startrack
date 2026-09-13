@@ -16,11 +16,29 @@ const stockMovementSchema = new mongoose.Schema(
     },
     qty: { type: Number, required: true }, // signed: positive adds stock, negative removes
     balanceAfter: { type: Number, required: true },
-    refType: { type: String, default: "" }, // sale | return | transfer | manual
+    refType: { type: String, default: "" }, // sale | return | transfer | manual | production | waste | stock_count
     refId: { type: mongoose.Schema.Types.ObjectId },
     reason: { type: String, default: "" },
     actorId: { type: mongoose.Schema.Types.ObjectId, required: true },
     actorName: { type: String, default: "" },
+    // Set only on a stock-in that named a per-delivery cost — the running
+    // price history for a supplier lives here, not in a separate collection.
+    unitCost: { type: Number },
+    supplierId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    supplierName: { type: String, default: "" },
+    // Set only when refType === "waste" — spoilage/staff-meal/damage/etc.
+    // "shrinkage" and "cold_chain_failure" are the cold-room trade's own two
+    // (see server/modules/businesses/coldroom/): the first is the routine,
+    // expected ice-glaze/dehydration gap between a carton's declared and
+    // weighed-out kg; the second is a whole-batch loss from a power/generator
+    // failure — same ledger door, deliberately distinguishable by this field.
+    wasteReason: {
+      type: String,
+      enum: [
+        "spoilage", "staff_meal", "damage", "expired", "broken", "cracked", "rotten", "contaminated",
+        "shrinkage", "cold_chain_failure", "other",
+      ],
+    },
     at: { type: Date, default: Date.now },
   },
   { versionKey: false }

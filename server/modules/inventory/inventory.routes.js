@@ -5,25 +5,36 @@ import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
 import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Branch } from "#modules/business/branch.model.js";
+import { Supplier } from "#modules/suppliers/supplier.model.js";
 import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
 import { applyMovement, InsufficientStockError } from "#modules/inventory/inventory.service.js";
+import { money } from "#core/money.js";
 import { audit } from "#core/audit.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
+import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
 
 export const inventoryRouter = Router();
 
 const stockInSchema = z.object({
   items: z
-    .array(z.object({ productId: z.string(), qty: z.number().int().positive("Quantity must be positive") }))
+    .array(z.object({
+      productId: z.string(),
+      qty: z.number().int().positive("Quantity must be positive"),
+      // Optional: what this delivery actually cost per unit. Naming it here
+      // (not a fixed catalog price) matches how this stock is really bought —
+      // market prices move delivery to delivery.
+      unitCost: z.number().min(0).optional(),
+    }))
     .min(1, "Add at least one product"),
   note: z.string().default(""),
+  supplierId: z.string().optional(),
 });
 
 // POST /api/inventory/stock-in — receive goods into the active branch
 inventoryRouter.post("/stock-in", requirePerm("stock"), requireBranch, async (req, res) => {
   const parsed = stockInSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
-  const { items, note } = parsed.data;
+  const { items, note, supplierId } = parsed.data;
 
   const products = await Product.find({ _id: { $in: items.map((i) => i.productId) }, businessId: req.ctx.businessId });
   const byId = new Map(products.map((p) => [String(p._id), p]));
@@ -31,9 +42,35 @@ inventoryRouter.post("/stock-in", requirePerm("stock"), requireBranch, async (re
     return res.status(400).json({ error: "invalid", message: "One of those products doesn't exist." });
   }
 
+  let supplier = null;
+  if (supplierId) {
+    supplier = await Supplier.findOne({ _id: supplierId, businessId: req.ctx.businessId });
+    if (!supplier) return res.status(400).json({ error: "invalid", message: "That supplier doesn't exist." });
+  }
+
+  const invByProduct = new Map(
+    (await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: items.map((i) => i.productId) } }))
+      .map((i) => [String(i.productId), i.stock])
+  );
+
   const results = [];
   for (const item of items) {
     const product = byId.get(item.productId);
+
+    // A delivery with a named cost updates the product's running weighted-
+    // average cost — the standard way to keep it honest when prices move
+    // from one delivery to the next, without overwriting yesterday's number
+    // wholesale.
+    if (item.unitCost !== undefined) {
+      const priorStock = invByProduct.get(item.productId) ?? 0;
+      const newCost =
+        priorStock + item.qty > 0
+          ? money(((priorStock * (product.cost || 0)) + (item.qty * item.unitCost)) / (priorStock + item.qty))
+          : item.unitCost;
+      product.cost = newCost;
+      await product.save();
+    }
+
     const balance = await applyMovement(req.ctx, {
       branchId: req.ctx.branchId,
       productId: product._id,
@@ -42,8 +79,11 @@ inventoryRouter.post("/stock-in", requirePerm("stock"), requireBranch, async (re
       qty: item.qty,
       refType: "manual",
       reason: note || "Stock in",
+      unitCost: item.unitCost,
+      supplierId: supplier?._id,
+      supplierName: supplier?.name || "",
     });
-    results.push({ productId: product._id, name: product.name, added: item.qty, stock: balance });
+    results.push({ productId: product._id, name: product.name, added: item.qty, stock: balance, cost: product.cost });
   }
   // Goods arrived — close any low-stock alerts the shelf just answered.
   afterStockChange(req.ctx, req.ctx.branchId, items.map((i) => i.productId));
@@ -82,6 +122,60 @@ inventoryRouter.post("/adjust", requirePerm("stock"), requireBranch, async (req,
   afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
   audit(req.ctx, "stock.adjust", { type: "product", id: product._id, label: product.name }, { stock: current }, { stock: balance, reason });
   res.json({ productId, stock: balance, changed: delta });
+});
+
+const wasteSchema = z.object({
+  productId: z.string(),
+  qty: z.number().int().positive("Quantity must be positive"),
+  wasteReason: z
+    .enum([
+      "spoilage", "staff_meal", "damage", "expired", "broken", "cracked", "rotten", "contaminated",
+      "shrinkage", "cold_chain_failure", "other",
+    ])
+    .default("other"),
+  note: z.string().default(""),
+});
+
+// POST /api/inventory/waste — stock leaving without a sale: spoilage, a
+// staff meal, damage, expiry. A distinct door from /adjust (a blunt
+// corrected-count tool) so it reads as its own thing in the ledger and can
+// be reported on separately from an ordinary correction.
+inventoryRouter.post("/waste", requirePerm("stock"), requireBranch, async (req, res) => {
+  const parsed = wasteSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const { productId, qty, wasteReason, note } = parsed.data;
+
+  const product = await Product.findOne({ _id: productId, businessId: req.ctx.businessId });
+  if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
+
+  try {
+    const balance = await applyMovement(req.ctx, {
+      branchId: req.ctx.branchId,
+      productId: product._id,
+      productName: product.name,
+      type: "OUT",
+      qty: -qty,
+      refType: "waste",
+      reason: note || wasteReason.replace("_", " "),
+      wasteReason,
+      // Snapshotted so a later metrics rebuild can reconstruct wasteTotal
+      // exactly, even after the product's cost has since changed.
+      unitCost: product.cost || 0,
+    });
+    afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
+    // Nothing was sold, so there's no revenue or COGS-of-a-sale to reverse —
+    // the loss is pure profit erosion, valued at cost (never selling price,
+    // since a wasted item was never sold).
+    const costValue = money((product.cost || 0) * qty);
+    if (costValue > 0) {
+      await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { profit: -costValue, wasteTotal: costValue });
+    }
+    audit(req.ctx, "stock.waste", { type: "product", id: product._id, label: product.name }, undefined, { qty, wasteReason, costValue });
+    res.status(201).json({ productId: product._id, stock: balance });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
+    throw err;
+  }
 });
 
 const transferSchema = z.object({
@@ -168,11 +262,13 @@ inventoryRouter.post("/transfer", requirePerm("stock"), requireBranch, async (re
   res.status(201).json({ transferId, toBranch: toBranch.name, items: results });
 });
 
-// GET /api/inventory/movements?productId=&type=&limit= — the ledger
+// GET /api/inventory/movements?productId=&type=&refType=&supplierId=&limit= — the ledger
 inventoryRouter.get("/movements", requirePerm("stock", "dashboard_ops"), requireBranch, async (req, res) => {
   const filter = { businessId: req.ctx.businessId, branchId: req.ctx.branchId };
   if (req.query.productId) filter.productId = req.query.productId;
   if (req.query.type) filter.type = req.query.type;
+  if (req.query.refType) filter.refType = req.query.refType;
+  if (req.query.supplierId) filter.supplierId = req.query.supplierId;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const movements = await StockMovement.find(filter).sort({ at: -1 }).limit(limit);
   res.json({
@@ -186,6 +282,9 @@ inventoryRouter.get("/movements", requirePerm("stock", "dashboard_ops"), require
       reason: m.reason,
       refType: m.refType,
       actorName: m.actorName,
+      unitCost: m.unitCost,
+      supplierName: m.supplierName || "",
+      wasteReason: m.wasteReason,
       at: m.at,
     })),
   });

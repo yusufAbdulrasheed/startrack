@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import mongoose from "mongoose";
 import { Product } from "#modules/products/product.model.js";
+import { Serial } from "#modules/businesses/electronics/serial.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
 import { Return } from "#modules/returns/return.model.js";
@@ -14,6 +15,7 @@ import { audit } from "#core/audit.js";
 import { withTransaction } from "#core/tx.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
+import { hasCapability } from "#shared/businessTypes.js";
 
 export const salesRouter = Router();
 
@@ -33,6 +35,7 @@ function shapeSale(s, showCost) {
       lineNet: i.lineNet,
       returnedQty: i.returnedQty,
       ...(i.width ? { width: i.width, height: i.height, custom: true } : {}),
+      ...(i.prepStatus ? { prepStatus: i.prepStatus } : {}),
       ...(showCost ? { lineCost: i.lineCost } : {}),
     })),
     subtotal: s.subtotal,
@@ -58,6 +61,10 @@ const checkoutSchema = z.object({
         width: z.number().positive().max(100).optional(),
         height: z.number().positive().max(100).optional(),
         price: z.number().min(0).optional(),
+        // Optional: specific in-stock units for a tracksSerials product.
+        // Omit it and the sale still goes through — serial capture never
+        // blocks a checkout, it just leaves the units unassigned.
+        serialNos: z.array(z.string().min(1)).optional(),
       })
     )
     .min(1, "The cart is empty"),
@@ -66,18 +73,14 @@ const checkoutSchema = z.object({
     .array(z.object({ method: z.enum(["cash", "pos", "transfer"]), amount: z.number().min(0) }))
     .min(1, "Choose a payment method")
     .max(3, "At most one entry per payment method"),
-  // What the customer physically handed over in cash. Only ever exceeds the
-  // cash line when change is being given back.
+  
   tendered: z.number().min(0).optional(),
   customerId: z.string().optional(),
   customer: z.object({ name: z.string().min(1), phone: z.string().default("") }).optional(),
   clientSaleId: z.string().optional(), // offline-queue idempotency
 });
 
-// POST /api/sales — checkout. Stock moves, the sale lands, the customer and
-// the day's metrics update — all inside one transaction, so a failure part
-// way through leaves no trace rather than half a sale. Prices are ALWAYS the
-// server's, never the client's.
+
 salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
@@ -109,10 +112,15 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
       // (each carries its own dimensions and price).
       const qtyByProduct = new Map();
       const mtoItems = [];
+      const serialsByProduct = new Map();
       for (const item of d.items) {
         const p = byId.get(item.productId);
         if (p.archetype === "made_to_order") mtoItems.push(item);
         else qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.qty);
+        if (item.serialNos?.length) {
+          const arr = serialsByProduct.get(item.productId) || [];
+          serialsByProduct.set(item.productId, [...arr, ...item.serialNos]);
+        }
       }
 
       // Server-side pricing and totals — stock lines.
@@ -143,38 +151,68 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
 
         for (const item of mtoItems) {
           const p = byId.get(item.productId);
-          if (!item.width || !item.height) throw badRequest(`${p.name} needs width and height.`);
           if (!p.bom?.length) {
             throw badRequest(`${p.name} has no components configured — set them up on the product first.`);
           }
+          // Dimensions only matter to a recipe that actually scales by area or
+          // a side (blinds, priced per m²). A plain "unit" recipe — a bowl of
+          // jollof made from rice/chicken/tomato — needs none: default both to
+          // 1 so the pricing formula below collapses to the item's own price.
+          const needsDims = p.bom.some((c) => c.per !== "unit");
+          if (needsDims && (!item.width || !item.height)) throw badRequest(`${p.name} needs width and height.`);
+          const w = needsDims ? item.width : 1;
+          const h = needsDims ? item.height : 1;
           const components = [];
           let lineCost = 0;
           for (const c of p.bom) {
             const comp = compById.get(String(c.productId));
             if (!comp) throw badRequest(`A component of ${p.name} no longer exists.`);
             const base =
-              c.per === "sqm" ? item.width * item.height :
-              c.per === "width" ? item.width :
-              c.per === "height" ? item.height : 1;
+              c.per === "sqm" ? w * h :
+              c.per === "width" ? w :
+              c.per === "height" ? h : 1;
             const qtyNeeded = round3(base * (c.factor || 1) * item.qty);
             if (qtyNeeded > 0) {
               components.push({ productId: comp._id, name: comp.name, qty: qtyNeeded });
               lineCost += (comp.cost || 0) * qtyNeeded;
             }
           }
-          const unitPrice = item.price !== undefined ? money(item.price) : money(p.price * item.width * item.height);
+          const unitPrice = item.price !== undefined ? money(item.price) : money(p.price * w * h);
           lines.push({
             productId: p._id,
-            name: `${p.name} — ${item.width}m × ${item.height}m`,
+            name: needsDims ? `${p.name} — ${w}m × ${h}m` : p.name,
             qty: item.qty,
             unitPrice,
             lineCost: money(lineCost),
             lineNet: money(unitPrice * item.qty),
             returnedQty: 0,
-            width: item.width,
-            height: item.height,
+            ...(needsDims ? { width: w, height: h } : {}),
             components,
           });
+        }
+      }
+
+      // Serial-tracked stock: validate any units the cashier picked BEFORE
+      // anything moves — same "cheap failures first" ordering as the customer
+      // resolution below. Optional: a line with no serialNos just sells normally.
+      const serialUpdates = [];
+      if (serialsByProduct.size) {
+        for (const line of lines) {
+          if (line.components.length) continue; // made-to-order lines don't carry serials
+          const given = serialsByProduct.get(String(line.productId));
+          if (!given?.length) continue;
+          if (given.length !== line.qty) {
+            throw badRequest(`${line.name}: chose ${given.length} serial number(s) for a quantity of ${line.qty}.`);
+          }
+          const found = await Serial.find({
+            businessId: req.ctx.businessId, productId: line.productId, serialNo: { $in: given }, status: "in_stock",
+          }).session(session);
+          if (found.length !== given.length) {
+            const foundNos = new Set(found.map((s) => s.serialNo));
+            const missing = given.find((s) => !foundNos.has(s));
+            throw badRequest(`${missing} isn't an available serial number for ${line.name}.`);
+          }
+          serialUpdates.push(...found);
         }
       }
 
@@ -274,6 +312,12 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
       const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
       const saleNo = `R-${String(seq).padStart(5, "0")}`;
 
+      // A restaurant sale routes each line to the kitchen queue; every other
+      // business type's items never get a prep status at all.
+      const itemsOut = hasCapability(req.ctx.business.typeKey, "kitchenQueue")
+        ? lines.map((l) => ({ ...l, prepStatus: "pending" }))
+        : lines;
+
       const [sale] = await Sale.create(
         [{
           _id: saleId,
@@ -285,7 +329,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
           staffName: req.ctx.actorName,
           customerId: customer?._id,
           customerName: customer?.name || "",
-          items: lines,
+          items: itemsOut,
           subtotal,
           discount,
           vat,
@@ -303,7 +347,31 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
         customer.visits += 1;
         customer.lastSeen = new Date();
         customer.lastBranchId = req.ctx.branchId;
+        // Loyalty tokens (water): only sachet/bag lines earn them, per the
+        // trade's own rule — bottles and everything else are sold, just not
+        // counted toward a free pack.
+        if (hasCapability(req.ctx.business.typeKey, "loyalty")) {
+          const sachetBagQty = lines
+            .filter((l) => /sachet|bag/i.test(l.name))
+            .reduce((s, l) => s + l.qty, 0);
+          if (sachetBagQty > 0) customer.sachetBagQty = (customer.sachetBagQty || 0) + sachetBagQty;
+        }
         await customer.save({ session });
+      }
+
+      for (const serial of serialUpdates) {
+        serial.status = "sold";
+        serial.saleId = saleId;
+        serial.customerId = customer?._id || null;
+        serial.customerName = customer?.name || "";
+        serial.soldAt = new Date();
+        const warrantyMonths = byId.get(String(serial.productId))?.warrantyMonths || 0;
+        if (warrantyMonths > 0) {
+          const expires = new Date(serial.soldAt);
+          expires.setMonth(expires.getMonth() + warrantyMonths);
+          serial.warrantyExpiresAt = expires;
+        }
+        await serial.save({ session });
       }
 
       const totalCost = money(lines.reduce((s, l) => s + l.lineCost, 0));
@@ -335,9 +403,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
       return res.status(200).json({ sale: shapeSale(out.sale, canSeeCost(req.ctx)), replayed: true });
     }
 
-    // The sale is committed; now see whether it emptied a shelf. Deliberately
-    // after the transaction — an alert must never be able to fail a checkout,
-    // and a rolled-back sale must never leave an alert behind.
+    
     afterStockChange(req.ctx, req.ctx.branchId, out.deductedIds);
 
     res.status(201).json({
@@ -368,9 +434,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
   }
 });
 
-// Builds the Mongo filter shared by the list and its totals. Values are cast
-// here because aggregate() — unlike find() — does no casting of its own, and
-// an uncast id silently matches nothing.
+
 function buildSalesFilter(req) {
   const filter = { businessId: req.ctx.businessId, branchId: req.ctx.branchId };
   const canSeeAll = req.ctx.perms.includes("*") || req.ctx.perms.includes("dashboard_ops");
@@ -441,19 +505,7 @@ salesRouter.get("/", requirePerm("sales", "dashboard_ops"), requireBranch, async
   const count = agg?.count || 0;
   const revenue = money(agg?.revenue || 0);
 
-  /**
-   * Refunds, so this page and the dashboard agree.
-   *
-   * The dashboard reports revenue NET of approved refunds; this list was
-   * reporting it gross. Both were defensible and the two numbers disagreed,
-   * which is worse than either being wrong on its own — an owner seeing
-   * 22,500 here and 13,500 there stops trusting both.
-   *
-   * Refunds are only counted when the filter is purely a date range. Narrow
-   * it by staff or receipt number and a refund can't be attributed, so we
-   * return null and the page hides the row rather than showing a figure that
-   * doesn't belong to what's on screen.
-   */
+  
   const dateOnly = !filter.staffId && !filter.saleNo && !filter.customerId &&
     !filter["items.productId"] && !filter["payments.method"] && !filter.total && !filter.status;
 
@@ -498,9 +550,7 @@ salesRouter.get("/:id", requirePerm("sales", "dashboard_ops"), async (req, res) 
   res.json({ sale: shapeSale(sale, canSeeCost(req.ctx)) });
 });
 
-// POST /api/sales/:id/void — undo: reversing movements + flagged, never
-// deleted. Stock, the sale's status, the customer's history and the day's
-// metrics all move together or not at all.
+
 salesRouter.post("/:id/void", requirePerm("void_sales"), async (req, res) => {
   const reason = String(req.body?.reason || "").trim();
   if (reason.length < 3) return res.status(400).json({ error: "invalid", message: "Give a reason for voiding this sale." });
@@ -549,6 +599,16 @@ salesRouter.post("/:id/void", requirePerm("void_sales"), async (req, res) => {
           customer.totalSpend = money(Math.max(0, customer.totalSpend - sale.total));
           customer.visits = Math.max(0, customer.visits - 1);
           await customer.save({ session });
+          // A credit sale that gets voided never happened — the customer
+          // shouldn't be left owing money for it.
+          const creditPaid = sale.payments.find((p) => p.method === "credit");
+          if (creditPaid) {
+            const { applyCreditChange } = await import("#modules/customers/customerLedger.model.js");
+            await applyCreditChange(req.ctx, {
+              customer, type: "adjustment", amount: -creditPaid.amount,
+              refType: "void", refId: sale._id, note: `Void ${sale.saleNo}`, session,
+            });
+          }
         }
       }
 

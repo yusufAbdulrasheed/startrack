@@ -5,6 +5,7 @@ import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { Input, Select, TextArea, ErrorBanner } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
@@ -169,43 +170,43 @@ export function SalesHistoryView() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px]">
+            <Table className="min-w-[720px]">
               <thead>
                 <tr className="text-left">
                   {["Receipt", "Items", "Staff", "Customer", "Method", "Status", "Total"].map((h, i) => (
-                    <th key={h} className={cn("px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line", i === 6 && "text-right")}>{h}</th>
+                    <TH key={h} className={cn(i === 6 && "text-right")}>{h}</TH>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sales.map((s) => (
-                  <tr
+                  <TR
                     key={s.id}
                     onClick={() => setSelected(s)}
-                    className={cn("cursor-pointer hover:bg-surface-2 transition-colors border-b border-line last:border-0", s.status === "voided" && "opacity-50")}
+                    className={cn("cursor-pointer", s.status === "voided" && "opacity-50")}
                   >
-                    <td className="px-4 py-3">
+                    <TD>
                       <div className="font-mono text-[12px] font-semibold text-primary">{s.saleNo}</div>
                       <div className="text-[11px] text-t4">{fmtDateTime(s.at)}</div>
-                    </td>
-                    <td className="px-4 py-3 text-[13px] text-t2 max-w-[220px] truncate">
+                    </TD>
+                    <TD className="!text-t2 max-w-[220px] truncate">
                       {s.items.map((i) => `${i.name} ×${i.qty}`).join(", ")}
-                    </td>
-                    <td className="px-4 py-3 text-[12px] text-t2">{s.staffName}</td>
-                    <td className="px-4 py-3 text-[12px] text-t3">{s.customerName || "—"}</td>
-                    <td className="px-4 py-3">
+                    </TD>
+                    <TD className="!text-[12px] !text-t2">{s.staffName}</TD>
+                    <TD className="!text-[12px] !text-t3">{s.customerName || "—"}</TD>
+                    <TD>
                       <Badge tone={s.payments[0]?.method === "cash" ? "success" : s.payments[0]?.method === "pos" ? "brand" : "warning"}>
                         {s.payments.map((p) => p.method).join("+")}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3">
+                    </TD>
+                    <TD>
                       {s.status === "voided" ? <Badge tone="danger">voided</Badge> : <Badge tone="success">completed</Badge>}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(s.total, currency)}</td>
-                  </tr>
+                    </TD>
+                    <TD className="text-right font-mono font-bold tabular-nums">{fmtMoney(s.total, currency)}</TD>
+                  </TR>
                 ))}
               </tbody>
-            </table>
+            </Table>
           </div>
 
           {/* Pager. The totals bar above always covers the WHOLE period, not

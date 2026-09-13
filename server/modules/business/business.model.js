@@ -6,7 +6,7 @@ const businessSchema = new mongoose.Schema(
   {
     accountId: { type: mongoose.Schema.Types.ObjectId, ref: "Account", required: true, index: true },
     name: { type: String, required: true, trim: true },
-    typeKey: { type: String, default: "retail" }, // retail | pharmacy | restaurant | ...
+    typeKey: { type: String, default: "restaurant" }, // hotel | electronics | blinds | water | poultry | restaurant
     // What the business is REGISTERED as, versus what the sign says. Receipts
     // and invoices need the legal name; customers only ever see the trading one.
     tradingName: { type: String, default: "", trim: true },
@@ -40,6 +40,13 @@ const businessSchema = new mongoose.Schema(
       // Which optional modules this business uses (seeded from its type,
       // owner-editable in Settings). Missing (legacy docs) = everything on.
       modules: { type: [String], default: undefined },
+      // The "loyalty" capability's two constants (water, for now). Missing
+      // (legacy docs, or a business that never touched this screen) falls
+      // back to these exact defaults wherever loyalty math is computed.
+      loyalty: {
+        sachetBagsPerToken: { type: Number, default: 2, min: 1 },
+        tokensPerFreePack: { type: Number, default: 5, min: 1 },
+      },
     },
   },
   { timestamps: true }

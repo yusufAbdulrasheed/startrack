@@ -9,9 +9,16 @@ import { connectDb } from "#core/db.js";
 import { requireAuth } from "#core/middleware/requireAuth.js";
 import { tenantContext } from "#core/middleware/tenant.js";
 import { InsufficientStockError } from "#modules/inventory/inventory.service.js";
+
+// Shared core + generic feature modules — every business type uses these
+// same implementations (see server/modules/businesses/*/index.js for what
+// each business vertical composes from them).
 import { authRouter } from "#modules/auth/auth.routes.js";
 import { staffRouter } from "#modules/staff/staff.routes.js";
 import { productsRouter } from "#modules/products/products.routes.js";
+import { productionRouter } from "#modules/production/production.routes.js";
+import { suppliersRouter } from "#modules/suppliers/suppliers.routes.js";
+import { stockCountRouter } from "#modules/inventory/stockCount.routes.js";
 import { inventoryRouter } from "#modules/inventory/inventory.routes.js";
 import { salesRouter } from "#modules/sales/sales.routes.js";
 import { returnsRouter } from "#modules/returns/returns.routes.js";
@@ -23,8 +30,21 @@ import { settingsRouter } from "#modules/business/settings.routes.js";
 import { auditRouter } from "#modules/audit/audit.routes.js";
 import { notificationsRouter } from "#modules/alerts/notifications.routes.js";
 import { jobsRouter } from "#modules/jobs/jobs.routes.js";
-import { hotelRouter } from "#modules/hotel/hotel.routes.js";
 import { platformRouter } from "#modules/platform/platform.routes.js";
+import { tasksRouter } from "#modules/tasks/tasks.routes.js";
+import { announcementsRouter } from "#modules/announcements/announcements.routes.js";
+
+// Business-vertical modules (server/modules/businesses/*/) — genuinely
+// single-consumer logic that lives in its own directory. Blinds has none:
+// its whole behavior IS the shared made_to_order capability — see its
+// index.js manifest.
+import { hotelRouter } from "#modules/businesses/hotel/hotel.routes.js";
+import { serialsRouter } from "#modules/businesses/electronics/serials.routes.js";
+import { vaccinationsRouter } from "#modules/businesses/poultry/vaccinations.routes.js";
+import { cohortsRouter } from "#modules/businesses/poultry/cohorts.routes.js";
+import { kitchenQueueRouter } from "#modules/businesses/restaurant/kitchenQueue.routes.js";
+import { loyaltyRouter } from "#modules/businesses/water/loyalty.routes.js";
+import { coldroomRouter } from "#modules/businesses/coldroom/coldroom.routes.js";
 
 const app = express();
 app.set("trust proxy", 1); // real client IPs behind Render/railway proxies (rate limits)
@@ -54,6 +74,9 @@ app.use("/api/auth", authRouter);
 const tenant = [requireAuth, tenantContext];
 app.use("/api/staff", tenant, staffRouter);
 app.use("/api/products", tenant, productsRouter);
+app.use("/api/production", tenant, productionRouter);
+app.use("/api/suppliers", tenant, suppliersRouter);
+app.use("/api/stock-counts", tenant, stockCountRouter);
 app.use("/api/inventory", tenant, inventoryRouter);
 app.use("/api/sales", tenant, salesRouter);
 app.use("/api/returns", tenant, returnsRouter);
@@ -65,7 +88,19 @@ app.use("/api/settings", tenant, settingsRouter);
 app.use("/api/audit", tenant, auditRouter);
 app.use("/api/notifications", tenant, notificationsRouter);
 app.use("/api/jobs", tenant, jobsRouter);
+app.use("/api/tasks", tenant, tasksRouter);
+app.use("/api/announcements", tenant, announcementsRouter);
+
+// Business-vertical routes (server/modules/businesses/*/) — same auth/tenant
+// gate as everything else above, just physically grouped so "every business
+// has its own directory" is visible here too, not only in server/modules/.
 app.use("/api/hotel", tenant, hotelRouter);
+app.use("/api/serials", tenant, serialsRouter);
+app.use("/api/vaccinations", tenant, vaccinationsRouter);
+app.use("/api/cohorts", tenant, cohortsRouter);
+app.use("/api/kitchen-queue", tenant, kitchenQueueRouter);
+app.use("/api/loyalty", tenant, loyaltyRouter);
+app.use("/api/coldroom", tenant, coldroomRouter);
 
 // StarTrack's own staff, looking across every tenant. Deliberately NOT behind
 // `tenant` — it carries its own gate (see platform.routes.js).
@@ -86,6 +121,37 @@ if (fs.existsSync(distDir)) {
 } else if (config.isProd) {
   console.error("FATAL: dist/ is missing. Run `npm run build` before starting in production.");
   process.exit(1);
+}
+
+/**
+ * Render (and similar free hosts) spin a web service down after 15 minutes
+ * with no inbound HTTP request, which turns the next real visit into a
+ * 30–60s cold start. Pinging our own public health check well inside that
+ * window keeps the service looking active — the same trick as an external
+ * uptime monitor, just self-contained so nothing else needs to be set up.
+ *
+ * Only runs when a URL is actually configured (see config.js) — blank in
+ * local dev, and on any host that isn't on a sleep-after-idle free tier.
+ */
+function startKeepAwake() {
+  const url = config.keepAwakeUrl;
+  if (!url) return () => {};
+
+  const every = 10 * 60 * 1000; // well under Render's 15-minute idle timeout
+  const ping = async () => {
+    try {
+      const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(15_000) });
+      console.log(`💓 keep-awake ping → ${res.status}`);
+    } catch (err) {
+      // A missed ping just means the next one is 10 minutes away — never
+      // worth crashing over, and rarely worth more than a quiet log line.
+      console.warn(`💓 keep-awake ping failed: ${err.message}`);
+    }
+  };
+  const timer = setInterval(ping, every);
+  timer.unref();
+  console.log(`💓 Keep-awake ping every 10m → ${url}/api/health`);
+  return () => clearInterval(timer);
 }
 
 // Central error handler — typed domain errors get proper statuses.
@@ -125,6 +191,7 @@ async function start() {
     // Watch for expiring stock and unattended returns, and email the digest.
     const { startAlertScheduler } = await import("#modules/alerts/alerts.service.js");
     startAlertScheduler();
+    startKeepAwake();
     app.listen(config.port, () => {
       console.log(`\n🚀 StarTrack API running on http://localhost:${config.port}`);
       console.log(`   Health: http://localhost:${config.port}/api/health\n`);

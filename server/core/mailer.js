@@ -1,54 +1,57 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { config } from "#core/config.js";
 
 /**
- * Outbound email. Configured through SMTP_* environment variables; when they
- * are absent the mailer stays off and says so once, rather than pretending to
- * send. Nothing in the app depends on mail succeeding — alerts always land in
- * the in-app bell first, and email is the copy that follows.
+ * Outbound email — the one door every kind of email this app sends goes
+ * through, whatever triggers it (today: the alerts digest; nothing stops the
+ * next feature from being a receipt, an invite, or a password reset using
+ * the exact same sendMail/emailShell pair). Configured through
+ * RESEND_API_KEY; when it's absent the mailer stays off and says so once,
+ * rather than pretending to send. Nothing in the app depends on mail
+ * succeeding — alerts always land in the in-app bell first, and email is the
+ * copy that follows.
  */
-let transport = null;
+let client = null;
 let warned = false;
 
-function getTransport() {
-  if (transport) return transport;
-  if (!config.smtp.host || !config.smtp.user) {
+function getClient() {
+  if (client) return client;
+  if (!config.resend.apiKey) {
     if (!warned) {
       warned = true;
       console.warn(
-        "✉ Email alerts are OFF — no SMTP configured.\n" +
-          "  Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and MAIL_FROM to turn them on.\n" +
+        "✉ Email is OFF — no RESEND_API_KEY configured.\n" +
+          "  Set RESEND_API_KEY (from resend.com/api-keys) to turn it on.\n" +
           "  Alerts still appear in the app; only the email copy is skipped."
       );
     }
     return null;
   }
-  transport = nodemailer.createTransport({
-    host: config.smtp.host,
-    port: config.smtp.port,
-    secure: config.smtp.port === 465,
-    auth: { user: config.smtp.user, pass: config.smtp.pass },
-  });
-  return transport;
+  client = new Resend(config.resend.apiKey);
+  return client;
 }
 
-export const mailEnabled = () => !!(config.smtp.host && config.smtp.user);
+export const mailEnabled = () => !!config.resend.apiKey;
 
 /**
- * Sends one message. Never throws — a mail server having a bad day must not
- * take a checkout or a nightly sweep down with it.
+ * Sends one message. Never throws — a mail provider having a bad day must
+ * not take a checkout or a nightly sweep down with it.
  */
 export async function sendMail({ to, subject, html, text }) {
-  const t = getTransport();
-  if (!t || !to?.length) return { sent: false, reason: "not_configured" };
+  const resend = getClient();
+  if (!resend || !to?.length) return { sent: false, reason: "not_configured" };
   try {
-    await t.sendMail({
-      from: config.smtp.from,
-      to: Array.isArray(to) ? to.join(", ") : to,
+    const { error } = await resend.emails.send({
+      from: config.resend.from,
+      to: Array.isArray(to) ? to : [to],
       subject,
       html,
       text: text || html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
     });
+    if (error) {
+      console.error("✉ email failed:", error.message || error);
+      return { sent: false, reason: error.message || "send_failed" };
+    }
     return { sent: true };
   } catch (err) {
     console.error("✉ email failed:", err.message);

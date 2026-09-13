@@ -10,6 +10,9 @@ import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Return } from "#modules/returns/return.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
+import { CustomerLedgerEntry } from "#modules/customers/customerLedger.model.js";
+import { ColdRoomBatch } from "#modules/businesses/coldroom/batch.model.js";
+import { ColdRoomBreakdown } from "#modules/businesses/coldroom/breakdown.model.js";
 import { Expense } from "#modules/expenses/expense.model.js";
 import { Attendance } from "#modules/staff/attendance.model.js";
 import { DailyMetric } from "#modules/metrics/dailyMetric.model.js";
@@ -36,8 +39,8 @@ const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
  * Everything hangs off one Account flagged isSandbox — the cleanup sweep
  * removes the whole tree after 24h.
  */
-export async function createDemoSandbox(requestedType = "retail") {
-  const typeKey = DEMOS[requestedType] ? requestedType : "retail";
+export async function createDemoSandbox(requestedType = "restaurant") {
+  const typeKey = DEMOS[requestedType] ? requestedType : "restaurant";
   const shop = DEMOS[typeKey];
   const template = typeTemplate(typeKey);
   const CATALOG = shop.catalog;
@@ -270,8 +273,8 @@ export async function createDemoSandbox(requestedType = "retail") {
   // already in house, arrivals due and one room out of service, so the heat
   // map has something real on it the moment the sandbox opens.
   if (shop.rooms) {
-    const { RoomType, Room } = await import("#modules/hotel/room.model.js");
-    const { Stay } = await import("#modules/hotel/stay.model.js");
+    const { RoomType, Room } = await import("#modules/businesses/hotel/room.model.js");
+    const { Stay } = await import("#modules/businesses/hotel/stay.model.js");
     const day = (offset) => {
       const d = new Date();
       d.setDate(d.getDate() + offset);
@@ -367,6 +370,8 @@ export async function cleanupSandboxes() {
   await Promise.all([
     Product.deleteMany(byAccount), Inventory.deleteMany(byAccount), StockMovement.deleteMany(byAccount),
     Sale.deleteMany(byAccount), Return.deleteMany(byAccount), Customer.deleteMany(byAccount),
+    CustomerLedgerEntry.deleteMany(byAccount),
+    ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
     Expense.deleteMany(byAccount), Attendance.deleteMany(byAccount), DailyMetric.deleteMany(byAccount),
     AuditLog.deleteMany(byAccount), Branch.deleteMany(byAccount), Business.deleteMany(byAccount),
     Counter.deleteMany({ scopeKey: { $in: branchIds.map((b) => `sale:${b}`) } }),

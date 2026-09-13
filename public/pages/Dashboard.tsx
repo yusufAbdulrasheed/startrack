@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
   Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
-  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw,
+  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, type LucideIcon,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -10,13 +10,19 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
+import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
+import { ProductTour, tourSeen, markTourSeen } from "@/components/tour/ProductTour";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
+import { typeMeta } from "@/lib/businessTypes";
+import { buildDashboardTour } from "@/lib/tourSteps";
 import { SalesHistoryView } from "@/pages/Sales";
 import { fmtMoney, fmtTime, fmtDate, fmtDateTime, todayStr } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+const DASHBOARD_TOUR_KEY = "dashboard-v1";
 
 type Metrics = {
   today: {
@@ -55,6 +61,21 @@ export function Dashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+  // A new owner/manager's first stop after logging in — so it's where the
+  // tour introduces the whole app, not just this one page. Waits for the
+  // real dashboard content to be on screen (the tour points at it) and
+  // never shows twice on the same browser once dismissed.
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    if (loading || !m || tourSeen(DASHBOARD_TOUR_KEY)) return;
+    const t = setTimeout(() => setTourOpen(true), 700);
+    return () => clearTimeout(t);
+  }, [loading, m]);
+  function closeTour() {
+    markTourSeen(DASHBOARD_TOUR_KEY);
+    setTourOpen(false);
+  }
+
   if (loading && !m) {
     return <div className="p-8"><Spinner /></div>;
   }
@@ -81,11 +102,14 @@ export function Dashboard() {
             Here's how {activeBusiness?.name || "your business"}{activeBranch ? ` · ${activeBranch.name}` : ""} is doing today.
           </p>
         </div>
-        <Button variant="secondary" size="md" onClick={reload}><RefreshCw className="w-4 h-4" /> Refresh</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="md" onClick={() => setTourOpen(true)}><Sparkles className="w-4 h-4" /> Take a tour</Button>
+          <Button variant="secondary" size="md" onClick={reload}><RefreshCw className="w-4 h-4" /> Refresh</Button>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 rounded-ctl bg-surface border border-line w-fit max-w-full overflow-x-auto mb-6">
+      <div className="flex items-center gap-1 p-1 rounded-ctl bg-surface border border-line w-fit max-w-full overflow-x-auto mb-6" data-tour="dashboard-tabs">
         {([
           { k: "overview", label: "Overview", icon: Wallet },
           { k: "sales", label: "Sales", icon: Receipt },
@@ -101,8 +125,8 @@ export function Dashboard() {
             key={k}
             onClick={() => setTab(k)}
             className={cn(
-              "flex items-center gap-1.5 px-4 h-9 rounded-lg text-[13px] font-semibold transition-colors whitespace-nowrap",
-              tab === k ? "bg-primary-soft text-primary" : "text-t3 hover:text-t1"
+              "flex items-center gap-1.5 px-4 h-9 rounded-ctl text-[13px] font-semibold transition-colors whitespace-nowrap",
+              tab === k ? "bg-primary text-on-primary" : "text-t3 hover:bg-surface-2 hover:text-t1"
             )}
           >
             <Icon className="w-4 h-4" /> {label}
@@ -121,14 +145,14 @@ export function Dashboard() {
       {tab !== "overview" ? null : (
       <>
       {/* Headline figures + how the money came in — the design's top band. */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4" data-tour="dashboard-stats">
         <div className={cn("xl:col-span-2 grid gap-4", showProfit ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2")}>
-          <FigureCard label="Total Revenue" value={fmtMoney(m.today.revenue, currency)}
+          <FigureCard label="Total Revenue" value={fmtMoney(m.today.revenue, currency)} icon={Wallet}
             delta={m.today.deltas.revenue} spark={m.series7d.map((s) => s.revenue)} />
           {showProfit && (
-            <FigureCard label="Net Profit" value={fmtMoney(m.today.profit!, currency)} delta={m.today.deltas.profit ?? 0} />
+            <FigureCard label="Net Profit" value={fmtMoney(m.today.profit!, currency)} icon={TrendingUp} delta={m.today.deltas.profit ?? 0} />
           )}
-          <FigureCard label="Transactions" value={String(m.today.txns)} delta={m.today.deltas.txns} suffix="Today" />
+          <FigureCard label="Transactions" value={String(m.today.txns)} icon={ShoppingCart} delta={m.today.deltas.txns} suffix="Today" />
         </div>
         <PaymentSplitCard split={m.paymentSplit} currency={currency} />
       </div>
@@ -137,15 +161,20 @@ export function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 space-y-4">
           <Card className="p-5">
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
                 <div className="text-[14px] font-bold text-t1">Revenue</div>
-                <div className="text-[12px] text-t3">Last 7 days · daily</div>
+                <div className="text-[12px] text-t3">Daily, last 7 days</div>
               </div>
-              <div className="text-right">
-                <div className="font-mono font-bold text-[15px] text-t1">{fmtMoney(m.week.revenue, currency)}</div>
-                <div className={cn("text-[11px] font-semibold", m.week.deltaPct >= 0 ? "text-success" : "text-danger")}>
-                  {m.week.deltaPct >= 0 ? "+" : ""}{m.week.deltaPct}% vs previous
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-surface-2">
+                  <span className="px-2.5 h-6 rounded-md text-[11px] font-semibold bg-primary text-on-primary flex items-center">7D</span>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono font-bold text-[15px] text-t1">{fmtMoney(m.week.revenue, currency)}</div>
+                  <div className={cn("text-[11px] font-semibold", m.week.deltaPct >= 0 ? "text-success" : "text-danger")}>
+                    {m.week.deltaPct >= 0 ? "+" : ""}{m.week.deltaPct}% vs previous
+                  </div>
                 </div>
               </div>
             </div>
@@ -180,34 +209,38 @@ export function Dashboard() {
       </div>
       </>
       )}
+      <ProductTour steps={buildDashboardTour(typeMeta(activeBusiness?.typeKey))} open={tourOpen} onClose={closeTour} />
     </div>
   );
 }
 
 
 // ── Overview components ──────────────────────────────────────
-// Flat, bordered, numeric-first: the design leads with the figure and keeps
-// the change indicator quiet beside it.
-function FigureCard({ label, value, delta, suffix, spark }: {
-  label: string; value: string; delta: number; suffix?: string; spark?: number[];
+// Bento tile, matching StatCard: label + icon chip up top, the figure large
+// and mono, a quiet colored trend line underneath.
+function FigureCard({ label, value, delta, suffix, spark, icon: Icon }: {
+  label: string; value: string; delta: number; suffix?: string; spark?: number[]; icon: LucideIcon;
 }) {
   const up = delta >= 0;
   return (
     <Card className="p-4">
-      <div className="text-[10px] font-bold uppercase tracking-[0.09em] text-t3">{label}</div>
-      <div className="mt-2 flex items-end gap-2 flex-wrap">
-        <span className="font-mono font-extrabold text-[24px] leading-none text-t1 tabular-nums">{value}</span>
-        {suffix ? (
-          <span className="text-[11px] font-semibold text-t3 pb-0.5">{suffix}</span>
-        ) : delta !== 0 ? (
-          <span className={cn("inline-flex items-center gap-0.5 text-[11px] font-bold pb-0.5", up ? "text-success" : "text-danger")}>
-            {up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-            {up ? "+" : ""}{delta}%
-          </span>
-        ) : null}
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-t3 truncate">{label}</div>
+        <div className="w-9 h-9 shrink-0 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
+          <Icon className="w-[18px] h-[18px]" />
+        </div>
       </div>
+      <div className="mt-3 font-mono font-extrabold text-[22px] leading-none text-t1 tabular-nums truncate">{value}</div>
+      {suffix ? (
+        <div className="mt-1.5 text-[12px] font-semibold text-t3">{suffix}</div>
+      ) : delta !== 0 ? (
+        <div className={cn("mt-1.5 inline-flex items-center gap-0.5 text-[12px] font-semibold", up ? "text-success" : "text-danger")}>
+          {up ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+          {up ? "+" : ""}{delta}%
+        </div>
+      ) : null}
       {spark && spark.length > 1 && (
-        <div className="mt-3 flex items-end gap-[3px] h-7">
+        <div className="mt-2.5 flex items-end gap-[3px] h-7">
           {spark.map((v, i) => {
             const max = Math.max(...spark, 1);
             return <span key={i} className="flex-1 rounded-sm bg-primary-soft" style={{ height: `${Math.max(8, (v / max) * 100)}%` }} />;
@@ -270,32 +303,30 @@ function TopMovingProducts({ products, currency, onViewAll }: {
         <div className="px-5 py-10 text-center text-[12px] text-t4">Sales data builds this list.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px]">
+          <Table className="min-w-[520px]">
             <thead>
-              <tr className="text-left">
-                {["Product", "Qty Sold", "Revenue", "Share"].map((h, i) => (
-                  <th key={h} className={cn(
-                    "px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line bg-surface-2",
-                    i > 0 && i < 3 && "text-right"
-                  )}>{h}</th>
-                ))}
+              <tr>
+                <TH>Product</TH>
+                <TH className="text-right">Qty Sold</TH>
+                <TH className="text-right">Revenue</TH>
+                <TH>Share</TH>
               </tr>
             </thead>
             <tbody>
               {products.map((p) => (
-                <tr key={p.id} className="border-b border-line last:border-0 hover:bg-surface-2 transition-colors">
-                  <td className="px-5 py-2.5 text-[13px] font-medium text-t1 max-w-[220px] truncate">{p.name}</td>
-                  <td className="px-5 py-2.5 text-right text-[13px] font-mono text-t2 tabular-nums">{p.sold}</td>
-                  <td className="px-5 py-2.5 text-right text-[13px] font-mono font-semibold text-t1 tabular-nums">{fmtMoney(p.revenue, currency)}</td>
-                  <td className="px-5 py-2.5 w-[110px]">
+                <TR key={p.id}>
+                  <TD className="font-medium max-w-[220px] truncate">{p.name}</TD>
+                  <TD className="text-right font-mono text-t2 tabular-nums">{p.sold}</TD>
+                  <TD className="text-right font-mono font-semibold tabular-nums">{fmtMoney(p.revenue, currency)}</TD>
+                  <TD className="w-[110px]">
                     <span className="block h-1.5 rounded-full bg-surface-3 overflow-hidden">
                       <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(4, (p.revenue / max) * 100)}%` }} />
                     </span>
-                  </td>
-                </tr>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
     </Card>
@@ -399,7 +430,7 @@ function BarList({ rows, currency }: { rows: { label: string; sub: string; value
             <span className="text-[11px] font-mono text-t3 shrink-0 ml-2">{r.sub} · {fmtMoney(r.value, currency)}</span>
           </div>
           <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-            <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-400" style={{ width: `${(r.value / max) * 100}%` }} />
+            <div className="h-full rounded-full bg-primary" style={{ width: `${(r.value / max) * 100}%` }} />
           </div>
         </div>
       ))}
@@ -516,7 +547,7 @@ function ExpensesTab({ currency, branchKey }: { currency: string; branchKey?: st
                       <span className="text-[11px] font-mono font-semibold text-t1">{fmtMoney(amount, currency)}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-400" style={{ width: `${(amount / max) * 100}%` }} />
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${(amount / max) * 100}%` }} />
                     </div>
                   </div>
                 );
@@ -771,35 +802,39 @@ function StaffTab({ currency, branchKey }: { currency: string; branchKey?: strin
         <EmptyState icon={UserCog} title="No staff activity yet" body="Sales and clock-ins over the last 30 days appear here per person." />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px]">
+          <Table className="min-w-[640px]">
             <thead>
-              <tr className="text-left">
-                {["Staff", "Sales", "Revenue", "Avg sale", "Discounts", "Voids", "Hours"].map((h, i) => (
-                  <th key={h} className={cn("px-5 py-2 text-[10px] font-bold uppercase tracking-wider text-t4 border-y border-line", i > 0 && "text-right")}>{h}</th>
-                ))}
+              <tr>
+                <TH>Staff</TH>
+                <TH className="text-right">Sales</TH>
+                <TH className="text-right">Revenue</TH>
+                <TH className="text-right">Avg sale</TH>
+                <TH className="text-right">Discounts</TH>
+                <TH className="text-right">Voids</TH>
+                <TH className="text-right">Hours</TH>
               </tr>
             </thead>
             <tbody>
               {paged.rows.map((s) => (
-                <tr key={s.name} className="hover:bg-surface-2 transition-colors border-b border-line last:border-0">
-                  <td className="px-5 py-3">
-                    <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-t1">
+                <TR key={s.name}>
+                  <TD>
+                    <span className="inline-flex items-center gap-2 font-semibold">
                       <span className="w-6 h-6 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center">{s.name[0]}</span>
                       {s.name}
                     </span>
-                  </td>
-                  <td className="px-5 py-3 text-right font-mono text-[13px] text-t1 tabular-nums">{s.sales}</td>
-                  <td className="px-5 py-3 text-right font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(s.revenue, currency)}</td>
-                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.avgSale ? fmtMoney(s.avgSale, currency) : "—"}</td>
-                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.discounts ? fmtMoney(s.discounts, currency) : "—"}</td>
-                  <td className="px-5 py-3 text-right">
+                  </TD>
+                  <TD className="text-right font-mono tabular-nums">{s.sales}</TD>
+                  <TD className="text-right font-mono font-bold tabular-nums">{fmtMoney(s.revenue, currency)}</TD>
+                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.avgSale ? fmtMoney(s.avgSale, currency) : "—"}</TD>
+                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.discounts ? fmtMoney(s.discounts, currency) : "—"}</TD>
+                  <TD className="text-right">
                     {s.voids > 0 ? <Badge tone="danger">{s.voids}</Badge> : <span className="text-[12px] text-t4">0</span>}
-                  </td>
-                  <td className="px-5 py-3 text-right font-mono text-[12px] text-t2 tabular-nums">{s.hours ? `${s.hours.toFixed(1)}h` : "—"}</td>
-                </tr>
+                  </TD>
+                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.hours ? `${s.hours.toFixed(1)}h` : "—"}</TD>
+                </TR>
               ))}
             </tbody>
-          </table>
+          </Table>
         </div>
       )}
     <Pager {...paged} onPage={paged.setPage} noun="staff" />
@@ -811,6 +846,7 @@ function StaffTab({ currency, branchKey }: { currency: string; branchKey?: strin
 type InventoryReport = {
   skus: number; units: number; retailValue: number; costValue?: number; potentialProfit?: number;
   flow30d: { unitsIn: number; unitsOut: number };
+  turnover: number;
   topMovers: { id: string; name: string; unitsIn: number; unitsOut: number }[];
   lowStock: { id: string; name: string; stock: number; reorderLevel: number }[];
   expiringSoon: { id: string; name: string; stock: number; expiry: string; expired: boolean }[];
@@ -836,7 +872,12 @@ function InventoryTab({ currency, branchKey }: { currency: string; branchKey?: s
       {/* In & Out — the flow through the shelf, last 30 days */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">In & Out · last 30 days</div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-[14px] font-bold text-t1">In & Out · last 30 days</div>
+            <span className="text-[11px] font-mono font-semibold text-t3" title="Units moved out over the window ÷ units on the shelf now">
+              {r.turnover}× turnover
+            </span>
+          </div>
           <div className="space-y-3">
             <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-success-soft">
               <ArrowDownToLine className="w-5 h-5 text-success shrink-0" />
@@ -871,7 +912,7 @@ function InventoryTab({ currency, branchKey }: { currency: string; branchKey?: s
                       </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <div className="h-full rounded-full bg-gradient-to-r from-brand-700 to-brand-400" style={{ width: `${(m.unitsOut / max) * 100}%` }} />
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${(m.unitsOut / max) * 100}%` }} />
                     </div>
                   </div>
                 );

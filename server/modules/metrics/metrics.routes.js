@@ -152,6 +152,10 @@ metricsRouter.get("/inventory-report", requirePerm("dashboard_ops", "stock"), as
     retailValue: money(retailValue),
     ...(showFinance ? { costValue: money(costValue), potentialProfit: money(retailValue - costValue) } : {}),
     flow30d: { unitsIn, unitsOut },
+    // A simplified proxy, not a full average-inventory-value calculation:
+    // units that moved out over the window against what's on the shelf
+    // right now. 0 when there's nothing on hand to divide by.
+    turnover: units > 0 ? Math.round((unitsOut / units) * 100) / 100 : 0,
     topMovers,
     lowStock: lowStock.slice(0, 15),
     expiringSoon: expiringSoon.slice(0, 15),
@@ -247,15 +251,15 @@ metricsRouter.get("/dashboard", requirePerm("dashboard_ops"), async (req, res) =
   for (const r of rows) {
     const acc = byDate.get(r.date) || {
       revenue: 0, cost: 0, profit: 0, txns: 0, discountTotal: 0, vatTotal: 0,
-      refundTotal: 0, expenses: 0, cash: 0, pos: 0, transfer: 0,
+      refundTotal: 0, wasteTotal: 0, expenses: 0, cash: 0, pos: 0, transfer: 0,
     };
     acc.revenue += r.revenue; acc.cost += r.cost; acc.profit += r.profit; acc.txns += r.txns;
     acc.discountTotal += r.discountTotal; acc.vatTotal += r.vatTotal;
-    acc.refundTotal += r.refundTotal; acc.expenses += r.expenses;
+    acc.refundTotal += r.refundTotal; acc.wasteTotal += r.wasteTotal || 0; acc.expenses += r.expenses;
     acc.cash += r.paymentSplit?.cash || 0; acc.pos += r.paymentSplit?.pos || 0; acc.transfer += r.paymentSplit?.transfer || 0;
     byDate.set(r.date, acc);
   }
-  const zero = { revenue: 0, cost: 0, profit: 0, txns: 0, discountTotal: 0, vatTotal: 0, refundTotal: 0, expenses: 0, cash: 0, pos: 0, transfer: 0 };
+  const zero = { revenue: 0, cost: 0, profit: 0, txns: 0, discountTotal: 0, vatTotal: 0, refundTotal: 0, wasteTotal: 0, expenses: 0, cash: 0, pos: 0, transfer: 0 };
   const todayM = byDate.get(today) || zero;
   const yesterdayM = byDate.get(dayOffset(today, -1)) || zero;
 
@@ -304,7 +308,7 @@ metricsRouter.get("/dashboard", requirePerm("dashboard_ops"), async (req, res) =
     today: {
       revenue: money(todayM.revenue),
       txns: todayM.txns,
-      ...(showFinance ? { profit: money(todayM.profit - todayM.expenses), cost: money(todayM.cost), expenses: money(todayM.expenses) } : {}),
+      ...(showFinance ? { profit: money(todayM.profit - todayM.expenses), cost: money(todayM.cost), expenses: money(todayM.expenses), wasteTotal: money(todayM.wasteTotal) } : {}),
       discountTotal: money(todayM.discountTotal),
       vatTotal: money(todayM.vatTotal),
       refundTotal: money(todayM.refundTotal),

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
-import { Room, RoomType, HOUSEKEEPING } from "#modules/hotel/room.model.js";
-import { Stay } from "#modules/hotel/stay.model.js";
+import { Room, RoomType, HOUSEKEEPING } from "#modules/businesses/hotel/room.model.js";
+import { Stay } from "#modules/businesses/hotel/stay.model.js";
 import { Product } from "#modules/products/product.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
@@ -17,7 +17,7 @@ import { afterStockChange } from "#modules/alerts/alerts.service.js";
 import {
   availabilityGrid, isRoomFree, validateRange, nightsIn, addDays,
   folioTotals, shapeStay,
-} from "#modules/hotel/hotel.service.js";
+} from "#modules/businesses/hotel/hotel.service.js";
 
 export const hotelRouter = Router();
 

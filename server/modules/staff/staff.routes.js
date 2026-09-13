@@ -5,16 +5,18 @@ import { User } from "#modules/auth/user.model.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { Shift } from "#modules/staff/shift.model.js";
+import { RosterEntry } from "#modules/staff/rosterEntry.model.js";
 import { hashPassword, permsForRole } from "#modules/auth/auth.service.js";
-import { requirePerm } from "#core/middleware/tenant.js";
+import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
+import { localDay } from "#modules/metrics/metrics.service.js";
 
 export const staffRouter = Router();
 
 const ASSIGNABLE_ROLES = ["admin", "manager", "staff"];
 const pinSchema = z.string().regex(/^\d{4,6}$/, "PIN must be 4–6 digits");
 
-function shape(m, user, branch, shift) {
+function shape(m, user, branch, shift, reportsToUser) {
   return {
     id: m._id,
     userId: m.userId,
@@ -28,6 +30,10 @@ function shape(m, user, branch, shift) {
     hasPin: !!m.pinHash,
     shiftId: m.shiftId || null,
     shiftName: shift ? `${shift.name} (${shift.start}–${shift.end})` : "",
+    // Organizational metadata — never consulted by requirePerm/canSeeCost.
+    position: m.position || "",
+    reportsToId: m.reportsToId || null,
+    reportsToName: reportsToUser?.name || "",
     status: m.status,
     createdAt: m.createdAt,
   };
@@ -42,14 +48,45 @@ staffRouter.get("/", requirePerm("staff_mgmt"), async (req, res) => {
   const users = await User.find({ _id: { $in: memberships.map((m) => m.userId) } }).select("name email status");
   const branches = await Branch.find({ businessId: req.ctx.businessId }).select("name");
   const shifts = await Shift.find({ businessId: req.ctx.businessId });
+  const membershipById = new Map(memberships.map((m) => [String(m._id), m]));
   const userById = new Map(users.map((u) => [String(u._id), u]));
   const branchById = new Map(branches.map((b) => [String(b._id), b]));
   const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
   res.json({
-    staff: memberships.map((m) =>
-      shape(m, userById.get(String(m.userId)), branchById.get(String(m.branchId)), shiftById.get(String(m.shiftId)))
-    ),
+    staff: memberships.map((m) => {
+      const reportsTo = m.reportsToId && membershipById.get(String(m.reportsToId));
+      const reportsToUser = reportsTo && userById.get(String(reportsTo.userId));
+      return shape(m, userById.get(String(m.userId)), branchById.get(String(m.branchId)), shiftById.get(String(m.shiftId)), reportsToUser);
+    }),
   });
+});
+
+// GET /api/staff/org-chart — the same team, shaped as a reporting tree.
+// Purely organizational (see Membership.position/reportsToId); the security
+// role ladder (owner/admin/manager/staff) is unaffected by this view.
+staffRouter.get("/org-chart", requirePerm("staff_mgmt"), async (req, res) => {
+  const memberships = await Membership.find({
+    accountId: req.ctx.accountId,
+    $or: [{ businessId: req.ctx.businessId }, { businessId: null }],
+    status: "active",
+  });
+  const users = await User.find({ _id: { $in: memberships.map((m) => m.userId) } }).select("name");
+  const userById = new Map(users.map((u) => [String(u._id), u]));
+
+  const nodeById = new Map(
+    memberships.map((m) => [
+      String(m._id),
+      { id: m._id, name: userById.get(String(m.userId))?.name || "", position: m.position || "", role: m.role, children: [] },
+    ])
+  );
+  const roots = [];
+  for (const m of memberships) {
+    const node = nodeById.get(String(m._id));
+    const parent = m.reportsToId && nodeById.get(String(m.reportsToId));
+    if (parent) parent.children.push(node);
+    else roots.push(node);
+  }
+  res.json({ chart: roots });
 });
 
 // ── Shifts ───────────────────────────────────────────────────
@@ -93,9 +130,10 @@ const createSchema = z.object({
   email: z.string().email().optional().or(z.literal("")),
   password: z.string().min(6).optional().or(z.literal("")),
   permsOverride: z.array(z.string()).default([]),
+  position: z.string().max(80).default(""),
+  reportsToId: z.string().nullable().optional(),
 });
 
-// POST /api/staff — add a team member (email optional: till-only staff live on PIN)
 staffRouter.post("/", requirePerm("staff_mgmt"), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
@@ -111,6 +149,11 @@ staffRouter.post("/", requirePerm("staff_mgmt"), async (req, res) => {
   // Only owners may create admins.
   if (d.role === "admin" && !req.ctx.perms.includes("*")) {
     return res.status(403).json({ error: "forbidden", message: "Only the owner can add admins." });
+  }
+  let boss = null;
+  if (d.reportsToId) {
+    boss = await Membership.findOne({ _id: d.reportsToId, accountId: req.ctx.accountId, businessId: req.ctx.businessId });
+    if (!boss) return res.status(400).json({ error: "invalid", message: "That 'reports to' person doesn't exist on this business." });
   }
 
   let email = (d.email || "").toLowerCase().trim();
@@ -136,14 +179,19 @@ staffRouter.post("/", requirePerm("staff_mgmt"), async (req, res) => {
     role: d.role,
     permsOverride: d.permsOverride,
     pinHash: await hashPassword(d.pin),
+    position: d.position,
+    reportsToId: d.reportsToId || null,
   });
 
   audit(req.ctx, "staff.create", { type: "staff", id: membership._id, label: d.name }, undefined, {
     role: d.role,
     branchId: d.branchId || null,
+    position: d.position,
+    reportsToId: d.reportsToId || null,
   });
   const branch = d.branchId ? await Branch.findById(d.branchId) : null;
-  res.status(201).json({ staff: shape(membership, user, branch) });
+  const reportsToUser = boss ? await User.findById(boss.userId).select("name") : null;
+  res.status(201).json({ staff: shape(membership, user, branch, null, reportsToUser) });
 });
 
 const updateSchema = z.object({
@@ -153,7 +201,22 @@ const updateSchema = z.object({
   shiftId: z.string().nullable().optional(),
   permsOverride: z.array(z.string()).optional(),
   status: z.enum(["active", "inactive"]).optional(),
+  position: z.string().max(80).optional(),
+  reportsToId: z.string().nullable().optional(),
 });
+
+// Walks the reportsToId chain from `candidateId` upward; true if it ever
+// reaches `membershipId` (which would make that person their own manager,
+// directly or transitively). Bounded so a data glitch can't loop forever.
+async function wouldCreateReportingCycle(businessId, membershipId, candidateId) {
+  let current = candidateId;
+  for (let i = 0; i < 20 && current; i++) {
+    if (String(current) === String(membershipId)) return true;
+    const next = await Membership.findOne({ _id: current, businessId }).select("reportsToId");
+    current = next?.reportsToId || null;
+  }
+  return false;
+}
 
 // PATCH /api/staff/:id — role/branch/overrides/suspend
 staffRouter.patch("/:id", requirePerm("staff_mgmt"), async (req, res) => {
@@ -179,12 +242,25 @@ staffRouter.patch("/:id", requirePerm("staff_mgmt"), async (req, res) => {
     if (!shift) return res.status(400).json({ error: "invalid", message: "That shift doesn't exist." });
   }
 
-  const before = { role: membership.role, branchId: membership.branchId, status: membership.status, permsOverride: membership.permsOverride };
+  if (d.reportsToId) {
+    const boss = await Membership.findOne({ _id: d.reportsToId, accountId: req.ctx.accountId, businessId: req.ctx.businessId });
+    if (!boss) return res.status(400).json({ error: "invalid", message: "That 'reports to' person doesn't exist on this business." });
+    if (await wouldCreateReportingCycle(req.ctx.businessId, membership._id, d.reportsToId)) {
+      return res.status(400).json({ error: "invalid", message: "That would create a reporting loop." });
+    }
+  }
+
+  const before = {
+    role: membership.role, branchId: membership.branchId, status: membership.status,
+    permsOverride: membership.permsOverride, position: membership.position, reportsToId: membership.reportsToId,
+  };
   if (d.role) membership.role = d.role;
   if (d.branchId !== undefined) membership.branchId = d.branchId;
   if (d.shiftId !== undefined) membership.shiftId = d.shiftId;
   if (d.permsOverride) membership.permsOverride = d.permsOverride;
   if (d.status) membership.status = d.status;
+  if (d.position !== undefined) membership.position = d.position;
+  if (d.reportsToId !== undefined) membership.reportsToId = d.reportsToId || null;
   await membership.save();
 
   const user = await User.findById(membership.userId);
@@ -198,10 +274,14 @@ staffRouter.patch("/:id", requirePerm("staff_mgmt"), async (req, res) => {
     branchId: membership.branchId,
     status: membership.status,
     permsOverride: membership.permsOverride,
+    position: membership.position,
+    reportsToId: membership.reportsToId,
   });
   const branch = membership.branchId ? await Branch.findById(membership.branchId) : null;
   const shift = membership.shiftId ? await Shift.findById(membership.shiftId) : null;
-  res.json({ staff: shape(membership, user, branch, shift) });
+  const reportsTo = membership.reportsToId ? await Membership.findById(membership.reportsToId) : null;
+  const reportsToUser = reportsTo ? await User.findById(reportsTo.userId).select("name") : null;
+  res.json({ staff: shape(membership, user, branch, shift, reportsToUser) });
 });
 
 // POST /api/staff/:id/pin — reset a till PIN
@@ -219,5 +299,79 @@ staffRouter.post("/:id/pin", requirePerm("staff_mgmt"), async (req, res) => {
   await membership.save();
   const user = await User.findById(membership.userId).select("name");
   audit(req.ctx, "staff.pin_reset", { type: "staff", id: membership._id, label: user?.name || "" });
+  res.json({ ok: true });
+});
+
+// ── Roster ───────────────────────────────────────────────────
+// A dated assignment of one staff member to one named shift — "my schedule"
+// on the staff home screen reads this; Shift itself stays a reusable template.
+
+function addDays(day, n) {
+  const d = new Date(`${day}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return localDay(d);
+}
+
+function shapeRoster(r, shift) {
+  return {
+    id: r._id,
+    date: r.date,
+    membershipId: r.membershipId,
+    shiftId: r.shiftId,
+    shiftName: shift?.name || "",
+    start: shift?.start || "",
+    end: shift?.end || "",
+  };
+}
+
+// GET /api/staff/roster?from&to — my own upcoming schedule, defaults to the next 7 days.
+staffRouter.get("/roster", requirePerm("activity"), requireBranch, async (req, res) => {
+  const from = String(req.query.from || localDay());
+  const to = String(req.query.to || addDays(from, 7));
+  const entries = await RosterEntry.find({
+    businessId: req.ctx.businessId,
+    membershipId: req.ctx.membership._id,
+    date: { $gte: from, $lte: to },
+  }).sort({ date: 1 });
+  const shifts = await Shift.find({ businessId: req.ctx.businessId });
+  const shiftById = new Map(shifts.map((s) => [String(s._id), s]));
+  res.json({ roster: entries.map((r) => shapeRoster(r, shiftById.get(String(r.shiftId)))) });
+});
+
+const rosterSchema = z.object({
+  membershipId: z.string(),
+  shiftId: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+});
+
+// POST /api/staff/roster — assign a staff member to a shift on a date.
+staffRouter.post("/roster", requirePerm("staff_mgmt"), requireBranch, async (req, res) => {
+  const parsed = rosterSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const d = parsed.data;
+
+  const membership = await Membership.findOne({ _id: d.membershipId, accountId: req.ctx.accountId, businessId: req.ctx.businessId });
+  if (!membership) return res.status(400).json({ error: "invalid", message: "That staff member doesn't exist." });
+  const shift = await Shift.findOne({ _id: d.shiftId, businessId: req.ctx.businessId });
+  if (!shift) return res.status(400).json({ error: "invalid", message: "That shift doesn't exist." });
+
+  const entry = await RosterEntry.create({
+    accountId: req.ctx.accountId,
+    businessId: req.ctx.businessId,
+    branchId: membership.branchId || req.ctx.branchId,
+    membershipId: membership._id,
+    shiftId: shift._id,
+    date: d.date,
+  });
+  audit(req.ctx, "roster.assign", { type: "roster", id: entry._id, label: `${shift.name} · ${d.date}` });
+  res.status(201).json({ entry: shapeRoster(entry, shift) });
+});
+
+// DELETE /api/staff/roster/:id
+staffRouter.delete("/roster/:id", requirePerm("staff_mgmt"), async (req, res) => {
+  const entry = await RosterEntry.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!entry) return res.status(404).json({ error: "not_found", message: "Roster entry not found." });
+  await entry.deleteOne();
+  audit(req.ctx, "roster.unassign", { type: "roster", id: entry._id });
   res.json({ ok: true });
 });

@@ -57,13 +57,13 @@ export function Modal({
       <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div
         className={cn(
-          "relative w-full bg-surface border border-line-2 rounded-2xl shadow-e2 animate-fade-up",
+          "relative w-full bg-surface border border-line-2 rounded-card shadow-e2 animate-fade-up",
           "my-auto max-h-[calc(100dvh-2rem)] flex flex-col",
           wide ? "max-w-2xl" : "max-w-md"
         )}
       >
         {/* Sticky so the way out is always on screen, however long the body. */}
-        <div className="flex items-start justify-between gap-3 p-5 pb-3 shrink-0 sticky top-0 bg-surface rounded-t-2xl z-10">
+        <div className="flex items-start justify-between gap-3 p-5 pb-3 shrink-0 sticky top-0 bg-surface rounded-t-card z-10">
           <div className="min-w-0">
             <h2 className="text-[16px] font-bold text-t1">{title}</h2>
             {subtitle && <p className="text-[12px] text-t3 mt-0.5">{subtitle}</p>}

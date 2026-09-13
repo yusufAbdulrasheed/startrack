@@ -34,6 +34,10 @@ const jobSchema = new mongoose.Schema(
     // The thing itself: a plate number, a garment tag, an IMEI. What the
     // counter staff actually calls out when someone arrives to collect.
     reference: { type: String, default: "", trim: true },
+    // Ties a repair ticket to a specific tracked unit (server/modules/products/
+    // serial.model.js) — this is how a serial's "repair history" is read: query
+    // Job by serialNo rather than duplicating a second ticket system.
+    serialNo: { type: String, default: "", trim: true, index: true },
     notes: { type: String, default: "" },
 
     stage: { type: String, enum: JOB_STAGES, default: "received", index: true },

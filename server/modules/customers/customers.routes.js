@@ -2,7 +2,12 @@ import { Router } from "express";
 import { z } from "zod";
 import { Customer } from "#modules/customers/customer.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
-import { requirePerm } from "#core/middleware/tenant.js";
+import { CustomerLedgerEntry, applyCreditChange } from "#modules/customers/customerLedger.model.js";
+import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
+import { hasCapability } from "#shared/businessTypes.js";
+import { money } from "#core/money.js";
+import { audit } from "#core/audit.js";
+import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
 
 export const customersRouter = Router();
 
@@ -17,18 +22,30 @@ function shape(c) {
     visits: c.visits,
     firstSeen: c.firstSeen,
     lastSeen: c.lastSeen,
+    creditBalance: c.creditBalance || 0,
   };
 }
 
-// GET /api/customers?q=
+// GET /api/customers?q= — pass debtorsOnly=1 to see only who owes money.
 customersRouter.get("/", requirePerm("customers", "sales"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
   if (req.query.q) {
     const q = String(req.query.q).trim();
     filter.$or = [{ name: { $regex: q, $options: "i" } }, { phone: { $regex: q } }];
   }
-  const customers = await Customer.find(filter).sort({ lastSeen: -1 }).limit(200);
-  res.json({ customers: customers.map(shape) });
+  if (req.query.debtorsOnly === "1") filter.creditBalance = { $gt: 0 };
+  const customers = await Customer.find(filter).sort(req.query.debtorsOnly === "1" ? { creditBalance: -1 } : { lastSeen: -1 }).limit(200);
+  // The "credit" capability's headline number — how much is out there right
+  // now, across every debtor, not just the page on screen.
+  let totalOutstanding = 0;
+  if (hasCapability(req.ctx.business.typeKey, "credit")) {
+    const [agg] = await Customer.aggregate([
+      { $match: { businessId: req.ctx.businessId, creditBalance: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: "$creditBalance" } } },
+    ]);
+    totalOutstanding = money(agg?.total || 0);
+  }
+  res.json({ customers: customers.map(shape), totalOutstanding });
 });
 
 const customerSchema = z.object({
@@ -89,4 +106,52 @@ customersRouter.get("/:id", requirePerm("customers"), async (req, res) => {
       summary: s.items.map((i) => `${i.name} ×${i.qty}`).join(", "),
     })),
   });
+});
+
+// GET /api/customers/:id/ledger — the "credit" capability's statement:
+// every sale that added to the balance and every repayment that reduced it.
+customersRouter.get("/:id/ledger", requirePerm("customers"), async (req, res) => {
+  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
+  const entries = await CustomerLedgerEntry.find({ businessId: req.ctx.businessId, customerId: customer._id })
+    .sort({ at: -1 })
+    .limit(100);
+  res.json({
+    creditBalance: customer.creditBalance || 0,
+    entries: entries.map((e) => ({
+      id: e._id, type: e.type, amount: e.amount, balanceAfter: e.balanceAfter,
+      method: e.method, refType: e.refType, note: e.note, byName: e.byName, at: e.at,
+    })),
+  });
+});
+
+const creditPaymentSchema = z.object({
+  amount: z.number().positive("Enter an amount"),
+  method: z.enum(["cash", "pos", "transfer"]).default("cash"),
+  note: z.string().default(""),
+});
+
+// POST /api/customers/:id/ledger/payments — a debtor pays down what they owe.
+// The money physically arrived today (unlike the sale that created the debt,
+// which was recognised as revenue when it happened), so this only ever moves
+// the till's payment split — never revenue/profit a second time.
+customersRouter.post("/:id/ledger/payments", requirePerm("customers", "sales"), requireBranch, async (req, res) => {
+  if (!hasCapability(req.ctx.business.typeKey, "credit")) {
+    return res.status(400).json({ error: "not_supported", message: "This business doesn't track customer credit." });
+  }
+  const parsed = creditPaymentSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const d = parsed.data;
+
+  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
+
+  const balance = await applyCreditChange(req.ctx, {
+    customer, type: "payment", amount: -money(d.amount), method: d.method, refType: "manual", note: d.note,
+  });
+  await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { payments: { [d.method]: d.amount } });
+  audit(req.ctx, "customer.credit_payment", { type: "customer", id: customer._id, label: customer.name }, undefined, {
+    amount: d.amount, method: d.method, balanceAfter: balance,
+  });
+  res.status(201).json({ creditBalance: balance });
 });

@@ -1,5 +1,5 @@
-import { Room, RoomType } from "#modules/hotel/room.model.js";
-import { Stay } from "#modules/hotel/stay.model.js";
+import { Room, RoomType } from "#modules/businesses/hotel/room.model.js";
+import { Stay } from "#modules/businesses/hotel/stay.model.js";
 import { money } from "#core/money.js";
 import { badRequest } from "#core/httpError.js";
 

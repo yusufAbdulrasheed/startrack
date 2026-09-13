@@ -12,7 +12,7 @@ function DemoBanner() {
   const navigate = useNavigate();
   if (!session?.demo) return null;
   return (
-    <div className="shrink-0 bg-gradient-to-r from-brand-700 to-brand-500 text-white px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] font-semibold">
+    <div className="shrink-0 bg-primary text-white px-4 py-2 flex items-center gap-2 flex-wrap text-[12px] font-semibold">
       <Sparkles className="w-4 h-4 shrink-0" />
       <span>You're exploring the demo shop — sell, return, approve, break things. It all resets within 24 hours.</span>
       <button

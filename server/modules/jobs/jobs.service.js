@@ -106,6 +106,7 @@ export const shapeJob = (j, showCost = false) => ({
   jobNo: j.jobNo,
   title: j.title,
   reference: j.reference,
+  serialNo: j.serialNo || "",
   notes: j.notes,
   stage: j.stage,
   customerId: j.customerId || null,

@@ -20,7 +20,7 @@ const registerSchema = z.object({
   email: z.string().email("Enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   businessName: z.string().min(2, "Enter your business name"),
-  businessType: z.string().default("retail"),
+  businessType: z.string().default("restaurant"),
   tradingName: z.string().default(""),
   taxId: z.string().default(""),
   employees: z.number().int().min(0).max(100000).default(0),
@@ -152,8 +152,8 @@ authRouter.post("/demo", async (req, res) => {
     return res.status(429).json({ error: "rate_limited", message: "Too many demo sessions from this device. Try again in an hour." });
   }
 
-  // Unknown or missing type falls back to the supermarket.
-  const typeKey = typeof req.body?.type === "string" && DEMOS[req.body.type] ? req.body.type : "retail";
+  // Unknown or missing type falls back to the restaurant.
+  const typeKey = typeof req.body?.type === "string" && DEMOS[req.body.type] ? req.body.type : "restaurant";
   const { user, account, business, branch, membership } = await createDemoSandbox(typeKey);
   const body = sessionPayload(user, account, membership, { businesses: [business], branches: [branch] }, false);
   // Demo tokens die with the sandbox.

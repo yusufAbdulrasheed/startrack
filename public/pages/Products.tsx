@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode } from "lucide-react";
+import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { StatCard } from "@/components/ui/StatCard";
+import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
@@ -19,12 +21,15 @@ import { printBarcodeLabels, type LabelSize } from "@/lib/barcodes";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type BomLine = { productId: string; per: "sqm" | "width" | "height" | "unit"; factor: number };
+type BomLine = { productId: string; per: "sqm" | "width" | "height" | "unit"; factor: number; includeLeakage?: boolean };
 type Product = {
-  id: string; name: string; barcode: string; category: string;
-  archetype?: string; bom?: BomLine[];
+  id: string; name: string; sku?: string; barcode: string; category: string;
+  archetype?: string; bom?: BomLine[]; producedUnitsPerStockUnit?: number;
   price: number; cost?: number; reorderLevel: number; stock: number | null; status: string;
   expiry?: string | null;
+  tracksSerials?: boolean;
+  warrantyMonths?: number;
+  unit?: string; purchaseUnit?: string; unitsPerPurchase?: number;
 };
 
 const PER_LABELS: Record<BomLine["per"], string> = {
@@ -34,12 +39,33 @@ const PER_LABELS: Record<BomLine["per"], string> = {
   unit: "per item (fixed)",
 };
 
+// Stock status shown as a badge next to the on-hand count — purely derived
+// from fields already on the product, no extra fetch involved.
+function stockStatusOf(p: Product): { label: string; tone: "success" | "warning" | "neutral" } | null {
+  if (p.stock === null) return null;
+  if (p.stock <= 0) return { label: "Out of Stock", tone: "neutral" };
+  if (p.stock <= p.reorderLevel) return { label: "Low Stock", tone: "warning" };
+  return { label: "In Stock", tone: "success" };
+}
+
 export function Products() {
-  const { activeBranch, activeBusiness, currency, can, hasModule } = useSession();
+  const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability } = useSession();
   const term = typeMeta(activeBusiness?.typeKey).products;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   const products = data?.products || [];
   const showCost = products.some((p) => p.cost !== undefined);
+  // Presentation-only aggregate for the KPI tiles — derived from the same
+  // list already on screen, no extra request.
+  const stockStats = products.reduce(
+    (acc, p) => {
+      if (p.stock === null) return acc;
+      if (p.stock <= 0) acc.out++;
+      else if (p.stock <= p.reorderLevel) acc.low++;
+      else acc.inStock++;
+      return acc;
+    },
+    { inStock: 0, low: 0, out: 0 }
+  );
 
   const [searchParams] = useSearchParams();
   const [q, setQ] = useState(searchParams.get("q") || "");
@@ -86,28 +112,30 @@ export function Products() {
         }
       />
 
+      {!loading && products.length > 0 && (
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          <StatCard index={0} label="Total products" value={String(products.length)} icon={Package} />
+          <StatCard index={1} label="In stock" value={String(stockStats.inStock)} icon={PackageCheck} />
+          <StatCard index={2} label="Low stock" value={String(stockStats.low)} icon={AlertTriangle} />
+          <StatCard index={3} label="Out of stock" value={String(stockStats.out)} icon={PackageX} />
+        </div>
+      )}
+
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
-          <input
+          <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search products…"
-            className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500"
+            className="!pl-9"
           />
         </div>
-        {cats.map((c) => (
-          <button
-            key={c}
-            onClick={() => setCat(c)}
-            className={cn(
-              "px-3 h-8 rounded-full text-[12px] font-semibold border transition-colors",
-              cat === c ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface border-line-2 text-t3 hover:text-t1"
-            )}
-          >
-            {c}
-          </button>
-        ))}
+        <Select value={cat} onChange={(e) => setCat(e.target.value)} className="!w-48">
+          {cats.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </Select>
       </div>
 
       {loading ? (
@@ -124,55 +152,58 @@ export function Products() {
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px]">
+            <Table className="min-w-[640px]">
               <thead>
                 <tr className="text-left">
                   {["Product", "Category", "Price", ...(showCost ? ["Cost"] : []), "Stock", ""].map((h, i) => (
-                    <th key={i} className="px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line">{h}</th>
+                    <TH key={i}>{h}</TH>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {paged.rows.map((p) => {
                   const low = p.stock !== null && p.stock <= p.reorderLevel;
+                  const status = stockStatusOf(p);
                   return (
-                    <tr key={p.id} className="hover:bg-surface-2 transition-colors border-b border-line last:border-0">
-                      <td className="px-4 py-3">
+                    <TR key={p.id} className="group">
+                      <TD>
                         <div className="text-[13px] font-semibold text-t1">{p.name}</div>
-                        {p.barcode && <div className="text-[11px] font-mono text-t4">{p.barcode}</div>}
-                      </td>
-                      <td className="px-4 py-3"><Badge tone="neutral">{p.category}</Badge></td>
-                      <td className="px-4 py-3 font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(p.price, currency)}</td>
+                        {(p.barcode || p.sku) && <div className="text-[11px] font-mono text-t4">{p.barcode || p.sku}</div>}
+                      </TD>
+                      <TD><Badge tone="neutral">{p.category}</Badge></TD>
+                      <TD className="font-mono font-bold tabular-nums">{fmtMoney(p.price, currency)}</TD>
                       {showCost && (
-                        <td className="px-4 py-3 font-mono text-[12px] text-t3 tabular-nums">{p.cost !== undefined ? fmtMoney(p.cost, currency) : "—"}</td>
+                        <TD className="font-mono !text-t3 tabular-nums">{p.cost !== undefined ? fmtMoney(p.cost, currency) : "—"}</TD>
                       )}
-                      <td className="px-4 py-3">
+                      <TD>
                         {p.stock === null ? (
                           <Badge tone="brand">Made to order</Badge>
                         ) : (
-                          <>
-                            <span className={cn("font-mono text-[13px] font-bold tabular-nums", low ? "text-danger" : "text-t1")}>{p.stock}</span>
-                            {low && <span className="ml-2"><Badge tone="warning">Reorder</Badge></span>}
-                          </>
+                          <div className="flex items-center gap-2">
+                            <span className={cn("font-mono text-[13px] font-bold tabular-nums", low ? "text-danger" : "text-t1")}>
+                              {p.stock}{p.unit && p.unit !== "unit" && <span className="text-t4 font-sans font-normal"> {p.unit}</span>}
+                            </span>
+                            {status && <Badge tone={status.tone}>{status.label}</Badge>}
+                          </div>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                      </TD>
+                      <TD className="text-right whitespace-nowrap">
                         {can("prices") && (
-                          <>
+                          <div className="inline-flex opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => setEditing(p)} className="p-1.5 rounded-lg text-t3 hover:text-primary hover:bg-primary-soft transition-colors" title="Edit">
                               <Pencil className="w-4 h-4" />
                             </button>
                             <button onClick={() => archive(p)} className="p-1.5 rounded-lg text-t3 hover:text-danger hover:bg-danger-soft transition-colors" title="Archive">
                               <Archive className="w-4 h-4" />
                             </button>
-                          </>
+                          </div>
                         )}
-                      </td>
-                    </tr>
+                      </TD>
+                    </TR>
                   );
                 })}
               </tbody>
-            </table>
+            </Table>
           </div>
           <Pager {...paged} onPage={paged.setPage} noun="products" />
 
@@ -185,6 +216,9 @@ export function Products() {
         showCost={can("prices")}
         showExpiry={hasModule("expiry")}
         mtoAllowed={hasModule("made_to_order")}
+        serialsAllowed={hasCapability("serials")}
+        productionAllowed={hasCapability("production")}
+        allowedUnits={typeMeta(activeBusiness?.typeKey).allowedUnits}
         componentChoices={products.filter((p) => p.archetype !== "made_to_order")}
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); reload(); }}
@@ -552,26 +586,26 @@ function ImportModal({ open, onClose, onDone, categories }: {
             {bad > 0 && <Badge tone="warning">{bad} missing name or price — will be skipped</Badge>}
           </div>
           <div className="max-h-64 overflow-auto rounded-ctl border border-line">
-            <table className="w-full min-w-[560px]">
+            <Table className="min-w-[560px]">
               <thead>
                 <tr className="text-left">
                   {["Name", "Category", "Price", "Cost", "Opening stock"].map((h) => (
-                    <th key={h} className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line bg-surface-2 sticky top-0">{h}</th>
+                    <TH key={h} className="bg-surface-2 sticky top-0">{h}</TH>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.slice(0, 50).map((r, i) => (
-                  <tr key={i} className={cn("border-b border-line last:border-0", (!r.name || r.price <= 0) && "opacity-40")}>
-                    <td className="px-3 py-1.5 text-[12px] font-medium text-t1">{r.name || "—"}</td>
-                    <td className="px-3 py-1.5 text-[12px] text-t3">{r.category}</td>
-                    <td className="px-3 py-1.5 text-[12px] font-mono text-t1">{r.price}</td>
-                    <td className="px-3 py-1.5 text-[12px] font-mono text-t3">{r.cost}</td>
-                    <td className="px-3 py-1.5 text-[12px] font-mono text-t3">{r.openingStock}</td>
-                  </tr>
+                  <TR key={i} hover={false} className={cn((!r.name || r.price <= 0) && "opacity-40")}>
+                    <TD className="font-medium">{r.name || "—"}</TD>
+                    <TD className="!text-t3">{r.category}</TD>
+                    <TD className="font-mono">{r.price}</TD>
+                    <TD className="font-mono !text-t3">{r.cost}</TD>
+                    <TD className="font-mono !text-t3">{r.openingStock}</TD>
+                  </TR>
                 ))}
               </tbody>
-            </table>
+            </Table>
             {rows.length > 50 && <div className="px-3 py-2 text-[11px] text-t4">…and {rows.length - 50} more rows</div>}
           </div>
           <div className="flex gap-2 mt-4">
@@ -587,12 +621,15 @@ function ImportModal({ open, onClose, onDone, categories }: {
 }
 
 function ProductModal({
-  editing, showCost, showExpiry, mtoAllowed, componentChoices, onClose, onSaved,
+  editing, showCost, showExpiry, mtoAllowed, serialsAllowed, productionAllowed, allowedUnits, componentChoices, onClose, onSaved,
 }: {
   editing: Product | "new" | null;
   showCost: boolean;
   showExpiry: boolean;
   mtoAllowed: boolean;
+  serialsAllowed: boolean;
+  productionAllowed: boolean;
+  allowedUnits: string[];
   componentChoices: Product[];
   onClose: () => void;
   onSaved: () => void;
@@ -600,7 +637,14 @@ function ProductModal({
   const isNew = editing === "new";
   const p = isNew || !editing ? null : editing;
   const [mto, setMto] = useState(p?.archetype === "made_to_order");
-  const [bom, setBom] = useState<BomLine[]>(p?.bom?.length ? p.bom : [{ productId: "", per: "sqm", factor: 1 }]);
+  const [tracksSerials, setTracksSerials] = useState(!!p?.tracksSerials);
+  // A stock item's own production recipe — distinct from the made-to-order
+  // toggle above: this item DOES carry its own stock, just credited by a
+  // Production Run instead of (or alongside) manual stock-in.
+  const [hasRecipe, setHasRecipe] = useState(!mto && !!p?.bom?.length);
+  const [bom, setBom] = useState<BomLine[]>(
+    p?.bom?.length ? p.bom : [{ productId: "", per: "sqm", factor: 1, includeLeakage: true }]
+  );
   const [form, setForm] = useState({
     name: p?.name || "",
     category: p?.category || "General",
@@ -610,6 +654,11 @@ function ProductModal({
     reorderLevel: p?.reorderLevel ?? 5,
     openingStock: 0,
     expiry: p?.expiry ? String(p.expiry).slice(0, 10) : "",
+    producedUnitsPerStockUnit: p?.producedUnitsPerStockUnit ?? 1,
+    unit: p?.unit || "unit",
+    purchaseUnit: p?.purchaseUnit || "",
+    unitsPerPurchase: p?.unitsPerPurchase ?? 1,
+    warrantyMonths: p?.warrantyMonths ?? 0,
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -622,11 +671,21 @@ function ProductModal({
     setBusy(true);
     setError("");
     try {
+      // Production recipes have no width/height concept — always "per unit
+      // produced" — so `per` is forced to "unit" outside the MTO path.
       const bomClean = bom
         .filter((l) => l.productId)
-        .map((l) => ({ productId: l.productId, per: l.per, factor: Number(l.factor) || 1 }));
+        .map((l) => ({
+          productId: l.productId,
+          per: mto ? l.per : "unit",
+          factor: Number(l.factor) || 1,
+          ...(mto ? {} : { includeLeakage: l.includeLeakage !== false }),
+        }));
       if (mto && !bomClean.length) {
         setError("Add at least one component."); setBusy(false); return;
+      }
+      if (!mto && hasRecipe && !bomClean.length) {
+        setError("Add at least one raw material."); setBusy(false); return;
       }
       const body = {
         name: form.name.trim(),
@@ -634,11 +693,18 @@ function ProductModal({
         barcode: mto ? "" : form.barcode.trim(),
         archetype: mto ? "made_to_order" : "stock",
         ...(mto ? { bom: bomClean } : {}),
+        ...(!mto && hasRecipe ? { bom: bomClean, producedUnitsPerStockUnit: Number(form.producedUnitsPerStockUnit) || 1 } : {}),
         price: Number(form.price) || 0,
         cost: Number(form.cost) || 0,
         reorderLevel: Number(form.reorderLevel) || 0,
+        ...(!mto ? {
+          unit: form.unit.trim() || "unit",
+          purchaseUnit: form.purchaseUnit.trim(),
+          unitsPerPurchase: Number(form.unitsPerPurchase) || 1,
+        } : {}),
         ...(showExpiry && !mto ? { expiry: form.expiry } : {}),
         ...(isNew && !mto ? { openingStock: Number(form.openingStock) || 0 } : {}),
+        ...(serialsAllowed && !mto ? { tracksSerials, warrantyMonths: Number(form.warrantyMonths) || 0 } : {}),
       };
       if (isNew) await api("/products", { method: "POST", body: JSON.stringify(body) });
       else await api(`/products/${p!.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -667,6 +733,43 @@ function ProductModal({
             </span>
             <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", mto ? "bg-primary" : "bg-surface-3 border border-line-2")}>
               <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", mto ? "left-[22px]" : "left-0.5")} />
+            </span>
+          </button>
+        )}
+
+        {serialsAllowed && !mto && (
+          <button
+            type="button"
+            onClick={() => setTracksSerials((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors"
+          >
+            <span>
+              <span className="block text-[13px] font-semibold text-t1">Track serial numbers</span>
+              <span className="block text-[11px] text-t3">Each unit gets its own serial, sale record and repair history — for phones, laptops, and similar.</span>
+            </span>
+            <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", tracksSerials ? "bg-primary" : "bg-surface-3 border border-line-2")}>
+              <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", tracksSerials ? "left-[22px]" : "left-0.5")} />
+            </span>
+          </button>
+        )}
+        {serialsAllowed && !mto && tracksSerials && (
+          <Field label="Warranty (months)" hint="0 = not tracked. Set on each unit's Serial the moment it's sold.">
+            <Input type="number" min="0" value={form.warrantyMonths} onChange={(e) => set("warrantyMonths", e.target.value)} />
+          </Field>
+        )}
+
+        {productionAllowed && !mto && (
+          <button
+            type="button"
+            onClick={() => setHasRecipe((v) => !v)}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors"
+          >
+            <span>
+              <span className="block text-[13px] font-semibold text-t1">Made from raw materials</span>
+              <span className="block text-[11px] text-t3">Its stock is credited by a Production Run instead of (or alongside) manual stock-in.</span>
+            </span>
+            <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", hasRecipe ? "bg-primary" : "bg-surface-3 border border-line-2")}>
+              <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", hasRecipe ? "left-[22px]" : "left-0.5")} />
             </span>
           </button>
         )}
@@ -718,10 +821,66 @@ function ProductModal({
               <Field label="Reorder level" hint="Low-stock alert threshold"><Input type="number" min="0" value={form.reorderLevel} onChange={(e) => set("reorderLevel", e.target.value)} /></Field>
               {isNew && <Field label="Opening stock" hint="Booked as a stock-in"><Input type="number" min="0" value={form.openingStock} onChange={(e) => set("openingStock", e.target.value)} /></Field>}
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Unit"
+                hint={
+                  allowedUnits.length
+                    ? form.unit === "bird" ? "A bird needs Category set to \"layer\" or \"broiler\"." : undefined
+                    : "e.g. kg, litre, piece"
+                }
+              >
+                {allowedUnits.length ? (
+                  <Select value={form.unit} onChange={(e) => set("unit", e.target.value)}>
+                    {allowedUnits.map((u) => <option key={u} value={u}>{u}</option>)}
+                  </Select>
+                ) : (
+                  <Input value={form.unit} onChange={(e) => set("unit", e.target.value)} placeholder="unit" />
+                )}
+              </Field>
+              <Field label="Bought as" hint="Optional — e.g. bag (50kg)"><Input value={form.purchaseUnit} onChange={(e) => set("purchaseUnit", e.target.value)} placeholder="Same as unit" /></Field>
+            </div>
+            {form.purchaseUnit.trim() && (
+              <Field label={`1 ${form.purchaseUnit} = how many ${form.unit || "unit"}?`} hint="Stock-in will take a quantity in this purchase unit and convert automatically">
+                <Input type="number" min="0.001" step="0.001" value={form.unitsPerPurchase} onChange={(e) => set("unitsPerPurchase", e.target.value)} />
+              </Field>
+            )}
             {showExpiry && (
               <Field label="Expiry date" hint="Optional — feeds the expiring-soon report">
                 <Input type="date" value={form.expiry} onChange={(e) => set("expiry", e.target.value)} />
               </Field>
+            )}
+            {hasRecipe && (
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">Recipe — raw materials this consumes</div>
+                <div className="text-[11px] text-t4 mb-2">A Production Run consumes these per unit produced, then credits this product's stock.</div>
+                <div className="space-y-2">
+                  {bom.map((line, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select value={line.productId} onChange={(e) => setBomLine(i, { productId: e.target.value })} className="flex-1" required>
+                        <option value="">Choose raw material…</option>
+                        {componentChoices.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </Select>
+                      <Input type="number" min="0.01" step="0.01" value={line.factor} onChange={(e) => setBomLine(i, { factor: Number(e.target.value) })} className="!w-20 text-right" title="Consumed per unit produced" />
+                      <label className="flex items-center gap-1.5 text-[11px] text-t3 shrink-0 whitespace-nowrap" title="A burst/torn unit still consumed this material">
+                        <input type="checkbox" checked={line.includeLeakage !== false} onChange={(e) => setBomLine(i, { includeLeakage: e.target.checked })} className="accent-primary" />
+                        counts leakage
+                      </label>
+                      {bom.length > 1 && (
+                        <button type="button" onClick={() => setBom((b) => b.filter((_, idx) => idx !== i))} className="h-10 w-9 shrink-0 rounded-ctl border border-line-2 flex items-center justify-center text-t4 hover:text-danger">×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={() => setBom((b) => [...b, { productId: "", per: "unit", factor: 1, includeLeakage: true }])} className="mt-2 text-[12px] font-semibold text-primary hover:underline">
+                  + Add raw material
+                </button>
+                <Field label="Produced units per stock unit" hint="e.g. 12 bottles = 1 pack, 20 sachets = 1 bag — leave at 1 if they're credited one-for-one" className="mt-3">
+                  <Input type="number" min="1" value={form.producedUnitsPerStockUnit} onChange={(e) => set("producedUnitsPerStockUnit", e.target.value)} />
+                </Field>
+              </div>
             )}
           </>
         )}

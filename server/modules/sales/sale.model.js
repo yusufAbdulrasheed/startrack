@@ -18,7 +18,12 @@ const saleSchema = new mongoose.Schema(
         _id: false,
         productId: { type: mongoose.Schema.Types.ObjectId, required: true },
         name: { type: String, required: true },
-        qty: { type: Number, required: true, min: 1 },
+        // Not "min: 1" — a coldroom sale can be a fraction of a carton (0.5)
+        // or a kg weight under 1 (0.3kg of fish), both legitimate quantities
+        // for that trade's own sale endpoint (see coldroom.routes.js's
+        // /sales). Every other checkout path already only ever sends whole
+        // units, so relaxing the floor changes nothing for them.
+        qty: { type: Number, required: true, min: 0.001 },
         unitPrice: { type: Number, required: true },
         lineCost: { type: Number, default: 0 }, // qty * unit cost at time of sale
         lineNet: { type: Number, required: true }, // qty * unitPrice
@@ -27,6 +32,10 @@ const saleSchema = new mongoose.Schema(
         // components consumed (void restores THESE, not the MTO product).
         width: { type: Number },
         height: { type: Number },
+        // Set only when the selling business has the kitchenQueue capability
+        // (restaurant) — see server/modules/businesses/restaurant/. Every
+        // other business type's line never gets this field at all.
+        prepStatus: { type: String, enum: ["pending", "preparing", "ready", "served"] },
         components: [
           {
             _id: false,
@@ -44,7 +53,13 @@ const saleSchema = new mongoose.Schema(
     payments: [
       {
         _id: false,
-        method: { type: String, enum: ["cash", "pos", "transfer"], required: true },
+        // "credit" is the "credit" capability (coldroom today) — a sale
+        // settled against the customer's running balance instead of cash in
+        // hand. It's never offered by the generic checkout's own validation;
+        // only a business-vertical sale endpoint that checks hasCapability()
+        // itself constructs one. See customerLedger.model.js for the ledger
+        // it posts to, and sales.routes.js's void handler for the reversal.
+        method: { type: String, enum: ["cash", "pos", "transfer", "credit"], required: true },
         amount: { type: Number, required: true },
       },
     ],

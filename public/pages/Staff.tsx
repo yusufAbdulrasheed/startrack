@@ -1,28 +1,33 @@
 import { useState } from "react";
-import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil, Clock, Trash2 } from "lucide-react";
+import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil, Clock, Trash2, CalendarPlus, Network } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { StatCard } from "@/components/ui/StatCard";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
+import { typeMeta } from "@/lib/businessTypes";
 
 type Staff = {
   id: string; userId: string; name: string; email: string; role: string;
   branchId: string | null; branchName: string; hasPin: boolean; status: string; permsOverride: string[];
   shiftId: string | null; shiftName: string;
+  // Organizational only — never gates access. See OrgChart below.
+  position: string; reportsToId: string | null; reportsToName: string;
 };
 type ShiftRow = { id: string; name: string; start: string; end: string };
+type OrgNode = { id: string; name: string; position: string; role: string; children: OrgNode[] };
 
 const ROLE_TONE: Record<string, "brand" | "success" | "warning" | "neutral"> = {
   owner: "brand", admin: "success", manager: "warning", staff: "neutral",
 };
 
 export function Staff() {
-  const { session, branchesForActive, can } = useSession();
+  const { session, activeBusiness, branchesForActive, can } = useSession();
   const { data, loading, reload } = useApi<{ staff: Staff[] }>("/staff", []);
   const { data: shiftData, reload: reloadShifts } = useApi<{ shifts: ShiftRow[] }>("/staff/shifts", []);
   const shifts = shiftData?.shifts || [];
@@ -32,8 +37,15 @@ export function Staff() {
   const [adding, setAdding] = useState(false);
   const [pinFor, setPinFor] = useState<Staff | null>(null);
   const [editFor, setEditFor] = useState<Staff | null>(null);
+  const [rosterFor, setRosterFor] = useState<Staff | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const code = settingsData?.business.code;
+  const positions = typeMeta(activeBusiness?.typeKey).positions;
+
+  const activeCount = staff.filter((s) => s.status === "active").length;
+  const suspendedCount = staff.filter((s) => s.status === "inactive").length;
+  const onShiftCount = staff.filter((s) => !!s.shiftId).length;
 
   async function toggleStatus(s: Staff) {
     const next = s.status === "active" ? "inactive" : "active";
@@ -47,7 +59,12 @@ export function Staff() {
       <PageHeader
         title="Staff"
         subtitle="Roles decide what each person can see and do — enforced by the server"
-        actions={<Button onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add staff</Button>}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setChartOpen(true)}><Network className="w-4 h-4" /> Org chart</Button>
+            <Button onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add staff</Button>
+          </>
+        }
       />
 
       {code && (
@@ -66,58 +83,126 @@ export function Staff() {
       {loading ? (
         <Spinner />
       ) : (
-        <Card className="overflow-hidden">
-          {staff.length === 0 ? (
-            <EmptyState icon={UserCog} title="Just you so far" body="Add your first staff member with a role, branch and till PIN." />
-          ) : (
-            <div className="divide-y divide-line">
-              {paged.rows.map((s) => (
-                <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${s.status === "inactive" ? "opacity-50" : ""}`}>
-                  <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
-                    {s.name[0]?.toUpperCase()}
+        <>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+            <StatCard index={0} label="Total staff" value={String(staff.length)} icon={UserCog} />
+            <StatCard index={1} label="Active" value={String(activeCount)} icon={CheckCircle2} />
+            <StatCard index={2} label="Suspended" value={String(suspendedCount)} icon={Ban} />
+            <StatCard index={3} label="On a shift" value={String(onShiftCount)} icon={Clock} />
+          </div>
+          <Card className="overflow-hidden">
+            {staff.length === 0 ? (
+              <EmptyState icon={UserCog} title="Just you so far" body="Add your first staff member with a role, branch and till PIN." />
+            ) : (
+              <div className="divide-y divide-line">
+                {paged.rows.map((s) => (
+                  <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${s.status === "inactive" ? "opacity-50" : ""}`}>
+                    <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
+                      {s.name[0]?.toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-semibold text-t1 truncate">{s.name}</span>
+                        <Badge tone={ROLE_TONE[s.role] || "neutral"} className="capitalize">{s.role}</Badge>
+                        {s.position && <Badge tone="brand">{s.position}</Badge>}
+                        {s.status === "inactive" && <Badge tone="danger">suspended</Badge>}
+                        {s.userId === session?.user.id && <Badge tone="neutral">you</Badge>}
+                      </div>
+                      <div className="text-[11px] text-t3 truncate">
+                        {s.branchName}{s.shiftName ? ` · ${s.shiftName}` : ""}{s.reportsToName ? ` · reports to ${s.reportsToName}` : ""}
+                        {s.email ? ` · ${s.email}` : " · till-only (PIN)"}{s.hasPin ? "" : " · no PIN set"}
+                      </div>
+                    </div>
+                    {s.role !== "owner" && (
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                        <Button size="sm" variant="secondary" onClick={() => setEditFor(s)}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setPinFor(s)}><KeyRound className="w-3.5 h-3.5" /> PIN</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setRosterFor(s)}><CalendarPlus className="w-3.5 h-3.5" /> Assign shift</Button>
+                        <Button size="sm" variant={s.status === "active" ? "secondary" : "success"} onClick={() => toggleStatus(s)}>
+                          {s.status === "active" ? <><Ban className="w-3.5 h-3.5" /> Suspend</> : <><CheckCircle2 className="w-3.5 h-3.5" /> Restore</>}
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[13px] font-semibold text-t1 truncate">{s.name}</span>
-                      <Badge tone={ROLE_TONE[s.role] || "neutral"} className="capitalize">{s.role}</Badge>
-                      {s.status === "inactive" && <Badge tone="danger">suspended</Badge>}
-                      {s.userId === session?.user.id && <Badge tone="neutral">you</Badge>}
-                    </div>
-                    <div className="text-[11px] text-t3 truncate">
-                      {s.branchName}{s.shiftName ? ` · ${s.shiftName}` : ""}{s.email ? ` · ${s.email}` : " · till-only (PIN)"}{s.hasPin ? "" : " · no PIN set"}
-                    </div>
-                  </div>
-                  {s.role !== "owner" && (
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                      <Button size="sm" variant="secondary" onClick={() => setEditFor(s)}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
-                      <Button size="sm" variant="secondary" onClick={() => setPinFor(s)}><KeyRound className="w-3.5 h-3.5" /> PIN</Button>
-                      <Button size="sm" variant={s.status === "active" ? "secondary" : "success"} onClick={() => toggleStatus(s)}>
-                        {s.status === "active" ? <><Ban className="w-3.5 h-3.5" /> Suspend</> : <><CheckCircle2 className="w-3.5 h-3.5" /> Restore</>}
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          <Pager {...paged} onPage={paged.setPage} noun="staff" />
-        </Card>
+                ))}
+              </div>
+            )}
+            <Pager {...paged} onPage={paged.setPage} noun="staff" />
+          </Card>
+        </>
       )}
 
       <ShiftsCard shifts={shifts} onChanged={() => { reloadShifts(); reload(); }} />
 
-      <AddStaff open={adding} branches={branchesForActive} isOwner={can("*")} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload(); }} />
+      <AddStaff
+        open={adding}
+        branches={branchesForActive}
+        staff={staff}
+        positions={positions}
+        isOwner={can("*")}
+        onClose={() => setAdding(false)}
+        onSaved={() => { setAdding(false); reload(); }}
+      />
       <ResetPin staff={pinFor} onClose={() => setPinFor(null)} onSaved={() => { setPinFor(null); reload(); }} />
       <EditStaff
-        key={editFor?.id ?? "closed"}
+        key={editFor?.id ?? "edit-closed"}
         staff={editFor}
         branches={branchesForActive}
         shifts={shifts}
+        allStaff={staff}
+        positions={positions}
         isOwner={can("*")}
         onClose={() => setEditFor(null)}
         onSaved={() => { setEditFor(null); reload(); }}
       />
+      <AssignRoster
+        key={rosterFor?.id ?? "roster-closed"}
+        staff={rosterFor}
+        shifts={shifts}
+        onClose={() => setRosterFor(null)}
+        onSaved={() => setRosterFor(null)}
+      />
+      <OrgChart open={chartOpen} onClose={() => setChartOpen(false)} />
     </div>
+  );
+}
+
+// The reporting tree from GET /api/staff/org-chart — a read view (edits
+// happen via Add/Edit staff's Position/Reports-to fields), so this fetches
+// fresh each time it opens rather than staying mounted.
+function OrgChart({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { data, loading } = useApi<{ chart: OrgNode[] }>(open ? "/staff/org-chart" : null, [open]);
+  const roots = data?.chart || [];
+
+  function Branch({ node }: { node: OrgNode }) {
+    return (
+      <li>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-ctl bg-surface-2 border border-line">
+          <span className="text-[12.5px] font-semibold text-t1">{node.name}</span>
+          {node.position && <span className="text-[11px] text-primary font-semibold">{node.position}</span>}
+          {!node.position && <span className="text-[11px] text-t4 capitalize">{node.role}</span>}
+        </div>
+        {node.children.length > 0 && (
+          <ul className="mt-2 ml-4 pl-4 border-l border-line space-y-2">
+            {node.children.map((c) => <Branch key={c.id} node={c} />)}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Org chart" subtitle="Who reports to whom — set via Position / Reports to on each staff member" wide>
+      {loading ? (
+        <Spinner />
+      ) : roots.length === 0 ? (
+        <EmptyState icon={Network} title="Nothing to chart yet" body="Set a Position and Reports-to on your staff to build this out." />
+      ) : (
+        <ul className="space-y-2">
+          {roots.map((n) => <Branch key={n.id} node={n} />)}
+        </ul>
+      )}
+    </Modal>
   );
 }
 
@@ -185,10 +270,61 @@ function ShiftsCard({ shifts, onChanged }: { shifts: ShiftRow[]; onChanged: () =
   );
 }
 
-function AddStaff({ open, branches, isOwner, onClose, onSaved }: {
-  open: boolean; branches: { id: string; name: string }[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
+// Puts one staff member on the roster for one date — a dated booking against
+// a shift template, separate from their default shiftId set via Edit.
+function AssignRoster({ staff, shifts, onClose, onSaved }: {
+  staff: Staff | null; shifts: ShiftRow[]; onClose: () => void; onSaved: () => void;
 }) {
-  const [form, setForm] = useState({ name: "", role: "staff", branchId: "", pin: "", email: "" });
+  const [form, setForm] = useState({ shiftId: "", date: new Date().toISOString().slice(0, 10) });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try {
+      await api("/staff/roster", {
+        method: "POST",
+        body: JSON.stringify({ membershipId: staff!.id, shiftId: form.shiftId, date: form.date }),
+      });
+      onSaved();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={!!staff} onClose={onClose} title={`Assign a shift — ${staff?.name}`} subtitle="Adds one dated entry to their schedule">
+      <form onSubmit={save} className="space-y-3">
+        <ErrorBanner message={error} />
+        {shifts.length === 0 ? (
+          <div className="text-[12px] text-t3">No shifts yet — add one below on the Staff page first.</div>
+        ) : (
+          <>
+            <Field label="Shift">
+              <Select required value={form.shiftId} onChange={(e) => setForm((f) => ({ ...f, shiftId: e.target.value }))}>
+                <option value="">Choose…</option>
+                {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start}–{s.end})</option>)}
+              </Select>
+            </Field>
+            <Field label="Date">
+              <Input required type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+            </Field>
+            <Button type="submit" className="w-full" disabled={busy}>{busy ? "Assigning…" : "Assign shift"}</Button>
+          </>
+        )}
+      </form>
+    </Modal>
+  );
+}
+
+function AddStaff({ open, branches, staff, positions, isOwner, onClose, onSaved }: {
+  open: boolean; branches: { id: string; name: string }[]; staff: Staff[]; positions: string[];
+  isOwner: boolean; onClose: () => void; onSaved: () => void;
+}) {
+  const [form, setForm] = useState({ name: "", role: "staff", branchId: "", pin: "", email: "", position: "", reportsToId: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -199,9 +335,14 @@ function AddStaff({ open, branches, isOwner, onClose, onSaved }: {
     try {
       await api("/staff", {
         method: "POST",
-        body: JSON.stringify({ ...form, branchId: form.branchId || undefined, email: form.email || undefined }),
+        body: JSON.stringify({
+          ...form,
+          branchId: form.branchId || undefined,
+          email: form.email || undefined,
+          reportsToId: form.reportsToId || undefined,
+        }),
       });
-      setForm({ name: "", role: "staff", branchId: "", pin: "", email: "" });
+      setForm({ name: "", role: "staff", branchId: "", pin: "", email: "", position: "", reportsToId: "" });
       onSaved();
     } catch (err: any) {
       setError(err.message);
@@ -238,23 +379,48 @@ function AddStaff({ open, branches, isOwner, onClose, onSaved }: {
             <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="Optional" />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Position" hint="Just a label — doesn't change what they can do">
+            {positions.length > 0 ? (
+              <Select value={form.position} onChange={(e) => set("position", e.target.value)}>
+                <option value="">None</option>
+                {positions.map((p) => <option key={p} value={p}>{p}</option>)}
+              </Select>
+            ) : (
+              <Input value={form.position} onChange={(e) => set("position", e.target.value)} placeholder="e.g. Supervisor" />
+            )}
+          </Field>
+          <Field label="Reports to" hint="Optional — for the org chart">
+            <Select value={form.reportsToId} onChange={(e) => set("reportsToId", e.target.value)}>
+              <option value="">No one / top of chart</option>
+              {staff.map((s) => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ""}</option>)}
+            </Select>
+          </Field>
+        </div>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Adding…" : "Add staff member"}</Button>
       </form>
     </Modal>
   );
 }
 
-function EditStaff({ staff, branches, shifts, isOwner, onClose, onSaved }: {
-  staff: Staff | null; branches: { id: string; name: string }[]; shifts: ShiftRow[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
+function EditStaff({ staff, branches, shifts, allStaff, positions, isOwner, onClose, onSaved }: {
+  staff: Staff | null; branches: { id: string; name: string }[]; shifts: ShiftRow[]; allStaff: Staff[];
+  positions: string[]; isOwner: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const [form, setForm] = useState({
     name: staff?.name || "",
     role: staff?.role || "staff",
     branchId: staff?.branchId || "",
     shiftId: staff?.shiftId || "",
+    position: staff?.position || "",
+    reportsToId: staff?.reportsToId || "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Can't report to yourself, and offering a direct/indirect report as your
+  // own boss just invites the server's cycle check to reject it — filter
+  // the obvious case (self) here; anything deeper the server still catches.
+  const reportsToOptions = allStaff.filter((s) => s.id !== staff?.id);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -262,7 +428,10 @@ function EditStaff({ staff, branches, shifts, isOwner, onClose, onSaved }: {
     try {
       await api(`/staff/${staff!.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ name: form.name, role: form.role, branchId: form.branchId || null, shiftId: form.shiftId || null }),
+        body: JSON.stringify({
+          name: form.name, role: form.role, branchId: form.branchId || null, shiftId: form.shiftId || null,
+          position: form.position, reportsToId: form.reportsToId || null,
+        }),
       });
       onSaved();
     } catch (err: any) {
@@ -297,6 +466,24 @@ function EditStaff({ staff, branches, shifts, isOwner, onClose, onSaved }: {
             {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start}–{s.end})</option>)}
           </Select>
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Position" hint="Just a label — doesn't change what they can do">
+            {positions.length > 0 ? (
+              <Select value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}>
+                <option value="">None</option>
+                {positions.map((p) => <option key={p} value={p}>{p}</option>)}
+              </Select>
+            ) : (
+              <Input value={form.position} onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))} placeholder="e.g. Supervisor" />
+            )}
+          </Field>
+          <Field label="Reports to" hint="Optional — for the org chart">
+            <Select value={form.reportsToId} onChange={(e) => setForm((f) => ({ ...f, reportsToId: e.target.value }))}>
+              <option value="">No one / top of chart</option>
+              {reportsToOptions.map((s) => <option key={s.id} value={s.id}>{s.name}{s.position ? ` — ${s.position}` : ""}</option>)}
+            </Select>
+          </Field>
+        </div>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : "Save changes"}</Button>
       </form>
     </Modal>

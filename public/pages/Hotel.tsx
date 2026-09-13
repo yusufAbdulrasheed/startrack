@@ -1,11 +1,11 @@
 import { useState } from "react";
 import {
   BedDouble, ChevronLeft, ChevronRight, LogIn, LogOut, Plus, Receipt,
-  Ban, UtensilsCrossed, Wine, Shirt, Package,
+  Ban, UtensilsCrossed, Wine, Shirt, Package, Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
-import { PageHeader, Spinner } from "@/components/ui/EmptyState";
+import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
@@ -31,6 +31,8 @@ type Stay = {
   subtotal: number; discount: number; vat: number; total: number; paid: number; balance: number;
 };
 type Product = { id: string; name: string; price: number; category: string };
+type RoomTypeItem = { id: string; name: string; rate: number; capacity: number; amenities?: string[] };
+type RoomListItem = { id: string; number: string; floor: string; housekeeping: string; note: string; roomTypeId: string; typeName: string; rate: number };
 
 // The heat map's whole job is to be readable at a glance, so state is carried
 // by fill AND by a letter — colour alone fails the colour-blind and the
@@ -38,7 +40,7 @@ type Product = { id: string; name: string; price: number; category: string };
 const CELL: Record<CellState, { cls: string; mark: string; label: string }> = {
   free:           { cls: "bg-surface-2 border-line", mark: "", label: "Free" },
   booked:         { cls: "bg-warning-soft border-warning/40 text-warning", mark: "B", label: "Booked" },
-  occupied:       { cls: "bg-primary text-white border-brand-700", mark: "IN", label: "In house" },
+  occupied:       { cls: "bg-primary text-on-primary border-brand-700", mark: "IN", label: "In house" },
   dirty:          { cls: "bg-surface-3 border-line-2 text-t3", mark: "~", label: "Needs cleaning" },
   out_of_service: { cls: "bg-danger-soft border-danger/30 text-danger", mark: "X", label: "Out of service" },
 };
@@ -55,11 +57,12 @@ const addDays = (day: string, n: number) => {
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export function Hotel() {
-  const { activeBranch, currency } = useSession();
+  const { activeBranch, currency, can } = useSession();
   const [from, setFrom] = useState(todayStr);
   const [nights] = useState(14);
   const [booking, setBooking] = useState<{ roomId: string; number: string; rate: number; night: string } | null>(null);
   const [openStayId, setOpenStayId] = useState<string | null>(null);
+  const [managingRooms, setManagingRooms] = useState(false);
 
   const { data, loading, reload } = useApi<Grid>(`/hotel/availability?from=${from}&nights=${nights}`, [activeBranch?.id]);
 
@@ -69,9 +72,16 @@ export function Hotel() {
         title="Front Desk"
         subtitle={`${activeBranch?.name || ""} · rooms are occupied across dates, never sold off a shelf`}
         actions={
-          <Button onClick={() => { const r = data?.rooms.find((x) => x.cells[0]?.state === "free"); if (r) setBooking({ roomId: r.id, number: r.number, rate: r.rate, night: from }); }}>
-            <Plus className="w-4 h-4" /> New booking
-          </Button>
+          <div className="flex items-center gap-2">
+            {can("prices") && (
+              <Button variant="secondary" onClick={() => setManagingRooms(true)}>
+                <Settings2 className="w-4 h-4" /> Manage Rooms
+              </Button>
+            )}
+            <Button onClick={() => { const r = data?.rooms.find((x) => x.cells[0]?.state === "free"); if (r) setBooking({ roomId: r.id, number: r.number, rate: r.rate, night: from }); }}>
+              <Plus className="w-4 h-4" /> New booking
+            </Button>
+          </div>
         }
       />
 
@@ -98,10 +108,13 @@ export function Hotel() {
       {loading && !data ? (
         <Spinner />
       ) : !data || data.rooms.length === 0 ? (
-        <Card className="p-10 text-center">
-          <BedDouble className="w-10 h-10 text-t4 mx-auto mb-3" />
-          <div className="text-[14px] font-bold text-t1">No rooms yet</div>
-          <div className="text-[12px] text-t3 mt-1">Add room types and rooms before the front desk can take a booking.</div>
+        <Card>
+          <EmptyState
+            icon={BedDouble}
+            title="No rooms yet"
+            body={can("prices") ? "Add room types and rooms before the front desk can take a booking." : "Ask an admin to add room types and rooms before the front desk can take a booking."}
+            action={can("prices") ? <Button onClick={() => setManagingRooms(true)}><Plus className="w-4 h-4" /> Set up rooms</Button> : undefined}
+          />
         </Card>
       ) : (
         <>
@@ -198,7 +211,139 @@ export function Hotel() {
         onClose={() => setOpenStayId(null)}
         onChanged={() => { reload(); }}
       />
+      <RoomSetupModal
+        open={managingRooms}
+        onClose={() => setManagingRooms(false)}
+        onChanged={reload}
+        currency={currency}
+      />
     </div>
+  );
+}
+
+// ── Room types & rooms setup ─────────────────────────────────────────
+// The one-time (and ongoing) hotel setup the front desk depends on: a room
+// is sold from here, never from the till, so it needs its own small admin
+// screen rather than living inside Products.
+
+function RoomSetupModal({ open, onClose, onChanged, currency }: {
+  open: boolean; onClose: () => void; onChanged: () => void; currency: string;
+}) {
+  const { data, reload } = useApi<{ rooms: RoomListItem[]; roomTypes: RoomTypeItem[] }>(open ? "/hotel/rooms" : null, [open]);
+  const roomTypes = data?.roomTypes || [];
+  const rooms = data?.rooms || [];
+
+  const [typeForm, setTypeForm] = useState({ name: "", rate: "", capacity: "2" });
+  const [typeError, setTypeError] = useState("");
+  const [typeBusy, setTypeBusy] = useState(false);
+
+  const [roomForm, setRoomForm] = useState({ number: "", roomTypeId: "", floor: "" });
+  const [roomError, setRoomError] = useState("");
+  const [roomBusy, setRoomBusy] = useState(false);
+
+  async function addType(e: React.FormEvent) {
+    e.preventDefault();
+    setTypeBusy(true); setTypeError("");
+    try {
+      await api("/hotel/room-types", {
+        method: "POST",
+        body: JSON.stringify({ name: typeForm.name, rate: Number(typeForm.rate) || 0, capacity: Number(typeForm.capacity) || 2 }),
+      });
+      setTypeForm({ name: "", rate: "", capacity: "2" });
+      reload(); onChanged();
+    } catch (err: any) {
+      setTypeError(err.message);
+    } finally {
+      setTypeBusy(false);
+    }
+  }
+
+  async function addRoom(e: React.FormEvent) {
+    e.preventDefault();
+    setRoomBusy(true); setRoomError("");
+    try {
+      await api("/hotel/rooms", {
+        method: "POST",
+        body: JSON.stringify({ number: roomForm.number, roomTypeId: roomForm.roomTypeId, floor: roomForm.floor }),
+      });
+      // Keep the type/floor picked — adding a run of rooms on the same floor is the common case.
+      setRoomForm((f) => ({ ...f, number: "" }));
+      reload(); onChanged();
+    } catch (err: any) {
+      setRoomError(err.message);
+    } finally {
+      setRoomBusy(false);
+    }
+  }
+
+  async function setHousekeeping(room: RoomListItem, hk: string) {
+    await api(`/hotel/rooms/${room.id}`, { method: "PATCH", body: JSON.stringify({ housekeeping: hk }) });
+    reload(); onChanged();
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Manage rooms" subtitle="Room types set the nightly rate; rooms are numbered units of a type" wide>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Room types</div>
+          <form onSubmit={addType} className="space-y-2 mb-3">
+            <ErrorBanner message={typeError} />
+            <div className="grid grid-cols-3 gap-2">
+              <Input placeholder="e.g. Deluxe" required value={typeForm.name} onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })} />
+              <Input type="number" min="0" placeholder="Rate/night" required value={typeForm.rate} onChange={(e) => setTypeForm({ ...typeForm, rate: e.target.value })} />
+              <Input type="number" min="1" placeholder="Sleeps" value={typeForm.capacity} onChange={(e) => setTypeForm({ ...typeForm, capacity: e.target.value })} />
+            </div>
+            <Button type="submit" variant="secondary" className="w-full" disabled={typeBusy}>
+              <Plus className="w-4 h-4" /> {typeBusy ? "Adding…" : "Add room type"}
+            </Button>
+          </form>
+          <div className="rounded-ctl border border-line divide-y divide-line max-h-56 overflow-y-auto">
+            {roomTypes.length === 0 && <div className="px-3 py-4 text-center text-[12px] text-t4">No room types yet — add one above.</div>}
+            {roomTypes.map((t) => (
+              <div key={t.id} className="flex items-center justify-between px-3 py-2">
+                <span className="text-[13px] font-semibold text-t1">{t.name}</span>
+                <span className="text-[12px] font-mono text-t3">{fmtMoney(t.rate, currency)}/night · sleeps {t.capacity}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Rooms</div>
+          <form onSubmit={addRoom} className="space-y-2 mb-3">
+            <ErrorBanner message={roomError} />
+            <div className="grid grid-cols-3 gap-2">
+              <Input placeholder="Number" required value={roomForm.number} onChange={(e) => setRoomForm({ ...roomForm, number: e.target.value })} />
+              <Select required value={roomForm.roomTypeId} onChange={(e) => setRoomForm({ ...roomForm, roomTypeId: e.target.value })}>
+                <option value="">Type…</option>
+                {roomTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </Select>
+              <Input placeholder="Floor" value={roomForm.floor} onChange={(e) => setRoomForm({ ...roomForm, floor: e.target.value })} />
+            </div>
+            <Button type="submit" variant="secondary" className="w-full" disabled={roomBusy || roomTypes.length === 0}>
+              <Plus className="w-4 h-4" /> {roomBusy ? "Adding…" : "Add room"}
+            </Button>
+            {roomTypes.length === 0 && <p className="text-[11px] text-t4">Add a room type first.</p>}
+          </form>
+          <div className="rounded-ctl border border-line divide-y divide-line max-h-56 overflow-y-auto">
+            {rooms.length === 0 && <div className="px-3 py-4 text-center text-[12px] text-t4">No rooms yet.</div>}
+            {rooms.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="min-w-0">
+                  <span className="text-[13px] font-semibold text-t1">{r.number}</span>
+                  <span className="text-[11px] text-t3 ml-2 truncate">{r.typeName}{r.floor ? ` · Floor ${r.floor}` : ""}</span>
+                </div>
+                <Select value={r.housekeeping} onChange={(e) => setHousekeeping(r, e.target.value)} className="!w-36 !h-7 !text-[11px] shrink-0">
+                  <option value="clean">Clean</option>
+                  <option value="dirty">Needs cleaning</option>
+                  <option value="out_of_service">Out of service</option>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -314,7 +459,7 @@ function BookRoom({ target, currency, onClose, onSaved }: {
         </div>
 
         <label className="flex items-center gap-2.5 px-3 py-2.5 rounded-ctl bg-surface-2 border border-line cursor-pointer">
-          <input type="checkbox" checked={form.checkInNow} onChange={(e) => setForm({ ...form, checkInNow: e.target.checked })} className="w-4 h-4 accent-[var(--st-primary)]" />
+          <input type="checkbox" checked={form.checkInNow} onChange={(e) => setForm({ ...form, checkInNow: e.target.checked })} className="w-4 h-4 accent-primary" />
           <span className="text-[13px] text-t1">The guest is standing here — check them in now</span>
         </label>
 

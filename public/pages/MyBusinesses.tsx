@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Plus, ArrowRight, KeyRound, Check, Search, Store,
-  ShoppingBasket, Pill, Wine, Scissors, Blinds, Croissant, Smartphone, Snowflake,
-  Shirt, Wrench, Hammer, BedDouble, UtensilsCrossed, Droplets, Egg, Fuel,
-  Sparkles, Dumbbell, Sprout, Sofa, Printer, Fish, Car, Package,
+  Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -18,12 +16,8 @@ import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, any> = {
-  retail: ShoppingBasket, pharmacy: Pill, bar: Wine, tailoring: Scissors, blinds: Blinds,
-  bakery: Croissant, electronics: Smartphone, coldroom: Snowflake, laundry: Shirt,
-  autorepair: Wrench, buildingmaterials: Hammer, hotel: BedDouble, restaurant: UtensilsCrossed,
-  water: Droplets, poultry: Egg, filling: Fuel, salon: Sparkles, gym: Dumbbell,
-  agro: Sprout, furniture: Sofa, printing: Printer, fishfarm: Fish, carwash: Car,
-  services: Package, other: Store,
+  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
+  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg,
 };
 
 type Biz = {

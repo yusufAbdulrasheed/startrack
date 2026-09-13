@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 export function Field({ label, hint, children, className }: { label: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
     <label className={cn("block", className)}>
-      <span className="block text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">{label}</span>
+      <span className="block text-[12px] font-semibold text-t2 mb-1.5">{label}</span>
       {children}
       {hint && <span className="block text-[11px] text-t4 mt-1">{hint}</span>}
     </label>

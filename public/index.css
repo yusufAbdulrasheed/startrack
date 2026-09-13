@@ -2,72 +2,79 @@
 
 /* ────────────────────────────────────────────────
    StarTrack Design Tokens
-   Brand: the StarTrack blue (#1a48cc family)
+   Brand: Enterprise Indigo (#00288e family)
    Light-first · dark mode via .dark on <html>
+   Sidebar (--st-nav-*) is theme-independent — always dark navy.
 ──────────────────────────────────────────────── */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Brand — read straight out of the Figma PDFs (fill operators).
-     #0058be is the primary; #2170e4 and #d8e2ff are its lighter steps. */
-  --st-brand-950: #001a42;
-  --st-brand-900: #002d70;
-  --st-brand-800: #004395;
-  --st-brand-700: #0058be; /* primary */
-  --st-brand-600: #0f66d2;
-  --st-brand-500: #2170e4;
-  --st-brand-400: #5b92ee;
-  --st-brand-300: #adc6ff;
-  --st-brand-200: #d8e2ff;
-  --st-brand-100: #e7eeff;
-  --st-brand-50:  #f4f7ff;
+  /* Brand — Enterprise Indigo. 700/500 land exactly on the design system's
+     primary (#00288e) and primary-container (#1e40af); 200/100 land on its
+     primary-fixed-dim/primary-fixed. Everything else interpolates between. */
+  --st-brand-950: #000f33;
+  --st-brand-900: #001453;
+  --st-brand-800: #001f6e;
+  --st-brand-700: #00288e; /* primary */
+  --st-brand-600: #12379f;
+  --st-brand-500: #1e40af; /* primary-container */
+  --st-brand-400: #3755c3;
+  --st-brand-300: #7c93e0;
+  --st-brand-200: #b8c4ff;
+  --st-brand-100: #dde1ff;
+  --st-brand-50:  #eef1ff;
 
-  /* Semantic — light. The neutrals are warm greys, not blue-tinted: the
-     design's surfaces run #fcf8fa → #f6f3f5 → #f0edef. */
-  --st-bg:        #f6f3f5;
+  /* Semantic — light. Cool blue-white surfaces per the Enterprise Indigo
+     design system: background/surface run #f8f9ff → #ffffff → #e5eeff. */
+  --st-bg:        #f8f9ff;
   --st-surface:   #ffffff;
-  --st-surface-2: #fcf8fa;
-  --st-surface-3: #f0edef;
-  --st-border:    #e4e2e4;
-  --st-border-2:  #c6c6cd;
-  --st-text-1:    #1b1b1d;
-  --st-text-2:    #45464d;
-  --st-text-3:    #76777d;
-  --st-text-4:    #a9aab1;
+  --st-surface-2: #eff4ff;
+  --st-surface-3: #e5eeff;
+  --st-border:    #c4c5d5;
+  --st-border-2:  #757684;
+  --st-text-1:    #0b1c30;
+  --st-text-2:    #444653;
+  --st-text-3:    #757684;
+  --st-text-4:    #c4c5d5;
 
   --st-primary:          var(--st-brand-700);
   --st-primary-hover:    var(--st-brand-500);
-  --st-primary-soft:     #d8e2ff;
-  --st-primary-softer:   #eef3ff;
+  --st-primary-soft:     #dde1ff;
+  --st-primary-softer:   #eef1ff;
   --st-on-primary:       #ffffff;
 
-  --st-success:      #0a7f5a;
-  --st-success-soft: #cdf3e4;
+  /* "Success" borrows the design system's teal secondary — it's what the
+     mockups use for Paid/In-Stock/trending-up, not a separate green. */
+  --st-success:      #006a61;
+  --st-success-soft: #d4f7ef;
   --st-warning:      #8a5b00;
   --st-warning-soft: #fcdeb5;
   --st-danger:       #ba1a1a;
   --st-danger-soft:  #ffdad6;
 
-  /* Sidebar. Light surface with a solid primary pill on the active item —
-     the dark navy (#131b2e) in the design belongs to the marketing page and
-     the sign-up panel, not the app shell. */
-  --st-nav-bg:        #ffffff;
-  --st-nav-bg-2:      #fcf8fa;
-  --st-nav-fg:        #45464d;
-  --st-nav-fg-strong: #1b1b1d;
-  --st-nav-active:    #0058be;
-  --st-nav-hover:     #f0edef;
-  --st-nav-border:    #e4e2e4;
+  /* Sidebar. Fixed dark navy in BOTH light and dark app mode — every mockup
+     shows a persistent dark rail regardless of the content theme, so these
+     are declared once here and never redeclared inside .dark. */
+  --st-nav-bg:        #0f172a;
+  --st-nav-bg-2:      #1a2540;
+  --st-nav-fg:        #a9b4cc;
+  --st-nav-fg-strong: #ffffff;
+  --st-nav-active:    #00288e;
+  --st-nav-hover:     #182238;
+  --st-nav-border:    #22304d;
 
   /* The dark panel used by the landing page and the sign-up split screen. */
-  --st-ink:           #131b2e;
+  --st-ink:           #0f172a;
 
-  --st-shadow-1: 0 1px 2px rgba(27, 27, 29, 0.05);
-  --st-shadow-2: 0 4px 14px rgba(27, 27, 29, 0.10), 0 1px 3px rgba(27, 27, 29, 0.06);
-  --st-shadow-brand: 0 2px 8px rgba(0, 88, 190, 0.24);
+  --st-shadow-1: 0 1px 2px rgba(11, 28, 48, 0.06);
+  --st-shadow-2: 0 4px 12px rgba(11, 28, 48, 0.08), 0 1px 3px rgba(11, 28, 48, 0.05);
+  --st-shadow-brand: 0 2px 8px rgba(0, 40, 142, 0.20);
 
-  /* Chart categoricals — validated with the dataviz checker (light mode) */
+  /* Chart categoricals — validated with the dataviz palette checker (light
+     mode). Deliberately not the same hue as --st-primary: a thin line/area
+     fill needs a lighter, more vivid blue than the dark UI primary to stay
+     legible, so this stays as originally validated. */
   --chart-1: #2254e0;
   --chart-2: #0f9f76;
   --chart-3: #e8930f;
@@ -79,23 +86,24 @@
 .dark {
   /* Dark counterpart: an elevated slate, deliberately NOT near-black —
      surfaces step up in lightness so cards read as raised rather than as
-     holes cut in a black page. */
-  --st-bg:        #171a21;
-  --st-surface:   #1e222b;
-  --st-surface-2: #242935;
-  --st-surface-3: #2c323f;
-  --st-border:    #333a48;
-  --st-border-2:  #454e60;
-  --st-text-1:    #e8ebf2;
-  --st-text-2:    #b6becd;
-  --st-text-3:    #8892a4;
-  --st-text-4:    #626c7d;
+     holes cut in a black page. --st-nav-* is intentionally absent here: the
+     sidebar stays the same dark navy in both modes (see :root above). */
+  --st-bg:        #10141d;
+  --st-surface:   #1a1f2b;
+  --st-surface-2: #212736;
+  --st-surface-3: #2a3143;
+  --st-border:    #333c52;
+  --st-border-2:  #495267;
+  --st-text-1:    #e8ebf5;
+  --st-text-2:    #b6c0d4;
+  --st-text-3:    #8892a8;
+  --st-text-4:    #5b6478;
 
-  --st-primary:        #8cb4ff;
-  --st-primary-hover:  #adc6ff;
-  --st-primary-soft:   #00376f;
-  --st-primary-softer: #002343;
-  --st-on-primary:     #002f6b;
+  --st-primary:        #b8c4ff;
+  --st-primary-hover:  #dde1ff;
+  --st-primary-soft:   #1e40af;
+  --st-primary-softer: #172449;
+  --st-on-primary:     #001453;
 
   --st-success:      #6bd7ab;
   --st-success-soft: #054733;
@@ -104,19 +112,11 @@
   --st-danger:       #ffb4ab;
   --st-danger-soft:  #5c0f0f;
 
-  --st-nav-bg:        #1e222b;
-  --st-nav-bg-2:      #242935;
-  --st-nav-fg:        #b6becd;
-  --st-nav-fg-strong: #ffffff;
-  --st-nav-active:    #0058be;
-  --st-nav-hover:     #2c323f;
-  --st-nav-border:    #333a48;
-
-  --st-ink:           #131b2e;
+  --st-ink:           #0f172a;
 
   --st-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.32);
   --st-shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4);
-  --st-shadow-brand: 0 2px 10px rgba(0, 88, 190, 0.4);
+  --st-shadow-brand: 0 2px 10px rgba(30, 64, 175, 0.4);
 
   /* Chart categoricals — lifted for the dark surface */
   --chart-1: #6b9dff;
@@ -177,12 +177,12 @@
   --shadow-e2: var(--st-shadow-2);
   --shadow-brand: var(--st-shadow-brand);
 
-  --radius-card: 10px;
+  --radius-card: 12px;
   --radius-ctl: 8px;
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-  --font-display: "Sora", "Inter", system-ui, sans-serif;
+  --font-display: "Public Sans", "Inter", system-ui, sans-serif;
 }
 
 /* Reusable animation utilities */

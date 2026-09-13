@@ -136,7 +136,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       </div>
 
       {/* Search — Enter jumps to the catalog filtered by the query */}
-      <div className="flex-1 max-w-xl mx-auto relative max-sm:hidden">
+      <div className="flex-1 max-w-xl mx-auto relative max-sm:hidden" data-tour="topbar-search">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
         <input
           ref={searchRef}
@@ -155,7 +155,9 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
       </div>
 
       <div className="flex items-center gap-1.5 ml-auto">
-        <NotificationBell />
+        <span data-tour="topbar-notifications">
+          <NotificationBell />
+        </span>
         <ThemeToggle />
 
         {/* User menu */}

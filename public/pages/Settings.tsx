@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Save, Plus, MapPin, KeyRound, RefreshCw, BellRing, X, Store, Blocks, Wrench,
-  Check, Copy, Mail, MailWarning,
+  Check, Copy, Mail, MailWarning, ShieldCheck, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
+import { Badge, Card } from "@/components/ui/Card";
+import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
@@ -30,12 +32,13 @@ type SettingsData = {
   availableModules: { key: string; label: string; hint: string }[];
 };
 
-type SectionKey = "business" | "alerts" | "modules" | "branches" | "advanced";
+type SectionKey = "business" | "alerts" | "modules" | "permissions" | "branches" | "advanced";
 
 const SECTIONS: { key: SectionKey; label: string; icon: any; blurb: string; ownerOnly?: boolean }[] = [
   { key: "business", label: "Business", icon: Store, blurb: "Name, currency, VAT and what prints on receipts" },
   { key: "alerts", label: "Alerts", icon: BellRing, blurb: "What the shop tells you about, and who else hears it" },
   { key: "modules", label: "Features", icon: Blocks, blurb: "Switch off anything this business doesn't use" },
+  { key: "permissions", label: "Permissions", icon: ShieldCheck, blurb: "Roles, permission overrides and PINs" },
   { key: "branches", label: "Branches", icon: MapPin, blurb: "Where this business trades" },
   { key: "advanced", label: "Advanced", icon: Wrench, blurb: "Tools for when something looks wrong", ownerOnly: true },
 ];
@@ -102,6 +105,7 @@ export function Settings() {
           {current.key === "modules" && (
             <ModulesSection available={data.availableModules} enabled={data.business.settings.modules} />
           )}
+          {current.key === "permissions" && <PermissionsSection />}
           {current.key === "branches" && <BranchesSection branches={data.branches} canAdd={can("*")} onSaved={reload} />}
           {current.key === "advanced" && <AdvancedSection />}
         </div>
@@ -470,6 +474,75 @@ function ModulesSection({ available, enabled }: { available: { key: string; labe
           <span className="text-[12px] text-t3">The app reloads so the menu updates.</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Permissions ──────────────────────────────────────────────────────
+
+const ROLE_TONE: Record<string, "brand" | "success" | "warning" | "neutral"> = {
+  owner: "brand", admin: "success", manager: "warning", staff: "neutral",
+};
+
+// Read-only summary of what the server actually enforces per role — kept in
+// sync with permsForRole() on the backend. Individual overrides and PINs
+// stay a Staff-page job; this just orients an owner before they go there.
+const ROLE_LADDER: { role: string; summary: string }[] = [
+  { role: "owner", summary: "Everything, everywhere — every module, every business, billing and staff, with nothing hidden." },
+  {
+    role: "admin",
+    summary:
+      "Sales, returns, approving returns and voiding sales, stock, prices, expenses, both dashboards, staff management, settings, customers, activity and the audit trail.",
+  },
+  {
+    role: "manager",
+    summary:
+      "Sales, returns, approving returns and voiding sales, stock, prices, expenses, the operations dashboard, customers and activity — no settings, staff management, finance dashboard or audit trail.",
+  },
+  { role: "staff", summary: "Sales, returns and their own activity — the till, and nothing beyond it." },
+];
+
+function PermissionsSection() {
+  return (
+    <div className="space-y-4">
+      <Card className="p-5">
+        <div className="text-[13px] font-bold text-t1 mb-1">Role ladder</div>
+        <div className="text-[12px] text-t3 mb-4">
+          What each role can do out of the box. A person can also be given permission overrides beyond their role from the Staff page.
+        </div>
+        <div className="overflow-x-auto -mx-5 px-5">
+          <Table>
+            <thead>
+              <tr>
+                <TH className="w-28">Role</TH>
+                <TH>Can do</TH>
+              </tr>
+            </thead>
+            <tbody>
+              {ROLE_LADDER.map((r) => (
+                <TR key={r.role} hover={false}>
+                  <TD className="align-top whitespace-nowrap">
+                    <Badge tone={ROLE_TONE[r.role]} className="capitalize">{r.role}</Badge>
+                  </TD>
+                  <TD className="text-t2 leading-relaxed">{r.summary}</TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      </Card>
+
+      <Card className="p-5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="text-[13px] font-bold text-t1">Manage individual staff</div>
+          <div className="text-[12px] text-t3 mt-0.5">
+            Set roles, branches, PINs and per-person permission overrides for each team member.
+          </div>
+        </div>
+        <Link to="/app/staff" className="shrink-0">
+          <Button variant="secondary"><Users className="w-4 h-4" /> Go to Staff</Button>
+        </Link>
+      </Card>
     </div>
   );
 }

@@ -12,6 +12,11 @@ const membershipSchema = new mongoose.Schema(
     permsOverride: { type: [String], default: [] },
     pinHash: { type: String, default: "" }, // set when staff can log in at a till
     shiftId: { type: mongoose.Schema.Types.ObjectId, ref: "Shift", default: null },
+    // Organizational, not security — a job title and who this person reports
+    // to, for the Staff org-chart view. Never read by requirePerm/canSeeCost;
+    // the role field above is the only thing that governs access.
+    position: { type: String, default: "" },
+    reportsToId: { type: mongoose.Schema.Types.ObjectId, ref: "Membership", default: null },
     status: { type: String, enum: ["active", "inactive"], default: "active" },
   },
   { timestamps: true }

@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { LockOpen, AlertCircle, KeyRound } from "lucide-react";
+import { LockOpen, AlertCircle, KeyRound, Delete } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
+
+const KEYPAD_MAX = 6;
 
 export function Login() {
   const navigate = useNavigate();
@@ -33,9 +35,15 @@ export function Login() {
       }
     } catch (err: any) {
       setError(err.message || "Could not sign in");
+      if (tab === "till") setPin("");
     } finally {
       setBusy(false);
     }
+  }
+
+  function pressDigit(d: string) {
+    setError("");
+    setPin((p) => (p.length < KEYPAD_MAX ? p + d : p));
   }
 
   const inputCls =
@@ -49,7 +57,7 @@ export function Login() {
         style={{ backgroundImage: "radial-gradient(circle, var(--st-border-2) 1px, transparent 1px)", backgroundSize: "28px 28px" }}
       />
       <div className="relative w-[400px] max-w-[92vw] rounded-3xl bg-surface border border-line-2 shadow-e2 p-10 text-center animate-fade-up">
-        <Link to="/" className="inline-flex w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-700 to-brand-500 shadow-brand items-center justify-center mb-5">
+        <Link to="/" className="inline-flex w-16 h-16 rounded-2xl bg-primary shadow-brand items-center justify-center mb-5">
           <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8">
             <path d="M4 8h24M4 16h15M4 24h19" stroke="white" strokeWidth="2.3" strokeLinecap="round" />
             <circle cx="26" cy="24" r="4.5" fill="white" opacity=".92" />
@@ -68,7 +76,7 @@ export function Login() {
             <button
               key={t.k}
               type="button"
-              onClick={() => { setTab(t.k); setError(""); }}
+              onClick={() => { setTab(t.k); setError(""); setPin(""); }}
               className={cn(
                 "h-9 rounded-lg text-[13px] font-semibold transition-colors",
                 tab === t.k ? "bg-surface text-primary shadow-e1" : "text-t3 hover:text-t1"
@@ -104,18 +112,57 @@ export function Login() {
                 maxLength={6}
                 className={cn(inputCls, "font-mono tracking-[0.3em] text-center uppercase")}
               />
-              <input
-                required
-                inputMode="numeric"
-                pattern="\d{4,6}"
-                maxLength={6}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                placeholder="Your PIN"
-                type="password"
-                className={cn(inputCls, "font-mono tracking-[0.3em] text-center")}
-              />
-              <Button type="submit" size="lg" className="w-full mt-2" disabled={busy}>
+
+              {/* PIN dots */}
+              <div className="flex justify-center gap-2.5 py-1">
+                {Array.from({ length: KEYPAD_MAX }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      "w-3.5 h-3.5 rounded-full border-2 transition-colors",
+                      i < pin.length ? "bg-primary border-primary" : "border-line-2"
+                    )}
+                  />
+                ))}
+              </div>
+
+              {/* Numeric keypad */}
+              <div className="grid grid-cols-3 gap-2">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => pressDigit(d)}
+                    className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-bold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
+                  >
+                    {d}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => { setError(""); setPin(""); }}
+                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[11px] font-bold uppercase tracking-wide text-t3 hover:bg-surface-3 active:scale-95 transition-all"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  onClick={() => pressDigit("0")}
+                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-bold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
+                >
+                  0
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setError(""); setPin((p) => p.slice(0, -1)); }}
+                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 flex items-center justify-center text-t3 hover:bg-surface-3 active:scale-95 transition-all"
+                  aria-label="Backspace"
+                >
+                  <Delete className="w-[18px] h-[18px]" />
+                </button>
+              </div>
+
+              <Button type="submit" size="lg" className="w-full mt-2" disabled={busy || pin.length < 4}>
                 <KeyRound className="w-4 h-4" /> {busy ? "Signing in…" : "Sign in with PIN"}
               </Button>
               <p className="text-[11px] text-t4 text-center">Ask your manager for the business code and your PIN.</p>

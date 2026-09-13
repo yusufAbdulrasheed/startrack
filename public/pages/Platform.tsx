@@ -67,7 +67,7 @@ export function Platform() {
           header — a standing reminder you are not inside one shop. */}
       <div className="relative overflow-hidden rounded-card mb-5 p-6" style={{ background: "var(--st-ink)" }}>
         <div aria-hidden className="absolute inset-0 opacity-60">
-          <div className="absolute -top-24 right-10 w-[320px] h-[320px] rounded-full blur-3xl animate-drift" style={{ background: "radial-gradient(circle, rgba(0,88,190,.5), transparent 70%)" }} />
+          <div className="absolute -top-24 right-10 w-[320px] h-[320px] rounded-full blur-3xl animate-drift" style={{ background: "radial-gradient(circle, rgba(0,40,142,.5), transparent 70%)" }} />
         </div>
         <div className="relative flex items-start justify-between gap-4 flex-wrap">
           <div>
