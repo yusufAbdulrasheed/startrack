@@ -471,7 +471,7 @@ export function Landing() {
       <Nav />
 
       {/* Hero */}
-      <section className="max-w-6xl mx-auto px-5 pt-16 md:pt-20 pb-20 grid lg:grid-cols-2 gap-14 items-center">
+      <section className="max-w-6xl mx-auto px-5 pt-16 md:pt-20 pb-20 grid grid-cols-1 lg:grid-cols-2 gap-14 items-center">
         <div className="text-center lg:text-left">
           <h1 className="font-display font-extrabold tracking-tight text-t1 text-[clamp(2.4rem,6vw,3.6rem)] leading-[1.08]">
             One Platform.<br />Every Trade.<br />
@@ -506,7 +506,7 @@ export function Landing() {
               Purpose-built tools that seamlessly integrate to give you complete control.
             </p>
           </div>
-          <div className="mt-12 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {MODULES.map((f) => (
               <div key={f.title} className="bg-canvas border border-line rounded-card p-6 transition-colors hover:border-brand-300">
                 <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
@@ -535,7 +535,7 @@ export function Landing() {
             See what fits your trade →
           </Link>
         </div>
-        <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {INDUSTRIES.map((f) => (
             <div key={f.title} className="bg-surface border border-line rounded-card p-6 transition-colors hover:border-brand-300">
               <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
