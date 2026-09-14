@@ -39,7 +39,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
         <h1 className="font-display text-[20px] font-extrabold tracking-tight text-t1">{title}</h1>
         {subtitle && <p className="text-[13px] text-t3 mt-0.5">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }

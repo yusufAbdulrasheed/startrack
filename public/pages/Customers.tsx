@@ -184,9 +184,9 @@ function CustomerDetail({ customer, currency, showLoyalty, showCredit, onClose, 
           { l: "Visits", v: String(c.visits) },
           { l: "Customer since", v: fmtDate(c.firstSeen) },
         ].map((s) => (
-          <div key={s.l} className="rounded-xl bg-surface-2 border border-line p-3">
-            <div className="text-[15px] font-bold font-mono text-t1">{s.v}</div>
-            <div className="text-[10px] font-medium text-t3 mt-0.5">{s.l}</div>
+          <div key={s.l} className="rounded-xl bg-surface-2 border border-line p-3 min-w-0">
+            <div className="text-[15px] font-bold font-mono text-t1 truncate">{s.v}</div>
+            <div className="text-[10px] font-medium text-t3 mt-0.5 truncate">{s.l}</div>
           </div>
         ))}
       </div>
@@ -283,7 +283,7 @@ function LoyaltySection({ customerId, onChanged }: { customerId: string; onChang
           <Coins className="w-3.5 h-3.5 text-primary" />
           <span className="text-[12px] font-bold text-t1">Loyalty tokens</span>
         </div>
-        <div className="grid grid-cols-4 gap-2 mb-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
           {[
             { l: "Sachets/bags", v: data.sachetBagQty },
             { l: "Tokens earned", v: data.tokens },

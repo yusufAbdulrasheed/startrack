@@ -147,7 +147,7 @@ function CohortDetailModal({ cohortId, onClose, onChanged, canManage }: {
       ) : (
         <div className="space-y-4">
           <ErrorBanner message={error} />
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { l: "In batch", v: c.currentCount },
               { l: "Mortality", v: c.mortalityCount },

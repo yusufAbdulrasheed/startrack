@@ -241,7 +241,7 @@ function ProductModal({
   return (
     <Modal open={!!row} onClose={onClose} title={row.name} subtitle={row.category} wide>
       <div className="space-y-4">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {[
             { l: "Sealed cartons", v: row.sealedCartons },
             { l: "Loose kg", v: row.looseKg },
@@ -620,7 +620,7 @@ function LossForm({ batches, onDone }: { batches: Batch[]; onDone: () => void })
           ))}
         </Select>
       </Field>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <Field label="Cartons lost"><Input type="number" min="0" step="0.01" value={cartons} onChange={(e) => setCartons(e.target.value === "" ? "" : Number(e.target.value))} /></Field>
         <Field label="Kg lost"><Input type="number" min="0" step="0.01" value={kg} onChange={(e) => setKg(e.target.value === "" ? "" : Number(e.target.value))} /></Field>
         <Field label="Pieces lost"><Input type="number" min="0" step="1" value={pieces} onChange={(e) => setPieces(e.target.value === "" ? "" : Number(e.target.value))} /></Field>

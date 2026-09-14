@@ -87,7 +87,7 @@ function Header({ onTakeTour }: { onTakeTour: () => void }) {
         </p>
         {error && <div className="text-[12px] text-danger font-semibold mt-1">{error}</div>}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center flex-wrap gap-2 shrink-0">
         <Button variant="secondary" onClick={onTakeTour}><Sparkles className="w-4 h-4" /> Take a tour</Button>
         <div data-tour="staffhome-clock" className="flex items-center gap-2">
           {clockedIn ? (

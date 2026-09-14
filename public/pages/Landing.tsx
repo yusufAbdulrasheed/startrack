@@ -220,7 +220,7 @@ function BarRow({ label, sub, pct }: { label: string; sub: string; pct: number }
 function SlideOverview() {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <Tile v="₦248,500" l="Today's revenue" />
         <Tile v="37" l="Sales" />
         <Tile v="₦61,300" l="Profit" tone="success" />
@@ -255,7 +255,7 @@ function SlideSales() {
 function SlideInventory() {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         <Tile v="128" l="Products" />
         <Tile v="₦2.3m" l="Stock value" />
         <Tile v="+640 / −587" l="In & out · 30d" />
@@ -292,15 +292,15 @@ function SlideCustomers() {
 function SlideStaff() {
   return (
     <div className="bg-surface border border-line rounded-xl p-3 space-y-2.5">
-      <div className="grid grid-cols-4 text-[10px] font-bold uppercase tracking-wide text-t4 pb-1 border-b border-line">
-        <span>Staff</span><span className="text-right">Sales</span><span className="text-right">Revenue</span><span className="text-right">Hours</span>
+      <div className="grid grid-cols-3 sm:grid-cols-4 text-[10px] font-bold uppercase tracking-wide text-t4 pb-1 border-b border-line">
+        <span>Staff</span><span className="text-right">Sales</span><span className="text-right">Revenue</span><span className="hidden sm:block text-right">Hours</span>
       </div>
       {[["Amaka", "212", "₦1.6m", "182h"], ["Chidi", "167", "₦1.2m", "170h"], ["Ngozi", "121", "₦840k", "154h"]].map((r, i) => (
-        <div key={i} className="grid grid-cols-4 text-[12px]">
+        <div key={i} className="grid grid-cols-3 sm:grid-cols-4 text-[12px]">
           <span className="font-semibold text-t1">{r[0]}</span>
           <span className="text-right font-mono text-t2">{r[1]}</span>
           <span className="text-right font-mono font-bold text-t1">{r[2]}</span>
-          <span className="text-right font-mono text-t3">{r[3]}</span>
+          <span className="hidden sm:block text-right font-mono text-t3">{r[3]}</span>
         </div>
       ))}
     </div>

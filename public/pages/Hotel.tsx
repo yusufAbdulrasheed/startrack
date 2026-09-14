@@ -288,7 +288,7 @@ function RoomSetupModal({ open, onClose, onChanged, currency }: {
           <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Room types</div>
           <form onSubmit={addType} className="space-y-2 mb-3">
             <ErrorBanner message={typeError} />
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Input placeholder="e.g. Deluxe" required value={typeForm.name} onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })} />
               <Input type="number" min="0" placeholder="Rate/night" required value={typeForm.rate} onChange={(e) => setTypeForm({ ...typeForm, rate: e.target.value })} />
               <Input type="number" min="1" placeholder="Sleeps" value={typeForm.capacity} onChange={(e) => setTypeForm({ ...typeForm, capacity: e.target.value })} />
@@ -312,7 +312,7 @@ function RoomSetupModal({ open, onClose, onChanged, currency }: {
           <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Rooms</div>
           <form onSubmit={addRoom} className="space-y-2 mb-3">
             <ErrorBanner message={roomError} />
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <Input placeholder="Number" required value={roomForm.number} onChange={(e) => setRoomForm({ ...roomForm, number: e.target.value })} />
               <Select required value={roomForm.roomTypeId} onChange={(e) => setRoomForm({ ...roomForm, roomTypeId: e.target.value })}>
                 <option value="">Type…</option>

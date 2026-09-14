@@ -721,7 +721,7 @@ function MtoModal({ product, currency, onClose, onAdd }: {
         }}
         className="space-y-3"
       >
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Field label="Width (m)"><Input autoFocus required type="number" min="0.01" step="0.01" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="1.2" /></Field>
           <Field label="Height (m)"><Input required type="number" min="0.01" step="0.01" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="1.5" /></Field>
           <Field label="Quantity"><Input type="number" min="1" value={qty} onChange={(e) => setQtyN(Number(e.target.value) || 1)} /></Field>
@@ -898,7 +898,7 @@ export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; on
           </div>
           <div className="text-center text-[11px] text-t3 pt-3">{receipt.footer}</div>
         </div>
-        <div className="p-4 border-t border-line grid grid-cols-3 gap-2 print:hidden">
+        <div className="p-4 border-t border-line grid grid-cols-1 sm:grid-cols-3 gap-2 print:hidden">
           <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>
           <Button
             variant="secondary"

@@ -296,7 +296,7 @@ function BarcodeLabelsModal({ open, onClose, products, currency }: {
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Field label="Label size">
           <Select value={size} onChange={(e) => setSize(e.target.value as LabelSize)}>
             <option value="small">Small · 4 per row</option>
@@ -792,8 +792,8 @@ function ProductModal({
             <div className="text-[11px] text-t4 mb-2">Cost and stock deduction come from these. Quantities are calculated from each order's size.</div>
             <div className="space-y-2">
               {bom.map((line, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Select value={line.productId} onChange={(e) => setBomLine(i, { productId: e.target.value })} className="flex-1" required>
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <Select value={line.productId} onChange={(e) => setBomLine(i, { productId: e.target.value })} className="flex-1 min-w-35" required>
                     <option value="">Choose component…</option>
                     {componentChoices.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
