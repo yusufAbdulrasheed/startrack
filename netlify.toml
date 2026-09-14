@@ -1,0 +1,32 @@
+# Netlify deploy: the frontend build is served as static files (the [build]
+# block below), and the whole Express API runs as one serverless function
+# (netlify/functions/api.js) instead of the standalone process server/index.js
+# uses on Render — see that file for what's genuinely different about running
+# this API as a function versus a normal server (Mongo connection caching,
+# no background jobs).
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Every /api/* call the client makes (see public/lib/api.ts's same-origin
+# "/api" default) is rewritten to the function above — the browser never
+# needs to know the API is serverless, and no VITE_API_URL/CORS setup is
+# needed, same "one origin" design the monolith deploy already relies on.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+# Client-side routing (React Router): any path that isn't a real file or the
+# API falls back to index.html and lets the router decide what to show. Must
+# come after the /api/* rule above. Netlify only applies this when nothing
+# real exists at the requested path, so actual built assets still load
+# directly.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

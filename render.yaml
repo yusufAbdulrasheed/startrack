@@ -21,13 +21,10 @@ services:
       - key: JWT_SECRET
         generateValue: true
       # Optional — alerts appear in the app regardless; these add the email copy.
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
+      - key: RESEND_API_KEY
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Optional — self-ping so Render's free tier doesn't sleep after 15m
+      # idle. Render sets this automatically; left here only as documentation.
+      # - key: RENDER_EXTERNAL_URL
