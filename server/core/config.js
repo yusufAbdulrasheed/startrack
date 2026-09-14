@@ -5,10 +5,18 @@ const isProd = process.env.NODE_ENV === "production";
 const jwtSecret = process.env.JWT_SECRET || "dev-secret-change-me";
 
 // Refuse to boot in production with the development secret — a silent
-// default here would let anyone forge login tokens.
+// default here would let anyone forge login tokens. Throwing rather than
+// process.exit()-ing matters beyond style: this module loads on every cold
+// start of the Netlify function too (server/app.js imports it transitively),
+// and calling process.exit() there doesn't fail one request cleanly — it can
+// tear down the whole serverless runtime mid-init, which is exactly the kind
+// of thing that shows up client-side as a bare 502 with no useful message.
+// A thrown error still stops a standalone server (server/index.js) from
+// booting at all — Node exits non-zero on an uncaught exception during
+// module evaluation either way — but the function's logs get an actual
+// stack trace pointing at this line instead of a mystery crash.
 if (isProd && jwtSecret === "dev-secret-change-me") {
-  console.error("FATAL: set a real JWT_SECRET before running in production.");
-  process.exit(1);
+  throw new Error("FATAL: set a real JWT_SECRET before running in production.");
 }
 
 export const config = {
