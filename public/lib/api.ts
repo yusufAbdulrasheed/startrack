@@ -36,11 +36,15 @@ export class ApiError extends Error {
 
 export async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   let res: Response;
+  // A FormData body (file uploads) must NOT get an explicit Content-Type —
+  // fetch sets multipart/form-data with the right boundary itself, and a
+  // fixed "application/json" header here would break every image upload.
+  const isForm = typeof FormData !== "undefined" && opts.body instanceof FormData;
   try {
     res = await fetch(BASE + path, {
       ...opts,
       headers: {
-        "Content-Type": "application/json",
+        ...(isForm ? {} : { "Content-Type": "application/json" }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(businessId ? { "x-business-id": businessId } : {}),
         ...(branchId ? { "x-branch-id": branchId } : {}),

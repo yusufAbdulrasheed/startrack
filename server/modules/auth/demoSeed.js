@@ -87,6 +87,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
     const p = await Product.create({
       ...base, name: item.name, category: item.category, barcode: item.barcode || "",
       price: item.price, cost: item.cost, reorderLevel: item.reorder,
+      imageUrl: item.image || "",
       ...(item.expiry ? { expiry: item.expiry } : {}),
     });
     const opening = item.stock + 40; // padding for the week of sales; a stock count at the end lands it exactly
@@ -116,6 +117,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
         price: shop.madeToOrder.price,
         cost: 0,
         reorderLevel: 0,
+        imageUrl: shop.madeToOrder.image || "",
         bom,
       });
     }

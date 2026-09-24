@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, KeyRound, LogOut, Menu, Search, Store, Building2 } from "lucide-react";
+import { ChevronDown, KeyRound, LogOut, Menu, Store, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
@@ -57,21 +58,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   const [bizOpen, setBizOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const searchRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLElement>(null);
-
-  // Ctrl+K focuses search, like the placeholder promises.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
 
   useEffect(() => {
     const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) { setBranchOpen(false); setBizOpen(false); setUserOpen(false); } };
@@ -135,24 +122,7 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
         )}
       </div>
 
-      {/* Search — Enter jumps to the catalog filtered by the query */}
-      <div className="flex-1 max-w-xl mx-auto relative max-sm:hidden" data-tour="topbar-search">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
-        <input
-          ref={searchRef}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && q.trim()) {
-              navigate(`/app/products?q=${encodeURIComponent(q.trim())}`);
-              setQ("");
-              searchRef.current?.blur();
-            }
-          }}
-          placeholder="Search…"
-          className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer"
-        />
-      </div>
+      <GlobalSearch />
 
       <div className="flex items-center gap-1.5 ml-auto">
         <span data-tour="topbar-notifications">

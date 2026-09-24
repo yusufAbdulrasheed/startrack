@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ReceiptText, Download, Search, Ban } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -50,11 +51,19 @@ export function Sales() {
 // Archive tab, so both always show exactly the same truth.
 export function SalesHistoryView() {
   const { activeBranch, currency, can } = useSession();
+  const [searchParams] = useSearchParams();
   const [from, setFrom] = useState(() => todayStr().slice(0, 8) + "01"); // this month
   const [to, setTo] = useState(todayStr);
   const [status, setStatus] = useState("");
-  const [saleNo, setSaleNo] = useState("");
+  const [saleNo, setSaleNo] = useState(searchParams.get("saleNo") || "");
   const [page, setPage] = useState(1);
+
+  // The header's global search lands here with ?saleNo= — a receipt from any
+  // date needs to surface, so widen the window past the "this month" default.
+  useEffect(() => {
+    const fromUrl = searchParams.get("saleNo");
+    if (fromUrl) { setSaleNo(fromUrl); setFrom("2000-01-01"); setPage(1); }
+  }, [searchParams]);
   const filters = `from=${from}&to=${to}${status ? `&status=${status}` : ""}${saleNo ? `&saleNo=${encodeURIComponent(saleNo)}` : ""}`;
   const query = `/sales?${filters}&page=${page}&limit=${PAGE_SIZE}`;
   const { data, loading, reload } = useApi<{ sales: Sale[]; totals: Totals; page: number; pages: number }>(

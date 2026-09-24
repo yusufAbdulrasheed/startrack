@@ -1,6 +1,7 @@
 import express from "express";
 import "express-async-errors"; // async route errors reach the error handler
 import cors from "cors";
+import multer from "multer";
 import { config } from "#core/config.js";
 import { requireAuth } from "#core/middleware/requireAuth.js";
 import { tenantContext } from "#core/middleware/tenant.js";
@@ -32,6 +33,7 @@ import { tasksRouter } from "#modules/tasks/tasks.routes.js";
 import { announcementsRouter } from "#modules/announcements/announcements.routes.js";
 import { ticketsRouter } from "#modules/support/tickets.routes.js";
 import { aiRouter } from "#modules/ai/ai.routes.js";
+import { searchRouter } from "#modules/search/search.routes.js";
 
 // Business-vertical modules (server/modules/businesses/*/) — genuinely
 // single-consumer logic that lives in its own directory. Blinds has none:
@@ -108,6 +110,7 @@ app.use("/api/tasks", tenant, tasksRouter);
 app.use("/api/announcements", tenant, announcementsRouter);
 app.use("/api/tickets", tenant, ticketsRouter);
 app.use("/api/ai", tenant, aiRouter);
+app.use("/api/search", tenant, searchRouter);
 
 // Business-vertical routes (server/modules/businesses/*/) — same auth/tenant
 // gate as everything else above, just physically grouped so "every business
@@ -141,6 +144,10 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "not_found" }));
 app.use((err, _req, res, _next) => {
   if (err instanceof InsufficientStockError) {
     return res.status(409).json({ error: err.code, message: err.message });
+  }
+  if (err instanceof multer.MulterError) {
+    const message = err.code === "LIMIT_FILE_SIZE" ? "That image is too large — 5MB max." : "Couldn't upload that file.";
+    return res.status(400).json({ error: "invalid", message });
   }
   if (err?.name === "CastError") {
     return res.status(400).json({ error: "invalid_id", message: "That reference doesn't look right." });

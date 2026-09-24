@@ -160,6 +160,7 @@ async function seedCatalog(ctx, shop) {
       accountId: ctx.accountId, businessId: ctx.businessId,
       name: item.name, category: item.category, barcode: item.barcode || "",
       price: item.price, cost: item.cost, reorderLevel: item.reorder,
+      imageUrl: item.image || "",
       ...(item.expiry ? { expiry: item.expiry } : {}),
     });
     await Inventory.create({ accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: p._id, stock: item.stock });
@@ -179,7 +180,8 @@ async function seedCatalog(ctx, shop) {
       const p = await Product.create({
         accountId: ctx.accountId, businessId: ctx.businessId, name: shop.madeToOrder.name,
         category: shop.madeToOrder.category, archetype: "made_to_order",
-        price: shop.madeToOrder.price, cost: 0, reorderLevel: 0, bom,
+        price: shop.madeToOrder.price, cost: 0, reorderLevel: 0,
+        imageUrl: shop.madeToOrder.image || "", bom,
       });
       byName.set(shop.madeToOrder.name, { doc: p, name: shop.madeToOrder.name, price: shop.madeToOrder.price });
     }

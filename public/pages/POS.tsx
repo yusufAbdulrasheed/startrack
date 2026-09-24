@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 
 type Product = {
   id: string; name: string; price: number; category: string; stock: number | null; barcode: string;
-  archetype?: string; tracksSerials?: boolean;
+  archetype?: string; tracksSerials?: boolean; imageUrl?: string;
   bom?: { productId: string; per: string; factor: number }[];
 };
 type Line = {
@@ -390,8 +390,14 @@ export function POS() {
                     {custom && <span className="absolute top-3 right-2.5"><Badge tone="brand">Custom</Badge></span>}
                     {low && <span className="absolute top-3 right-2.5"><Badge tone="warning">Low</Badge></span>}
                     {oos && <span className="absolute top-3 right-2.5"><Badge tone="danger">Out</Badge></span>}
-                    <div className="w-10 h-10 rounded-xl bg-primary-soft text-primary flex items-center justify-center mb-3">
-                      {custom ? <Ruler className="w-5 h-5" /> : <Package className="w-5 h-5" />}
+                    <div className="w-full h-20 rounded-lg bg-primary-soft text-primary flex items-center justify-center mb-3 overflow-hidden">
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                      ) : custom ? (
+                        <Ruler className="w-6 h-6" />
+                      ) : (
+                        <Package className="w-6 h-6" />
+                      )}
                     </div>
                     <div className="text-[13px] font-semibold text-t1 leading-tight line-clamp-2 h-9">{p.name}</div>
                     <div className="mt-2 flex items-center justify-between">

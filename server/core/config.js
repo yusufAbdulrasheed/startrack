@@ -50,10 +50,24 @@ export const config = {
   },
   // Free-tier Groq API serving an open-weight model — see server/core/ai.js.
   // Absent GROQ_API_KEY = every AI feature reports itself unavailable rather
-  // than erroring.
+  // than erroring. gpt-oss-120b (OpenAI's own open-weight release, hosted by
+  // Groq) — verified working 2026-09-24 against a live key; Groq's catalog
+  // has shifted before and new accounts must explicitly enable a model at
+  // console.groq.com/settings/limits before it's callable at all (a blocked
+  // model 403s, a nonexistent one 404s — GROQ_MODEL overrides this if the
+  // catalog moves again).
   groq: {
     apiKey: process.env.GROQ_API_KEY || "",
-    model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+    model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  },
+  // Product photo storage — see server/core/cloudinary.js. Absent
+  // CLOUDINARY_* = image upload stays off (products just show a category
+  // icon instead of a photo), same graceful fallback as email/SMS/AI above.
+  // Get these from the dashboard at cloudinary.com/console.
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || "",
+    apiKey: process.env.CLOUDINARY_API_KEY || "",
+    apiSecret: process.env.CLOUDINARY_API_SECRET || "",
   },
   // How often the background sweep looks for expiring stock and unattended
   // returns. Every 6 hours by default; 0 turns the sweep off entirely.

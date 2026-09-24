@@ -1,4 +1,5 @@
 import { Router } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
@@ -6,8 +7,15 @@ import { requirePerm, canSeeCost } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { money, isValidAmount } from "#core/money.js";
 import { typeTemplate } from "#shared/businessTypes.js";
+import { imageUploadEnabled, uploadImage, deleteImage } from "#core/cloudinary.js";
 
 export const productsRouter = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)),
+});
 
 // A store cannot have two products with the same name, matched case- and
 // whitespace-insensitively — "Egg Crate" and "egg crate " are the same
@@ -65,6 +73,7 @@ function shape(p, stockByProduct, showCost) {
     tracksSerials: !!p.tracksSerials,
     warrantyMonths: p.warrantyMonths || 0,
     status: p.status,
+    imageUrl: p.imageUrl || "",
     // MTO items carry no stock of their own — their components do.
     stock: mto ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
     // A recipe now belongs to either archetype: an MTO item's bom is expanded
@@ -400,6 +409,46 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
       cost: product.cost,
     });
   }
+  res.json({ product: shape(product, null, canSeeCost(req.ctx)) });
+});
+
+// POST /api/products/:id/image — upload/replace this product's photo.
+// Multipart, field name "image". A replaced photo's old Cloudinary asset is
+// cleaned up best-effort; nothing here blocks on that cleanup succeeding.
+productsRouter.post("/:id/image", requirePerm("prices"), upload.single("image"), async (req, res) => {
+  if (!imageUploadEnabled()) return res.status(400).json({ error: "not_configured", message: "Photo upload isn't set up on this server yet." });
+  if (!req.file) return res.status(400).json({ error: "invalid", message: "Choose an image (JPEG, PNG, WEBP or GIF, up to 5MB)." });
+
+  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
+
+  const result = await uploadImage(req.file.buffer, `startrack/${req.ctx.businessId}/products`);
+  if (!result.ok) {
+    const message = result.reason === "not_configured"
+      ? "Photo upload isn't set up on this server yet."
+      : `Cloudinary rejected the upload: ${result.reason || "unknown error"}`;
+    return res.status(502).json({ error: "upload_failed", message });
+  }
+
+  const oldPublicId = product.imagePublicId;
+  product.imageUrl = result.url;
+  product.imagePublicId = result.publicId;
+  await product.save();
+  if (oldPublicId) deleteImage(oldPublicId);
+
+  audit(req.ctx, "product.image", { type: "product", id: product._id, label: product.name });
+  res.json({ product: shape(product, null, canSeeCost(req.ctx)) });
+});
+
+// DELETE /api/products/:id/image — remove the photo, fall back to the category icon
+productsRouter.delete("/:id/image", requirePerm("prices"), async (req, res) => {
+  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
+  const oldPublicId = product.imagePublicId;
+  product.imageUrl = "";
+  product.imagePublicId = "";
+  await product.save();
+  if (oldPublicId) deleteImage(oldPublicId);
   res.json({ product: shape(product, null, canSeeCost(req.ctx)) });
 });
 

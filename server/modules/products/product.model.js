@@ -65,6 +65,12 @@ const productSchema = new mongoose.Schema(
     // every business type that doesn't set it.
     warrantyMonths: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ["active", "archived"], default: "active" },
+    // Product photo, via Cloudinary (server/core/cloudinary.js) — optional;
+    // POS and the catalog fall back to a category icon when absent.
+    // imagePublicId is never sent to the client — it's only how a
+    // replace/remove knows which Cloudinary asset to clean up.
+    imageUrl: { type: String, default: "" },
+    imagePublicId: { type: String, default: "" },
     custom: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

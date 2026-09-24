@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Users, Plus, Search, Phone, ChevronRight, Coins, Truck, HandCoins, QrCode, Copy, Check, MessageCircle, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -30,8 +31,15 @@ type SupplySchedule = { interval: "none" | "daily" | "weekly" | "biweekly" | "mo
 export function Customers() {
   const { currency, hasCapability, hasModule } = useSession();
   const creditOn = hasCapability("credit");
-  const [q, setQ] = useState("");
+  const [searchParams] = useSearchParams();
+  const [q, setQ] = useState(searchParams.get("q") || "");
   const [debtorsOnly, setDebtorsOnly] = useState(false);
+
+  // The header's global search lands here with ?q= — keep the box in sync.
+  useEffect(() => {
+    const fromUrl = searchParams.get("q");
+    if (fromUrl !== null) setQ(fromUrl);
+  }, [searchParams]);
   const query = [q && `q=${encodeURIComponent(q)}`, debtorsOnly && "debtorsOnly=1"].filter(Boolean).join("&");
   const { data, loading, reload } = useApi<{ customers: Customer[]; totalOutstanding: number }>(
     `/customers${query ? `?${query}` : ""}`,

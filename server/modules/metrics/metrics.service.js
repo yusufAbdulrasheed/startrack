@@ -5,6 +5,8 @@ import { Expense } from "#modules/expenses/expense.model.js";
 import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
+import { Customer } from "#modules/customers/customer.model.js";
+import { Attendance } from "#modules/staff/attendance.model.js";
 import { canSeeCost } from "#core/middleware/tenant.js";
 import { money } from "#core/money.js";
 
@@ -218,6 +220,164 @@ export async function buildDashboardSummary(ctx) {
       summary: s.items.map((i) => `${i.name} ×${i.qty}`).join(", "),
     })),
   };
+}
+
+/**
+ * Revenue trend + staff/category/payment breakdowns over a window —
+ * exactly what GET /metrics/sales-report returns. Extracted for the same
+ * reason as buildInventoryReport/buildDashboardSummary above: the AI
+ * features (server/modules/ai/) ground their answers in this, not a
+ * second hand-rolled aggregation.
+ */
+export async function buildSalesReport(ctx, daysBack = 30) {
+  const clamped = Math.min(Math.max(daysBack, 7), 90);
+  const branchFilter = ctx.branchId ? { branchId: ctx.branchId } : {};
+  const today = localDay();
+  const days = [...Array(clamped)].map((_, i) => dayOffset(today, i - (clamped - 1)));
+  const showFinance = canSeeCost(ctx);
+
+  const rows = await DailyMetric.find({ businessId: ctx.businessId, ...branchFilter, date: { $gte: days[0] } });
+  const byDate = new Map();
+  for (const r of rows) {
+    const acc = byDate.get(r.date) || { revenue: 0, profit: 0, txns: 0, expenses: 0 };
+    acc.revenue += r.revenue;
+    acc.profit += r.profit - r.expenses;
+    acc.txns += r.txns;
+    acc.expenses += r.expenses;
+    byDate.set(r.date, acc);
+  }
+
+  const since = new Date(`${days[0]}T00:00:00`);
+  const saleMatch = { businessId: ctx.businessId, ...branchFilter, at: { $gte: since }, status: "completed" };
+
+  const byStaff = await Sale.aggregate([
+    { $match: saleMatch },
+    { $group: { _id: "$staffId", name: { $first: "$staffName" }, sales: { $sum: 1 }, revenue: { $sum: "$total" } } },
+    { $sort: { revenue: -1 } },
+    { $limit: 10 },
+  ]);
+  const byCategory = await Sale.aggregate([
+    { $match: saleMatch },
+    { $unwind: "$items" },
+    { $lookup: { from: "products", localField: "items.productId", foreignField: "_id", as: "product" } },
+    { $group: { _id: { $ifNull: [{ $first: "$product.category" }, "Other"] }, sold: { $sum: "$items.qty" }, revenue: { $sum: "$items.lineNet" } } },
+    { $sort: { revenue: -1 } },
+    { $limit: 8 },
+  ]);
+  const byMethod = await Sale.aggregate([
+    { $match: saleMatch },
+    { $unwind: "$payments" },
+    { $group: { _id: "$payments.method", amount: { $sum: "$payments.amount" } } },
+  ]);
+
+  const totals = days.reduce(
+    (acc, d) => {
+      const m = byDate.get(d);
+      if (m) { acc.revenue += m.revenue; acc.txns += m.txns; acc.profit += m.profit; acc.expenses += m.expenses; }
+      return acc;
+    },
+    { revenue: 0, txns: 0, profit: 0, expenses: 0 }
+  );
+
+  return {
+    days: clamped,
+    totals: {
+      revenue: money(totals.revenue),
+      txns: totals.txns,
+      avgSale: totals.txns > 0 ? money(totals.revenue / totals.txns) : 0,
+      ...(showFinance ? { profit: money(totals.profit), expenses: money(totals.expenses) } : {}),
+    },
+    series: days.map((d) => ({
+      date: d,
+      revenue: money(byDate.get(d)?.revenue || 0),
+      txns: byDate.get(d)?.txns || 0,
+      ...(showFinance ? { profit: money(byDate.get(d)?.profit || 0) } : {}),
+    })),
+    byStaff: byStaff.map((s) => ({ name: s.name, sales: s.sales, revenue: money(s.revenue) })),
+    byCategory: byCategory.map((c) => ({ category: c._id, sold: c.sold, revenue: money(c.revenue) })),
+    byMethod: byMethod.map((m) => ({ method: m._id, amount: money(m.amount) })),
+  };
+}
+
+/**
+ * Who buys, how often, how much — exactly what GET /metrics/customers-report
+ * returns. See buildSalesReport above for why this is shared rather than
+ * duplicated for the AI features.
+ */
+export async function buildCustomersReport(ctx) {
+  const scope = { businessId: ctx.businessId };
+  const since30 = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+
+  const total = await Customer.countDocuments(scope);
+  const newThisMonth = await Customer.countDocuments({ ...scope, firstSeen: { $gte: since30 } });
+  const repeat = await Customer.countDocuments({ ...scope, visits: { $gte: 2 } });
+  const active30 = await Customer.countDocuments({ ...scope, lastSeen: { $gte: since30 } });
+
+  const top = await Customer.find(scope).sort({ totalSpend: -1 }).limit(10).select("name phone totalSpend visits lastSeen");
+  const recent = await Customer.find(scope).sort({ firstSeen: -1 }).limit(8).select("name phone totalSpend visits firstSeen");
+
+  return {
+    totals: {
+      customers: total,
+      newLast30: newThisMonth,
+      activeLast30: active30,
+      repeatRate: total > 0 ? Math.round((repeat / total) * 100) : 0,
+    },
+    topSpenders: top.map((c) => ({ id: c._id, name: c.name, phone: c.phone, totalSpend: c.totalSpend, visits: c.visits, lastSeen: c.lastSeen })),
+    newest: recent.map((c) => ({ id: c._id, name: c.name, phone: c.phone, totalSpend: c.totalSpend, visits: c.visits, firstSeen: c.firstSeen })),
+  };
+}
+
+/**
+ * Per-staff sales/voids/revenue/hours over 30 days — exactly what
+ * GET /metrics/staff-report returns. See buildSalesReport above for why
+ * this is shared rather than duplicated for the AI features.
+ */
+export async function buildStaffReport(ctx) {
+  const branchFilter = ctx.branchId ? { branchId: ctx.branchId } : {};
+  const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
+  const sinceDay = localDay(since);
+
+  const perf = await Sale.aggregate([
+    { $match: { businessId: ctx.businessId, ...branchFilter, at: { $gte: since } } },
+    {
+      $group: {
+        _id: "$staffId",
+        name: { $first: "$staffName" },
+        sales: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, 1, 0] } },
+        voids: { $sum: { $cond: [{ $eq: ["$status", "voided"] }, 1, 0] } },
+        revenue: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$total", 0] } },
+        discounts: { $sum: { $cond: [{ $eq: ["$status", "completed"] }, "$discount", 0] } },
+      },
+    },
+    { $sort: { revenue: -1 } },
+  ]);
+
+  const hours = await Attendance.aggregate([
+    { $match: { businessId: ctx.businessId, ...branchFilter, date: { $gte: sinceDay } } },
+    { $group: { _id: "$userId", name: { $first: "$staffName" }, hours: { $sum: "$hours" }, shifts: { $sum: 1 } } },
+  ]);
+  const hoursBy = new Map(hours.map((h) => [String(h._id), h]));
+
+  const staff = perf.map((p) => {
+    const h = hoursBy.get(String(p._id));
+    if (h) hoursBy.delete(String(p._id));
+    return {
+      name: p.name,
+      sales: p.sales,
+      voids: p.voids,
+      revenue: money(p.revenue),
+      discounts: money(p.discounts),
+      avgSale: p.sales > 0 ? money(p.revenue / p.sales) : 0,
+      hours: h ? money(h.hours) : 0,
+      shifts: h ? h.shifts : 0,
+    };
+  });
+  for (const h of hoursBy.values()) {
+    staff.push({ name: h.name, sales: 0, voids: 0, revenue: 0, discounts: 0, avgSale: 0, hours: money(h.hours), shifts: h.shifts });
+  }
+
+  return { days: 30, staff };
 }
 
 export async function rebuildDailyMetrics({ accountId, businessId, from, to }) {

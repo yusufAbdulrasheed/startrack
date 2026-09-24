@@ -28,11 +28,15 @@ function warnOnce() {
  * One chat completion. `system` sets the ground rules (e.g. "use only the
  * numbers given, never invent figures"), `messages` is the rest of the
  * conversation, `json:true` asks Groq to return a parseable JSON object
- * (used by the restock-suggestion generator). Returns `{ text, data? }` —
+ * (used by the restock-suggestion generator). `tools` (OpenAI-style
+ * function-calling schemas) lets the model propose calling one instead of
+ * answering in text — see server/modules/ai/aiActions.service.js, the only
+ * caller that ever passes this. Returns `{ text, data?, toolCalls? }` —
  * `data` is the parsed object when `json` was requested and parsing
- * succeeded. Never throws; callers check `.ok`.
+ * succeeded; `toolCalls` is the model's chosen tool invocations, if any.
+ * Never throws; callers check `.ok`.
  */
-export async function chat({ system, messages = [], json = false, temperature = 0.3 }) {
+export async function chat({ system, messages = [], json = false, tools = undefined, temperature = 0.3 }) {
   if (!config.groq.apiKey) {
     warnOnce();
     return { ok: false, reason: "not_configured" };
@@ -46,6 +50,7 @@ export async function chat({ system, messages = [], json = false, temperature = 
         temperature,
         messages: [...(system ? [{ role: "system", content: system }] : []), ...messages],
         ...(json ? { response_format: { type: "json_object" } } : {}),
+        ...(tools ? { tools, tool_choice: "auto" } : {}),
       }),
     });
     const body = await res.json().catch(() => ({}));
@@ -53,7 +58,10 @@ export async function chat({ system, messages = [], json = false, temperature = 
       console.error("✦ AI request failed:", body?.error?.message || res.statusText);
       return { ok: false, reason: body?.error?.message || "request_failed" };
     }
-    const text = body?.choices?.[0]?.message?.content || "";
+    const message = body?.choices?.[0]?.message || {};
+    const text = message.content || "";
+    const toolCalls = message.tool_calls?.length ? message.tool_calls : undefined;
+    if (toolCalls) return { ok: true, text, toolCalls };
     if (!json) return { ok: true, text };
     try {
       return { ok: true, text, data: JSON.parse(text) };

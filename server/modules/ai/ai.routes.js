@@ -3,6 +3,8 @@ import { z } from "zod";
 import { aiEnabled } from "#core/ai.js";
 import { generateDigest, answerQuestion, generateRestockSuggestions } from "#modules/ai/ai.service.js";
 import { RestockSuggestion } from "#modules/ai/restockSuggestion.model.js";
+import { AiAction } from "#modules/ai/aiAction.model.js";
+import { ACTION_PERM, executeAction, describeAction } from "#modules/ai/aiActions.service.js";
 import { Product } from "#modules/products/product.model.js";
 import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
 import { applyMovement } from "#modules/inventory/inventory.service.js";
@@ -111,4 +113,84 @@ aiRouter.post("/restock-suggestions/:id/dismiss", requirePerm("stock"), async (r
     await suggestion.save();
   }
   res.json({ suggestion: shapeSuggestion(suggestion) });
+});
+
+// ── AI Actions — proposals from "Ask AI" (server/modules/ai/aiActions.service.js) ──
+// Nothing here ever writes real data except the /approve route below, and
+// only after it re-checks the SAME permission the equivalent manual action
+// would require — proposing something is never a permission bypass.
+
+function shapeActionRow(a) {
+  return {
+    id: a._id, type: a.type, payload: a.payload, description: describeAction(a.type, a.payload),
+    reasoning: a.reasoning, question: a.question, status: a.status,
+    proposedByName: a.proposedByName, decidedByName: a.decidedByName, decidedAt: a.decidedAt,
+    resultRef: a.resultRef, error: a.error, createdAt: a.createdAt,
+  };
+}
+
+// GET /api/ai/actions?status=pending — anyone who can chat with the AI can
+// see what it's proposed; approving a specific one still needs that
+// action's own domain permission (checked below).
+aiRouter.get("/actions", requirePerm("dashboard_ops"), async (req, res) => {
+  const status = ["pending", "approved", "rejected"].includes(req.query.status) ? req.query.status : "pending";
+  const actions = await AiAction.find({ businessId: req.ctx.businessId, status }).sort({ createdAt: -1 }).limit(50);
+  res.json({ actions: actions.map(shapeActionRow) });
+});
+
+// POST /api/ai/actions/:id/approve
+aiRouter.post("/actions/:id/approve", requirePerm("dashboard_ops"), requireBranch, async (req, res) => {
+  try {
+    const action = await AiAction.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+    if (!action) throw notFound("That proposal no longer exists.");
+    if (action.status !== "pending") throw conflict("This was already decided.", "already_decided");
+
+    const requiredPerm = ACTION_PERM[action.type];
+    if (!req.ctx.perms.includes("*") && !req.ctx.perms.includes(requiredPerm)) {
+      throw new HttpError(403, "forbidden", "You don't have permission to approve this kind of action.");
+    }
+    // Highest-risk category — confirmed by the user's own design decision:
+    // staff/permission changes always require the owner specifically, no
+    // exceptions, regardless of who else holds the staff_mgmt permission.
+    if (action.type === "create_staff" && !req.ctx.perms.includes("*")) {
+      throw new HttpError(403, "forbidden", "Only the owner can approve creating a staff account.");
+    }
+
+    let resultRef;
+    try {
+      resultRef = await executeAction(req.ctx, action);
+    } catch (err) {
+      action.error = err instanceof HttpError ? err.message : "Couldn't complete this action.";
+      await action.save();
+      throw err instanceof HttpError ? err : new HttpError(500, "server", "Couldn't complete this action.");
+    }
+
+    action.status = "approved";
+    action.decidedById = req.ctx.userId;
+    action.decidedByName = req.ctx.actorName;
+    action.decidedAt = new Date();
+    action.resultRef = resultRef;
+    action.error = "";
+    await action.save();
+
+    audit(req.ctx, `ai.action.approve.${action.type}`, resultRef, undefined, { payload: action.payload });
+    res.json({ action: shapeActionRow(action) });
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
+    throw err;
+  }
+});
+
+// POST /api/ai/actions/:id/reject
+aiRouter.post("/actions/:id/reject", requirePerm("dashboard_ops"), async (req, res) => {
+  const action = await AiAction.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!action) return res.status(404).json({ error: "not_found", message: "That proposal no longer exists." });
+  if (action.status === "pending") {
+    action.status = "rejected";
+    action.decidedById = req.ctx.userId;
+    action.decidedByName = req.ctx.actorName;
+    action.decidedAt = new Date();
+    await action.save();
+  }
+  res.json({ action: shapeActionRow(action) });
 });

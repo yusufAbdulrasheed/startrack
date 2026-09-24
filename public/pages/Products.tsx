@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Bot, Sparkles, Check, X as XIcon } from "lucide-react";
+import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Bot, Sparkles, Check, X as XIcon, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -30,6 +30,7 @@ type Product = {
   tracksSerials?: boolean;
   warrantyMonths?: number;
   unit?: string; purchaseUnit?: string; unitsPerPurchase?: number;
+  imageUrl?: string;
 };
 
 const PER_LABELS: Record<BomLine["per"], string> = {
@@ -169,8 +170,15 @@ export function Products() {
                   return (
                     <TR key={p.id} className="group">
                       <TD>
-                        <div className="text-[13px] font-semibold text-t1">{p.name}</div>
-                        {(p.barcode || p.sku) && <div className="text-[11px] font-mono text-t4">{p.barcode || p.sku}</div>}
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 shrink-0 rounded-lg bg-primary-soft text-primary flex items-center justify-center overflow-hidden">
+                            {p.imageUrl ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" /> : <Package className="w-4 h-4" />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-t1">{p.name}</div>
+                            {(p.barcode || p.sku) && <div className="text-[11px] font-mono text-t4">{p.barcode || p.sku}</div>}
+                          </div>
+                        </div>
                       </TD>
                       <TD><Badge tone="neutral">{p.category}</Badge></TD>
                       <TD className="font-mono font-bold tabular-nums">{fmtMoney(p.price, currency)}</TD>
@@ -773,9 +781,27 @@ function ProductModal({
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState(p?.imageUrl || "");
+  const [removeImage, setRemoveImage] = useState(false);
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const setBomLine = (i: number, patch: Partial<BomLine>) =>
     setBom((b) => b.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImageFile(file);
+    setRemoveImage(false);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
+  function onRemoveImage() {
+    setImageFile(null);
+    setImagePreview("");
+    setRemoveImage(true);
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -817,8 +843,28 @@ function ProductModal({
         ...(isNew && !mto ? { openingStock: Number(form.openingStock) || 0 } : {}),
         ...(serialsAllowed && !mto ? { tracksSerials, warrantyMonths: Number(form.warrantyMonths) || 0 } : {}),
       };
-      if (isNew) await api("/products", { method: "POST", body: JSON.stringify(body) });
-      else await api(`/products/${p!.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      const res = isNew
+        ? await api<{ product: { id: string } }>("/products", { method: "POST", body: JSON.stringify(body) })
+        : await api<{ product: { id: string } }>(`/products/${p!.id}`, { method: "PATCH", body: JSON.stringify(body) });
+      const savedId = res.product.id;
+
+      // The product itself is already saved at this point — a photo
+      // hiccup shouldn't block that or trap the form in a re-submit that
+      // would hit "name already taken" on the product that just saved. It
+      // still has to be SEEN, though — a silently-dropped photo (e.g. no
+      // Cloudinary configured on the server) previously looked identical
+      // to a successful upload.
+      if (imageFile) {
+        try {
+          const fd = new FormData();
+          fd.append("image", imageFile);
+          await api(`/products/${savedId}/image`, { method: "POST", body: fd });
+        } catch (imgErr: any) {
+          alert(`"${form.name}" was saved, but the photo didn't upload: ${imgErr.message}`);
+        }
+      } else if (removeImage && p?.imageUrl) {
+        try { await api(`/products/${savedId}/image`, { method: "DELETE" }); } catch { /* non-fatal */ }
+      }
       onSaved();
     } catch (err: any) {
       setError(err.message);
@@ -885,6 +931,26 @@ function ProductModal({
           </button>
         )}
 
+        <div className="flex items-center gap-3">
+          <label className={cn(
+            "relative w-16 h-16 shrink-0 rounded-ctl border border-dashed border-line-2 flex items-center justify-center overflow-hidden cursor-pointer hover:border-brand-400 transition-colors",
+            imagePreview ? "border-solid" : "bg-surface-2"
+          )}>
+            {imagePreview ? (
+              <img src={imagePreview} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <ImageIcon className="w-5 h-5 text-t4" />
+            )}
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={onPickImage} />
+          </label>
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-semibold text-t2">Product photo</div>
+            <div className="text-[11px] text-t4 mb-1.5">Shown on the POS grid instead of a category icon. JPEG/PNG/WEBP, up to 5MB.</div>
+            {imagePreview && (
+              <button type="button" onClick={onRemoveImage} className="text-[11.5px] font-semibold text-danger hover:underline">Remove photo</button>
+            )}
+          </div>
+        </div>
         <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={mto ? "e.g. Day & Night Window Blind" : "e.g. Golden Penny Semovita 2kg"} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category"><Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder={mto ? "Blinds" : "Grains"} /></Field>
