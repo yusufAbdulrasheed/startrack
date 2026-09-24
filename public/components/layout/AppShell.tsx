@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Sparkles } from "lucide-react";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { VerifyBanner } from "./VerifyBanner";
 import { useSession } from "@/lib/session";
 
 // The conversion hook: always visible while exploring the sandbox.
@@ -37,6 +38,7 @@ export function AppShell() {
   return (
     <div className="h-full flex flex-col bg-canvas">
     <DemoBanner />
+    <VerifyBanner />
     <div className="flex-1 flex min-h-0">
       {/* Mobile backdrop */}
       {menuOpen && (

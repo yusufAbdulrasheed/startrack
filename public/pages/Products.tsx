@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode } from "lucide-react";
+import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Bot, Sparkles, Check, X as XIcon } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -120,6 +120,8 @@ export function Products() {
           <StatCard index={3} label="Out of stock" value={String(stockStats.out)} icon={PackageX} />
         </div>
       )}
+
+      {can("stock") && <RestockSuggestionsPanel />}
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
@@ -242,6 +244,115 @@ export function Products() {
         term={term}
       />
     </div>
+  );
+}
+
+// ── AI restock suggestions ───────────────────────────────────────────
+// The only write this ever makes to real data happens on explicit Approve —
+// generating suggestions writes nothing but the suggestions themselves.
+
+type Suggestion = {
+  id: string; productId: string; productName: string;
+  currentStock: number; reorderLevel: number; suggestedQty: number; reasoning: string;
+};
+
+function RestockSuggestionsPanel() {
+  const { activeBranch } = useSession();
+  const { data, loading, reload } = useApi<{ enabled: boolean; suggestions: Suggestion[] }>("/ai/restock-suggestions", [activeBranch?.id]);
+  const [generating, setGenerating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  async function generate() {
+    setGenerating(true); setError("");
+    try {
+      const r = await api<{ enabled: boolean; ok?: boolean; reason?: string }>("/ai/restock-suggestions/generate", { method: "POST" });
+      if (r.enabled && !r.ok) setError("Couldn't generate suggestions right now — try again.");
+      reload();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function approve(id: string, action: "raise_reorder_level" | "log_stock_in") {
+    setBusyId(id); setError("");
+    try {
+      await api(`/ai/restock-suggestions/${id}/approve`, { method: "POST", body: JSON.stringify({ action }) });
+      reload();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function dismiss(id: string) {
+    setBusyId(id);
+    try {
+      await api(`/ai/restock-suggestions/${id}/dismiss`, { method: "POST" });
+      reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // AI not configured on this server — stay out of the way on an already-busy page.
+  if (data && !data.enabled) return null;
+
+  const suggestions = data?.suggestions || [];
+
+  return (
+    <Card className="overflow-hidden mb-6">
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
+        <Bot className="w-4 h-4 text-primary" />
+        <div className="text-[14px] font-bold text-t1">AI Restock Suggestions</div>
+        <Button variant="secondary" size="sm" className="ml-auto" onClick={generate} disabled={generating || loading}>
+          <Sparkles className="w-3.5 h-3.5" /> {generating ? "Thinking…" : "Generate"}
+        </Button>
+      </div>
+      {error && <div className="px-5 pt-3"><ErrorBanner message={error} /></div>}
+      {!loading && suggestions.length === 0 ? (
+        <div className="px-5 py-6 text-center text-[12px] text-t4">
+          No suggestions yet — click Generate to review low-stock items against recent sales velocity.
+        </div>
+      ) : (
+        <div className="divide-y divide-line">
+          {suggestions.map((s) => (
+            <div key={s.id} className="flex items-center gap-3 px-5 py-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold text-t1 truncate">{s.productName}</div>
+                <div className="text-[11px] text-t3 mt-0.5">
+                  {s.currentStock} left · reorder at {s.reorderLevel} · suggests <span className="font-mono font-semibold text-t2">+{s.suggestedQty}</span>
+                </div>
+                {s.reasoning && <div className="text-[11px] text-t4 mt-0.5 italic">{s.reasoning}</div>}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={() => approve(s.id, "log_stock_in")}
+                  disabled={busyId === s.id}
+                  className="h-8 px-3 rounded-ctl bg-primary text-white text-[12px] font-semibold hover:brightness-110 disabled:opacity-60 flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" /> Add {s.suggestedQty} to stock
+                </button>
+                <button
+                  onClick={() => approve(s.id, "raise_reorder_level")}
+                  disabled={busyId === s.id}
+                  className="h-8 px-2.5 rounded-ctl border border-line-2 text-[11px] font-semibold text-t3 hover:text-primary hover:border-brand-400 disabled:opacity-60"
+                  title="Just raise the reorder level, don't add stock"
+                >
+                  Reorder level only
+                </button>
+                <button onClick={() => dismiss(s.id)} disabled={busyId === s.id} className="w-8 h-8 rounded-ctl text-t4 hover:text-danger hover:bg-danger-soft flex items-center justify-center disabled:opacity-60">
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

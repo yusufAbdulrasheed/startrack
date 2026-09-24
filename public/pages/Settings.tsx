@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Save, Plus, MapPin, KeyRound, RefreshCw, BellRing, X, Store, Blocks, Wrench,
-  Check, Copy, Mail, MailWarning, ShieldCheck, Users,
+  Check, Copy, Mail, MailWarning, ShieldCheck, Users, QrCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -19,25 +19,35 @@ type AlertPrefs = {
   lowStock: boolean; outOfStock: boolean; expiry: boolean; pendingReturns: boolean;
   expiryDays: number[]; email: boolean;
 };
+type LoyaltyRule = {
+  mode: "off" | "visits" | "spend";
+  threshold: number;
+  windowDays: number;
+  discountType: "percent" | "flat";
+  discountValue: number;
+};
 type SettingsData = {
   business: {
     id: string; name: string; typeKey: string; typeLabel: string; code: string;
     settings: {
       currency: string; vatEnabled: boolean; vatRate: number; receiptFooter: string;
-      alertEmails: string[]; alerts: AlertPrefs; modules: string[];
+      alertEmails: string[]; alerts: AlertPrefs; modules: string[]; loyaltyRule: LoyaltyRule;
+      ai: { digestEnabled: boolean };
     };
     emailConfigured: boolean;
+    aiConfigured: boolean;
   };
   branches: { id: string; name: string; address: string }[];
   availableModules: { key: string; label: string; hint: string }[];
 };
 
-type SectionKey = "business" | "alerts" | "modules" | "permissions" | "branches" | "advanced";
+type SectionKey = "business" | "alerts" | "modules" | "loyaltyCard" | "permissions" | "branches" | "advanced";
 
 const SECTIONS: { key: SectionKey; label: string; icon: any; blurb: string; ownerOnly?: boolean }[] = [
   { key: "business", label: "Business", icon: Store, blurb: "Name, currency, VAT and what prints on receipts" },
   { key: "alerts", label: "Alerts", icon: BellRing, blurb: "What the shop tells you about, and who else hears it" },
   { key: "modules", label: "Features", icon: Blocks, blurb: "Switch off anything this business doesn't use" },
+  { key: "loyaltyCard", label: "Loyalty Cards", icon: QrCode, blurb: "Who qualifies for a card, and the discount it carries" },
   { key: "permissions", label: "Permissions", icon: ShieldCheck, blurb: "Roles, permission overrides and PINs" },
   { key: "branches", label: "Branches", icon: MapPin, blurb: "Where this business trades" },
   { key: "advanced", label: "Advanced", icon: Wrench, blurb: "Tools for when something looks wrong", ownerOnly: true },
@@ -99,11 +109,16 @@ export function Settings() {
               emails={data.business.settings.alertEmails}
               prefs={data.business.settings.alerts}
               emailConfigured={data.business.emailConfigured}
+              aiDigestEnabled={data.business.settings.ai.digestEnabled}
+              aiConfigured={data.business.aiConfigured}
               onSaved={reload}
             />
           )}
           {current.key === "modules" && (
             <ModulesSection available={data.availableModules} enabled={data.business.settings.modules} />
+          )}
+          {current.key === "loyaltyCard" && (
+            <LoyaltyCardSection rule={data.business.settings.loyaltyRule} currency={data.business.settings.currency} onSaved={reload} />
           )}
           {current.key === "permissions" && <PermissionsSection />}
           {current.key === "branches" && <BranchesSection branches={data.branches} canAdd={can("*")} onSaved={reload} />}
@@ -235,19 +250,20 @@ function BusinessSection({ data, onSaved }: { data: SettingsData; onSaved: () =>
 
 // ── Alerts ───────────────────────────────────────────────────────────
 
-function AlertsSection({ emails, prefs, emailConfigured, onSaved }: {
-  emails: string[]; prefs: AlertPrefs; emailConfigured: boolean; onSaved: () => void;
+function AlertsSection({ emails, prefs, emailConfigured, aiDigestEnabled, aiConfigured, onSaved }: {
+  emails: string[]; prefs: AlertPrefs; emailConfigured: boolean; aiDigestEnabled: boolean; aiConfigured: boolean; onSaved: () => void;
 }) {
   const [list, setList] = useState<string[]>(emails);
   const [draft, setDraft] = useState("");
   const [p, setP] = useState<AlertPrefs>(prefs);
+  const [aiDigest, setAiDigest] = useState(aiDigestEnabled);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
 
-  const dirty = JSON.stringify(list) !== JSON.stringify(emails) || JSON.stringify(p) !== JSON.stringify(prefs);
+  const dirty = JSON.stringify(list) !== JSON.stringify(emails) || JSON.stringify(p) !== JSON.stringify(prefs) || aiDigest !== aiDigestEnabled;
 
   function addEmail() {
     const value = draft.trim().toLowerCase();
@@ -263,7 +279,7 @@ function AlertsSection({ emails, prefs, emailConfigured, onSaved }: {
   async function save() {
     setBusy(true); setError(""); setNote(""); setSaved(false);
     try {
-      await api("/settings", { method: "PATCH", body: JSON.stringify({ alertEmails: list, alerts: p }) });
+      await api("/settings", { method: "PATCH", body: JSON.stringify({ alertEmails: list, alerts: p, ai: { digestEnabled: aiDigest } }) });
       setSaved(true);
       onSaved();
       setTimeout(() => setSaved(false), 2500);
@@ -404,6 +420,27 @@ function AlertsSection({ emails, prefs, emailConfigured, onSaved }: {
         )}
       </Card>
 
+      <Card className="p-5">
+        <button
+          type="button"
+          onClick={() => setAiDigest((v) => !v)}
+          className="w-full flex items-center gap-3 text-left"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-t1">Add an AI summary to the digest</div>
+            <div className="text-[12px] text-t3 mt-0.5">A short written summary of trends and risks, added to the same email above — never a second one.</div>
+          </div>
+          <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", aiDigest ? "bg-primary" : "bg-surface-3 border border-line-2")}>
+            <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", aiDigest ? "left-[22px]" : "left-0.5")} />
+          </span>
+        </button>
+        {!aiConfigured && (
+          <div className="mt-3 px-3 py-2.5 rounded-ctl bg-warning-soft text-warning text-[11px] font-semibold">
+            This server has no AI provider configured, so this stays off until it does.
+          </div>
+        )}
+      </Card>
+
       <SaveBar dirty={dirty} busy={busy} saved={saved} onSave={save} label="Save alert settings" />
 
       <div className="flex items-center gap-3 pt-1">
@@ -474,6 +511,106 @@ function ModulesSection({ available, enabled }: { available: { key: string; labe
           <span className="text-[12px] text-t3">The app reloads so the menu updates.</span>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Loyalty Cards ────────────────────────────────────────────────────
+
+const MODE_LABEL: Record<LoyaltyRule["mode"], string> = { off: "Off", visits: "Visit count", spend: "Total spend" };
+
+function LoyaltyCardSection({ rule, currency, onSaved }: { rule: LoyaltyRule; currency: string; onSaved: () => void }) {
+  const [form, setForm] = useState<LoyaltyRule>(rule);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const dirty = JSON.stringify(form) !== JSON.stringify(rule);
+
+  async function save() {
+    setBusy(true); setError(""); setSaved(false);
+    try {
+      await api("/settings", { method: "PATCH", body: JSON.stringify({ loyaltyRule: form }) });
+      setSaved(true);
+      onSaved();
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ErrorBanner message={error} />
+      <Card className="p-5">
+        <div className="text-[13px] font-bold text-t1 mb-1">Who qualifies</div>
+        <div className="text-[12px] text-t3 mb-3">
+          A customer who crosses this line gets a QR loyalty card — emailed or shared by WhatsApp from their profile,
+          scanned at the till on every visit after.
+        </div>
+        <div className="flex gap-1.5 flex-wrap mb-3">
+          {(["off", "visits", "spend"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, mode: m }))}
+              className={cn(
+                "h-8 px-3.5 rounded-lg border text-[12px] font-semibold transition-colors",
+                form.mode === m ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1"
+              )}
+            >
+              {MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+
+        {form.mode !== "off" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label={form.mode === "visits" ? "Visits needed" : `Spend needed (${currency})`}>
+              <Input type="number" min="1" value={form.threshold} onChange={(e) => setForm((f) => ({ ...f, threshold: Number(e.target.value) || 1 }))} />
+            </Field>
+            <Field label="Within" hint="0 = lifetime total, never resets">
+              <div className="flex items-center gap-2">
+                <Input type="number" min="0" value={form.windowDays} onChange={(e) => setForm((f) => ({ ...f, windowDays: Math.max(0, Number(e.target.value) || 0) }))} />
+                <span className="text-[12px] text-t3 whitespace-nowrap">days{form.windowDays === 0 ? " (lifetime)" : ""}</span>
+              </div>
+            </Field>
+          </div>
+        )}
+      </Card>
+
+      {form.mode !== "off" && (
+        <Card className="p-5">
+          <div className="text-[13px] font-bold text-t1 mb-1">The reward</div>
+          <div className="text-[12px] text-t3 mb-3">Applied at checkout when the cashier scans the card.</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Discount type">
+              <div className="flex gap-1.5">
+                {(["percent", "flat"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, discountType: t }))}
+                    className={cn(
+                      "h-9 px-3.5 rounded-lg border text-[12px] font-semibold transition-colors flex-1",
+                      form.discountType === t ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1"
+                    )}
+                  >
+                    {t === "percent" ? "% off" : `${currency} off`}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label={form.discountType === "percent" ? "Percent off" : `Amount off (${currency})`}>
+              <Input type="number" min="0" step={form.discountType === "percent" ? "1" : "0.01"} value={form.discountValue}
+                onChange={(e) => setForm((f) => ({ ...f, discountValue: Math.max(0, Number(e.target.value) || 0) }))} />
+            </Field>
+          </div>
+        </Card>
+      )}
+
+      <SaveBar dirty={dirty} busy={busy} saved={saved} onSave={save} label="Save loyalty settings" />
     </div>
   );
 }

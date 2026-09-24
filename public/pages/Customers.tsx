@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Users, Plus, Search, Phone, ChevronRight, Coins, Truck, HandCoins } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Users, Plus, Search, Phone, ChevronRight, Coins, Truck, HandCoins, QrCode, Copy, Check, MessageCircle, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -11,6 +11,8 @@ import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
 import { fmtDate, fmtMoney, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { qrDataUrl } from "@/lib/qrcode";
+import { toIntlPhone } from "@/lib/phone";
 
 type Customer = {
   id: string; name: string; phone: string; whatsapp: string; notes: string;
@@ -26,7 +28,7 @@ type LoyaltyStatus = { sachetBagQty: number; tokens: number; tokensRedeemed: num
 type SupplySchedule = { interval: "none" | "daily" | "weekly" | "biweekly" | "monthly"; nextDueAt: string | null };
 
 export function Customers() {
-  const { currency, hasCapability } = useSession();
+  const { currency, hasCapability, hasModule } = useSession();
   const creditOn = hasCapability("credit");
   const [q, setQ] = useState("");
   const [debtorsOnly, setDebtorsOnly] = useState(false);
@@ -125,6 +127,7 @@ export function Customers() {
         customer={selected}
         currency={currency}
         showLoyalty={hasCapability("loyalty")}
+        showLoyaltyCard={hasModule("loyaltyCard")}
         showCredit={creditOn}
         onClose={() => setSelected(null)}
         onChanged={reload}
@@ -165,8 +168,8 @@ function AddCustomer({ open, onClose, onSaved }: { open: boolean; onClose: () =>
   );
 }
 
-function CustomerDetail({ customer, currency, showLoyalty, showCredit, onClose, onChanged }: {
-  customer: Customer | null; currency: string; showLoyalty: boolean; showCredit: boolean; onClose: () => void; onChanged: () => void;
+function CustomerDetail({ customer, currency, showLoyalty, showLoyaltyCard, showCredit, onClose, onChanged }: {
+  customer: Customer | null; currency: string; showLoyalty: boolean; showLoyaltyCard: boolean; showCredit: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const { data, loading } = useApi<{ customer: Customer; sales: CustomerSale[] }>(
     customer ? `/customers/${customer.id}` : null,
@@ -191,6 +194,7 @@ function CustomerDetail({ customer, currency, showLoyalty, showCredit, onClose, 
         ))}
       </div>
       {c.notes && <div className="text-[12px] text-t2 px-3 py-2 rounded-ctl bg-surface-2 border border-line mb-4">{c.notes}</div>}
+      {showLoyaltyCard && <LoyaltyCardPanel customerId={customer.id} customerPhone={c.phone || c.whatsapp} />}
       {showLoyalty && <LoyaltySection customerId={customer.id} onChanged={onChanged} />}
       {showCredit && <CreditSection customerId={customer.id} currency={currency} onChanged={onChanged} />}
       <div className="text-[12px] font-bold uppercase tracking-wide text-t3 mb-2">Purchase history</div>
@@ -216,6 +220,104 @@ function CustomerDetail({ customer, currency, showLoyalty, showCredit, onClose, 
         </div>
       )}
     </Modal>
+  );
+}
+
+// ── Loyalty QR card ──────────────────────────────────────────────────
+// Cross-vertical (any business with the loyaltyCard module on) — distinct
+// from LoyaltySection below, which is water's sachet/free-pack mechanic.
+
+type LoyaltyCard = { id: string; code: string; status: string; issuedAt: string; issuedVia: string; lastScannedAt: string | null; scanCount: number; url: string };
+
+function LoyaltyCardPanel({ customerId, customerPhone }: { customerId: string; customerPhone: string }) {
+  const { activeBusiness } = useSession();
+  const [card, setCard] = useState<LoyaltyCard | null | undefined>(undefined); // undefined = still loading
+  const [qr, setQr] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailNote, setEmailNote] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    api<{ card: LoyaltyCard | null }>(`/loyalty-cards/${customerId}`)
+      .then((r) => { if (live) setCard(r.card); })
+      .catch(() => { if (live) setCard(null); });
+    return () => { live = false; };
+  }, [customerId]);
+
+  useEffect(() => {
+    if (card) qrDataUrl(card.url).then(setQr);
+  }, [card?.url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function sendEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setEmailBusy(true); setEmailNote("");
+    try {
+      const r = await api<{ sent: boolean; reason?: string }>(`/loyalty-cards/${customerId}/email`, {
+        method: "POST", body: JSON.stringify({ to: emailTo.trim() }),
+      });
+      setEmailNote(r.sent ? "Sent!" : "Couldn't send — email isn't set up on this server.");
+      if (r.sent) { setEmailing(false); setEmailTo(""); }
+    } catch (err: any) {
+      setEmailNote(err.message);
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
+  if (card === undefined) return null; // avoid a flash of "no card yet" while loading
+  if (!card) {
+    return (
+      <div className="mb-4 px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-[12px] text-t3">
+        No loyalty card yet — issued automatically once this customer qualifies (see Settings → Loyalty Cards).
+      </div>
+    );
+  }
+
+  const waText = encodeURIComponent(`Here's your ${activeBusiness?.name || "loyalty"} card — show it at the till next time: ${card.url}`);
+  const waHref = `https://wa.me/${toIntlPhone(customerPhone)}?text=${waText}`;
+
+  return (
+    <div className="mb-4 rounded-ctl border border-line bg-surface-2 p-3.5">
+      <div className="flex items-center gap-2 mb-3">
+        <QrCode className="w-3.5 h-3.5 text-primary" />
+        <span className="text-[12px] font-bold text-t1">Loyalty card</span>
+        <span className="ml-auto text-[11px] text-t4">{card.scanCount} scan{card.scanCount === 1 ? "" : "s"}</span>
+      </div>
+      <div className="flex items-start gap-4 flex-wrap">
+        {qr && <img src={qr} width={100} height={100} alt="Loyalty QR code" className="rounded-lg border border-line shrink-0" />}
+        <div className="flex-1 min-w-[180px] space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => { navigator.clipboard?.writeText(card.url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+              className="h-8 px-3 rounded-ctl border border-line-2 bg-surface text-[12px] font-semibold text-t2 hover:text-primary hover:border-brand-400 flex items-center gap-1.5"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />} Copy link
+            </button>
+            {customerPhone && (
+              <a href={waHref} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-ctl border border-line-2 bg-surface text-[12px] font-semibold text-t2 hover:text-primary hover:border-brand-400 flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+              </a>
+            )}
+            <button
+              onClick={() => setEmailing((v) => !v)}
+              className="h-8 px-3 rounded-ctl border border-line-2 bg-surface text-[12px] font-semibold text-t2 hover:text-primary hover:border-brand-400 flex items-center gap-1.5"
+            >
+              <Mail className="w-3.5 h-3.5" /> Email
+            </button>
+          </div>
+          {emailing && (
+            <form onSubmit={sendEmail} className="flex items-center gap-2">
+              <Input type="email" required autoFocus placeholder="Customer's email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} className="!h-8 flex-1" />
+              <Button type="submit" className="!h-8" disabled={emailBusy}>{emailBusy ? "…" : "Send"}</Button>
+            </form>
+          )}
+          {emailNote && <div className="text-[11px] text-t3">{emailNote}</div>}
+        </div>
+      </div>
+    </div>
   );
 }
 

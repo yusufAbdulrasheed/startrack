@@ -10,6 +10,7 @@ import { InsufficientStockError } from "#modules/inventory/inventory.service.js"
 // same implementations (see server/modules/businesses/*/index.js for what
 // each business vertical composes from them).
 import { authRouter } from "#modules/auth/auth.routes.js";
+import { verifyRouter } from "#modules/auth/verify.routes.js";
 import { staffRouter } from "#modules/staff/staff.routes.js";
 import { productsRouter } from "#modules/products/products.routes.js";
 import { productionRouter } from "#modules/production/production.routes.js";
@@ -29,6 +30,8 @@ import { jobsRouter } from "#modules/jobs/jobs.routes.js";
 import { platformRouter } from "#modules/platform/platform.routes.js";
 import { tasksRouter } from "#modules/tasks/tasks.routes.js";
 import { announcementsRouter } from "#modules/announcements/announcements.routes.js";
+import { ticketsRouter } from "#modules/support/tickets.routes.js";
+import { aiRouter } from "#modules/ai/ai.routes.js";
 
 // Business-vertical modules (server/modules/businesses/*/) — genuinely
 // single-consumer logic that lives in its own directory. Blinds has none:
@@ -41,6 +44,12 @@ import { cohortsRouter } from "#modules/businesses/poultry/cohorts.routes.js";
 import { kitchenQueueRouter } from "#modules/businesses/restaurant/kitchenQueue.routes.js";
 import { loyaltyRouter } from "#modules/businesses/water/loyalty.routes.js";
 import { coldroomRouter } from "#modules/businesses/coldroom/coldroom.routes.js";
+import { gymRouter } from "#modules/businesses/gym/gym.routes.js";
+
+// Cross-vertical loyalty QR cards — usable by any business, not just water's
+// sachet-token mechanic above. See server/modules/loyalty/.
+import { loyaltyCardRouter } from "#modules/loyalty/loyaltyCard.routes.js";
+import { loyaltyCardPublicRouter } from "#modules/loyalty/loyaltyCardPublic.routes.js";
 
 /**
  * The whole API, and nothing else — no static-file serving, no app.listen(),
@@ -73,6 +82,9 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, service: "startrack-a
 
 // Public + session routes
 app.use("/api/auth", authRouter);
+// Identity-scoped, not business-scoped — knows WHO via the JWT, not which
+// business they're acting in, so it sits behind requireAuth alone.
+app.use("/api/verify", requireAuth, verifyRouter);
 
 // Business-data routes: auth → tenant context → module
 const tenant = [requireAuth, tenantContext];
@@ -94,6 +106,8 @@ app.use("/api/notifications", tenant, notificationsRouter);
 app.use("/api/jobs", tenant, jobsRouter);
 app.use("/api/tasks", tenant, tasksRouter);
 app.use("/api/announcements", tenant, announcementsRouter);
+app.use("/api/tickets", tenant, ticketsRouter);
+app.use("/api/ai", tenant, aiRouter);
 
 // Business-vertical routes (server/modules/businesses/*/) — same auth/tenant
 // gate as everything else above, just physically grouped so "every business
@@ -105,6 +119,11 @@ app.use("/api/cohorts", tenant, cohortsRouter);
 app.use("/api/kitchen-queue", tenant, kitchenQueueRouter);
 app.use("/api/loyalty", tenant, loyaltyRouter);
 app.use("/api/coldroom", tenant, coldroomRouter);
+app.use("/api/gym", tenant, gymRouter);
+app.use("/api/loyalty-cards", tenant, loyaltyCardRouter);
+
+// Public: a customer opening their card link isn't logged into anything.
+app.use("/api/public/loyalty-cards", loyaltyCardPublicRouter);
 
 // StarTrack's own staff, looking across every tenant. Deliberately NOT behind
 // `tenant` — it carries its own gate (see platform.routes.js).

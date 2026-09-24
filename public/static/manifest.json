@@ -1,0 +1,18 @@
+{
+  "name": "StarTrack — Business OS",
+  "short_name": "StarTrack",
+  "description": "One platform for every trade — POS, stock, staff and reporting.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f9ff",
+  "theme_color": "#00288e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

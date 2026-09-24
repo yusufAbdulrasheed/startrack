@@ -9,6 +9,10 @@ export const TOGGLEABLE_MODULES = [
   { key: "made_to_order", label: "Made-to-order items", hint: "Blinds, curtains, tailoring — items built from components you configure" },
   { key: "suppliers", label: "Suppliers", hint: "Track who you buy from and what they charge" },
   { key: "stock_count", label: "Stock counts", hint: "Periodic physical counts reconciled against the system" },
+  // Unlike the "loyalty" CAPABILITY below (water's sachet/free-pack
+  // mechanic), this is a plain POS discount reward any vertical can switch
+  // on — see server/modules/loyalty/.
+  { key: "loyaltyCard", label: "Loyalty cards", hint: "QR loyalty cards for regulars, with a scan-to-apply discount" },
 ];
 
 export const ALL_TOGGLEABLE = TOGGLEABLE_MODULES.map((m) => m.key);
@@ -52,10 +56,13 @@ const T = (products, pos, categories, modules, tagline, capabilities = []) => ({
 // Every module except the ones a trade genuinely never wants.
 const COMMON = ["returns", "transfers", "customers", "expenses", "attendance"];
 
-// Deliberately just these 6 — the trades this platform actually has real,
-// deeply-built logic for (see server/modules/businesses/). Re-adding a
-// trade later is a data edit (a new entry here); it does not need any of
-// the shared core (auth/staff/POS/inventory ledger) to change.
+// The trades this platform actually has real, deeply-built logic for (see
+// server/modules/businesses/). Adding a trade is a data edit — a new entry
+// here — plus, only when the trade needs a pattern nothing else already
+// covers, a new capability + its implementation; laundry and supermarket
+// below need neither (they reuse the generic Job Tickets engine and the
+// plain retail shape respectively), gym does (the "memberships" capability,
+// server/modules/businesses/gym/).
 export const BUSINESS_TYPES = {
   restaurant: {
     label: "Restaurant / Eatery",
@@ -139,6 +146,37 @@ export const BUSINESS_TYPES = {
     // A carton is never a fixed weight (see the coldChain capability) — the
     // three units this trade genuinely sells in, nothing else.
     allowedUnits: ["carton", "kg", "piece"],
+  },
+  laundry: {
+    label: "Laundry & Dry Cleaning",
+    ...T("Garments & Services", "Point of Sale",
+      ["Wash", "Dry Clean", "Iron", "Alterations", "Pickup & Delivery"],
+      [...COMMON],
+      "Drop it off dirty, collect it clean",
+      // Reuses the generic Job Tickets engine (server/modules/jobs/) exactly
+      // as blinds/electronics do today — a garment taken in, worked on,
+      // collected. No vertical-specific code needed for this trade at all.
+      ["jobs"]),
+    skuPrefix: "LAU",
+  },
+  supermarket: {
+    label: "Supermarket / Mini-Mart",
+    ...T("Products", "Point of Sale",
+      ["Groceries", "Beverages", "Household", "Personal Care", "Snacks", "Frozen"],
+      [...COMMON, "suppliers", "stock_count"],
+      "Everyday FMCG, priced and counted right"),
+    // Plain retail — same shape as water/poultry/coldroom, no structural
+    // capability beyond what every shop already has.
+    skuPrefix: "SUP",
+  },
+  gym: {
+    label: "Fitness Gym",
+    ...T("Plans & Sessions", "Front Desk",
+      ["Membership Plans", "Personal Training", "Merchandise", "Supplements"],
+      ["customers", "expenses", "attendance"],
+      "Members who tap in, not stock that runs out",
+      ["memberships"]),
+    skuPrefix: "GYM",
   },
 };
 

@@ -6,6 +6,7 @@ import { Business } from "#modules/business/business.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Product } from "#modules/products/product.model.js";
+import { Ticket } from "#modules/support/ticket.model.js";
 import { requireAuth } from "#core/middleware/requireAuth.js";
 import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { money } from "#core/money.js";
@@ -206,6 +207,35 @@ platformRouter.post("/accounts/:id/status", requireOverseer, async (req, res) =>
   });
 
   res.json({ account: { id: account._id, name: account.name, status: account.status } });
+});
+
+// GET /api/platform/tickets — business tickets escalated to StarTrack support.
+// Read-only for now: escalation just hands a StarTrack person visibility;
+// working the ticket still happens from inside that business's own queue.
+platformRouter.get("/tickets", async (req, res) => {
+  const filter = { scope: "platform" };
+  if (req.query.status) filter.status = String(req.query.status);
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const [tickets, total] = await Promise.all([
+    Ticket.find(filter).sort({ escalatedAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Ticket.countDocuments(filter),
+  ]);
+  const businesses = await Business.find({ _id: { $in: tickets.map((t) => t.businessId) } }).select("name").lean();
+  const bizById = new Map(businesses.map((b) => [String(b._id), b.name]));
+
+  res.json({
+    tickets: tickets.map((t) => ({
+      id: t._id, ticketNo: t.ticketNo, subject: t.subject, description: t.description,
+      category: t.category, priority: t.priority, status: t.status,
+      businessName: bizById.get(String(t.businessId)) || "—",
+      raisedBy: t.raisedBy, comments: t.comments, escalatedAt: t.escalatedAt, createdAt: t.createdAt,
+    })),
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    total,
+  });
 });
 
 // GET /api/platform/staff — who at StarTrack has platform access

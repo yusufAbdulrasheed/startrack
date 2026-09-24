@@ -12,12 +12,14 @@ import { typeTemplate } from "#shared/businessTypes.js";
 import { createDemoSandbox } from "#modules/auth/demoSeed.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
 import { withTransaction } from "#core/tx.js";
+import { requestVerification } from "#modules/auth/verify.routes.js";
 
 export const authRouter = Router();
 
 const registerSchema = z.object({
   name: z.string().min(2, "Enter your name"),
   email: z.string().email("Enter a valid email"),
+  phone: z.string().default(""),
   password: z.string().min(6, "Password must be at least 6 characters"),
   businessName: z.string().min(2, "Enter your business name"),
   businessType: z.string().default("restaurant"),
@@ -48,7 +50,7 @@ authRouter.post("/register", async (req, res) => {
   try {
     await withTransaction(async (session) => {
       const passwordHash = await hashPassword(d.password);
-      [created.user] = await User.create([{ name: d.name, email: d.email, passwordHash }], { session });
+      [created.user] = await User.create([{ name: d.name, email: d.email, phone: d.phone, passwordHash }], { session });
       [created.account] = await Account.create([{ name: d.businessName, ownerUserId: created.user._id }], { session });
       [created.business] = await Business.create(
         [{
@@ -93,6 +95,10 @@ authRouter.post("/register", async (req, res) => {
     console.error("register error:", err.message);
     return res.status(500).json({ error: "server", message: "Could not create your account. Please try again." });
   }
+
+  // Fire-and-forget: a code is already in the inbox by the time the UI shows
+  // the verify nag. Never blocks or fails the sign-up response.
+  requestVerification(created.user._id, "email");
 
   return res.status(201).json(sessionPayload(created.user, created.account, created.membership, {
     businesses: [created.business],
@@ -263,7 +269,9 @@ authRouter.get("/me", requireAuth, async (req, res) => {
 // Shapes the response the frontend needs. `withToken` false on /me (already has one).
 function sessionPayload(user, account, membership, { businesses, branches }, withToken = true) {
   const body = {
-    user: { id: user._id, name: user.name, email: user.email },
+    user: { id: user._id, name: user.name, email: user.email, phone: user.phone || "" },
+    emailVerified: !!user.emailVerified,
+    phoneVerified: !!user.phoneVerified,
     // Platform access is a property of the PERSON, not of any business they
     // belong to — see user.model.js.
     platformRole: user.platformRole || "none",

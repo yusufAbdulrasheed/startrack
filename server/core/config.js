@@ -41,6 +41,20 @@ export const config = {
     // in the Resend dashboard.
     from: process.env.MAIL_FROM || "StarTrack <onboarding@resend.dev>",
   },
+  // Outbound SMS — phone verification codes and (opt-in) gym renewal
+  // reminders go through Termii; see server/core/sms.js. Absent
+  // TERMII_API_KEY = SMS stays off, same graceful fallback as email above.
+  termii: {
+    apiKey: process.env.TERMII_API_KEY || "",
+    senderId: process.env.TERMII_SENDER_ID || "StarTrack",
+  },
+  // Free-tier Groq API serving an open-weight model — see server/core/ai.js.
+  // Absent GROQ_API_KEY = every AI feature reports itself unavailable rather
+  // than erroring.
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || "",
+    model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+  },
   // How often the background sweep looks for expiring stock and unattended
   // returns. Every 6 hours by default; 0 turns the sweep off entirely.
   alertSweepHours: process.env.ALERT_SWEEP_HOURS === undefined ? 6 : Number(process.env.ALERT_SWEEP_HOURS),

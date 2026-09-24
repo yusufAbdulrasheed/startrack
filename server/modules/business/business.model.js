@@ -47,6 +47,31 @@ const businessSchema = new mongoose.Schema(
         sachetBagsPerToken: { type: Number, default: 2, min: 1 },
         tokensPerFreePack: { type: Number, default: 5, min: 1 },
       },
+      // The "loyaltyCard" module's qualification rule + reward — separate
+      // from `loyalty` above (water's free-pack mechanic). windowDays 0 =
+      // lifetime totals, never reset.
+      loyaltyRule: {
+        mode: { type: String, enum: ["off", "visits", "spend"], default: "off" },
+        threshold: { type: Number, default: 5, min: 1 },
+        windowDays: { type: Number, default: 0, min: 0 },
+        discountType: { type: String, enum: ["percent", "flat"], default: "percent" },
+        discountValue: { type: Number, default: 5, min: 0 },
+      },
+      // Opt-in: off by default since it spends an AI request and adds
+      // content to an email that might otherwise not exist at all — see
+      // alerts.service.js's sendDigest, which only ever piggybacks this onto
+      // an email already going out, never sends a second one just for it.
+      ai: {
+        digestEnabled: { type: Boolean, default: false },
+      },
+      // Gym memberships only (capability: "memberships") — how far ahead of
+      // expiry to remind, and whether that reminder also SMS's the member
+      // directly (opt-in/off by default — a direct member-facing text is a
+      // bigger step than the owner-facing bell/digest every other alert uses).
+      gym: {
+        renewalReminderDays: { type: Number, default: 3, min: 0, max: 30 },
+        smsReminders: { type: Boolean, default: false },
+      },
     },
   },
   { timestamps: true }

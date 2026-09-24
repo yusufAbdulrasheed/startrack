@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bell, PackageX, PackageSearch, CalendarClock, CalendarX2, Undo2, ShieldCheck,
-  Check, CheckCheck, Loader2,
+  Check, CheckCheck, Loader2, LifeBuoy,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export type Notification = {
   id: string;
-  type: "stock_out" | "stock_low" | "expired" | "expiry_soon" | "return_pending" | "perm_changed";
+  type: "stock_out" | "stock_low" | "expired" | "expiry_soon" | "return_pending" | "perm_changed" | "ticket_update";
   severity: "info" | "warning" | "critical";
   title: string;
   body: string;
@@ -29,6 +29,7 @@ const ICONS = {
   expiry_soon: CalendarClock,
   return_pending: Undo2,
   perm_changed: ShieldCheck,
+  ticket_update: LifeBuoy,
 } as const;
 
 // Where each kind of alert wants you to go to actually deal with it. An alert
@@ -40,7 +41,14 @@ const DESTINATION: Record<Notification["type"], string> = {
   expiry_soon: "/app/products",
   return_pending: "/app/returns",
   perm_changed: "/app/activity",
+  ticket_update: "/app/tickets",
 };
+
+// A ticket update should open that exact ticket, not just the list.
+function destinationFor(n: Notification) {
+  if (n.type === "ticket_update" && n.target?.id) return `/app/tickets?open=${n.target.id}`;
+  return DESTINATION[n.type] || "/app/dashboard";
+}
 
 const TONE = {
   critical: { dot: "bg-danger", chip: "bg-danger-soft text-danger", ring: "ring-danger/20" },
@@ -199,7 +207,7 @@ export function NotificationBell() {
                       "group flex gap-3 px-4 py-3 border-b border-line last:border-0 hover:bg-surface-2 transition-colors cursor-pointer",
                       busy === n.id && "opacity-50"
                     )}
-                    onClick={() => { setOpen(false); navigate(DESTINATION[n.type] || "/app/dashboard"); }}
+                    onClick={() => { setOpen(false); navigate(destinationFor(n)); }}
                   >
                     <div className={cn("w-8 h-8 shrink-0 rounded-lg flex items-center justify-center", tone.chip)}>
                       <Icon className="w-4 h-4" />

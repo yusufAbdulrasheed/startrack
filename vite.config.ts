@@ -2,6 +2,7 @@ import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 // The web client lives in public/ and the API in server/ — the two halves of
 // one app. In production the client is built into dist/ and served by the API
@@ -24,7 +25,32 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
     },
     envDir: __dirname,
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      // injectManifest, not generateSW: the custom Background Sync handler
+      // in public/sw.js (flushing the offline sales outbox) needs a real
+      // event listener generateSW's declarative runtimeCaching config
+      // can't express. manifest:false — public/static/manifest.json is
+      // hand-authored and already copied verbatim by Vite's publicDir.
+      VitePWA({
+        strategies: "injectManifest",
+        srcDir: ".",
+        filename: "sw.js",
+        manifest: false,
+        injectRegister: "auto",
+        registerType: "autoUpdate",
+        injectManifest: {
+          // The app shell only — API responses are handled by sw.js's own
+          // runtime-caching routes, not precached.
+          globPatterns: ["**/*.{js,css,html,svg}"],
+        },
+        // SW support in `vite dev` has real quirks and isn't how a PWA is
+        // normally verified anyway — test this with a production build
+        // (`npm run build`, then serve dist/) instead.
+        devOptions: { enabled: false },
+      }),
+    ],
     server: {
       port: webPort,
       strictPort: true, // never silently move — the link stays stable

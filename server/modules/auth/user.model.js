@@ -5,8 +5,15 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, default: "", trim: true },
     passwordHash: { type: String, required: true },
     status: { type: String, enum: ["active", "suspended"], default: "active" },
+
+    // Soft flags, never a login/feature gate on their own — see
+    // verify.routes.js. A business simply nags or disables a channel-specific
+    // feature (e.g. gym SMS reminders) until the relevant flag is true.
+    emailVerified: { type: Boolean, default: false },
+    phoneVerified: { type: Boolean, default: false },
 
     /**
      * StarTrack-side role, entirely separate from what this person is inside

@@ -4,6 +4,7 @@ import { RequireAuth, useSession } from "@/lib/session";
 import { Landing } from "@/pages/Landing";
 import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
+import { LoyaltyCardView } from "@/pages/LoyaltyCardView";
 import { Dashboard } from "@/pages/Dashboard";
 import { StaffHome } from "@/pages/StaffHome";
 import { POS } from "@/pages/POS";
@@ -31,6 +32,9 @@ import { Attendance } from "@/pages/Attendance";
 import { Activity } from "@/pages/Activity";
 import { Settings } from "@/pages/Settings";
 import { Audit } from "@/pages/Audit";
+import { Tickets } from "@/pages/Tickets";
+import { AskAI } from "@/pages/AskAI";
+import { Members } from "@/pages/Members";
 
 // Owners/managers land on the dashboard; till-PIN staff land straight on the
 // POS (speed matters at the till); account-login staff without a dashboard
@@ -48,6 +52,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/loyalty/:code" element={<LoyaltyCardView />} />
       <Route
         path="/app"
         element={
@@ -66,6 +71,7 @@ export default function App() {
         <Route path="transfers" element={<Transfers />} />
         <Route path="returns" element={<Returns />} />
         <Route path="jobs" element={<Jobs />} />
+        <Route path="members" element={<Members />} />
         <Route path="serials" element={<Serials />} />
         <Route path="production" element={<Production />} />
         <Route path="vaccinations" element={<Vaccinations />} />
@@ -84,6 +90,8 @@ export default function App() {
         <Route path="activity" element={<Activity />} />
         <Route path="settings" element={<Settings />} />
         <Route path="audit" element={<Audit />} />
+        <Route path="tickets" element={<Tickets />} />
+        <Route path="ask-ai" element={<AskAI />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

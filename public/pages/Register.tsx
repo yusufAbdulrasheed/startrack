@@ -31,7 +31,7 @@ export function Register() {
 
   const [form, setForm] = useState({
     businessName: "", tradingName: "", businessType: "", taxId: "", employees: "",
-    name: "", email: "", password: "",
+    name: "", email: "", phone: "", password: "",
     branchName: "Main Branch", currency: "₦",
   });
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -55,6 +55,7 @@ export function Register() {
       await register({
         name: form.name.trim(),
         email: form.email.trim(),
+        phone: form.phone.trim(),
         password: form.password,
         businessName: form.businessName.trim(),
         businessType: form.businessType,
@@ -249,6 +250,9 @@ export function Register() {
                   </Field>
                   <Field label="Email">
                     <Input type="email" value={form.email} onChange={(e) => set({ email: e.target.value })} placeholder="you@example.com" />
+                  </Field>
+                  <Field label="Phone" hint="Optional — lets you verify by SMS later">
+                    <Input type="tel" value={form.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="080…" />
                   </Field>
                   <Field label="Password" hint="At least 6 characters">
                     <Input type="password" value={form.password} onChange={(e) => set({ password: e.target.value })} placeholder="••••••••" />

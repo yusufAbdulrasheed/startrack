@@ -77,4 +77,13 @@ export const keys = {
   expiryPrefix: (branchId, productId) => `expiry:${branchId}:${productId}:`,
   returnPending: (returnId) => `return:${returnId}`,
   permChanged: (userId, stamp) => `perm:${userId}:${stamp}`,
+  // A comment/assignment is discrete news, not a resuming condition — the
+  // stamp keeps every one its own dedupeKey instead of collapsing into one
+  // row that just gets refreshed, the same trick permChanged above uses.
+  ticketUpdate: (ticketId, stamp) => `ticket:${ticketId}:${stamp}`,
+  // Same per-instance-date shape as expiry() above: the key changes when
+  // the expiry date does (a renewal), so a stale reminder naturally stops
+  // matching and gets resolved rather than silently kept alive.
+  membershipExpiring: (subscriptionId, expiryISO) => `membership:${subscriptionId}:${expiryISO}`,
+  membershipExpiringPrefix: (subscriptionId) => `membership:${subscriptionId}:`,
 };

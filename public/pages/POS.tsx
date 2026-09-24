@@ -14,7 +14,11 @@ import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale } from "@/lib/outbox";
+import { onOutboxSynced } from "@/lib/outboxDb";
 import { fmtMoney, fmtDateTime } from "@/lib/format";
+import { toIntlPhone } from "@/lib/phone";
+import { QrScanModal } from "@/components/loyalty/QrScanModal";
+import { QrCode } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Product = {
@@ -54,7 +58,7 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const NOTES = [500, 1000, 2000, 5000];
 
 export function POS() {
-  const { activeBusiness, activeBranch, currency } = useSession();
+  const { activeBusiness, activeBranch, currency, hasModule } = useSession();
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   const products = data?.products || [];
   const bizId = activeBusiness?.id || "";
@@ -70,8 +74,10 @@ export function POS() {
   const [splits, setSplits] = useState<{ method: Method; amount: number }[]>([]);
   const [tendered, setTendered] = useState<number | "">("");
   const [discount, setDiscount] = useState(0);
-  const [customer, setCustomer] = useState<{ name: string; phone: string } | null>(null);
+  const [customer, setCustomer] = useState<{ id?: string; name: string; phone: string } | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [cardMsg, setCardMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
@@ -98,12 +104,20 @@ export function POS() {
   }
 
   // On entry and whenever the network returns, push queued sales through.
+  // The service worker can also sync a queued sale in the background (see
+  // outboxDb.ts) — when it does, it can only touch the IndexedDB mirror, so
+  // this tab's own localStorage-backed list needs telling separately.
   useEffect(() => {
     refreshQueue();
     syncOutbox();
     const onOnline = () => syncOutbox();
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    const offSynced = onOutboxSynced((clientSaleId, ok) => {
+      if (ok) outboxDiscard(bizId, branchId, clientSaleId);
+      refreshQueue();
+      if (ok) reload();
+    });
+    return () => { window.removeEventListener("online", onOnline); offSynced(); };
   }, [bizId, branchId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cats = useMemo(() => ["All", ...Array.from(new Set(products.map((p) => p.category))).sort()], [products]);
@@ -184,6 +198,27 @@ export function POS() {
     setCart((c) => c.map((l) => (l.uid === uid ? { ...l, serialNos } : l)));
 
   const subtotal = cart.reduce((s, l) => s + l.price * l.qty, 0);
+
+  // A scanned card just tells us who the customer is and what they're owed —
+  // it maps straight onto the existing flat-currency discount state, the
+  // same field the discount input below feeds. No sale-schema change needed.
+  async function onScanCode(code: string) {
+    setScanOpen(false);
+    setError("");
+    try {
+      const r = await api<{ customerId: string; customerName: string; discountType: "percent" | "flat"; discountValue: number }>(
+        "/loyalty-cards/scan",
+        { method: "POST", body: JSON.stringify({ code }) }
+      );
+      setCustomer({ id: r.customerId, name: r.customerName, phone: "" });
+      const amount = r.discountType === "percent" ? round2((subtotal * r.discountValue) / 100) : r.discountValue;
+      setDiscount(amount);
+      setCardMsg(`Loyalty card applied — ${r.discountType === "percent" ? `${r.discountValue}% off` : fmtMoney(r.discountValue, currency)} for ${r.customerName}.`);
+      setTimeout(() => setCardMsg(""), 5000);
+    } catch (err: any) {
+      setError(err.message || "That loyalty card couldn't be scanned.");
+    }
+  }
   const safeDiscount = Math.min(discount, subtotal);
   const vatRate = activeBusiness?.settings.vatEnabled ? activeBusiness.settings.vatRate : 0;
   const vat = Math.round((subtotal - safeDiscount) * vatRate) / 100;
@@ -248,7 +283,7 @@ export function POS() {
       discount: safeDiscount,
       payments: mergedPayments,
       ...(tenderedNum > 0 ? { tendered: tenderedNum } : {}),
-      ...(customer?.name ? { customer } : {}),
+      ...(customer?.id ? { customerId: customer.id } : customer?.name ? { customer } : {}),
       clientSaleId: crypto.randomUUID(),
     };
     try {
@@ -257,6 +292,7 @@ export function POS() {
       setCart([]);
       setDiscount(0);
       setCustomer(null);
+      setCardMsg("");
       resetPayment();
       setCartOpen(false);
       reload();
@@ -274,6 +310,7 @@ export function POS() {
         setCart([]);
         setDiscount(0);
         setCustomer(null);
+        setCardMsg("");
         resetPayment();
         setSavedOffline(true);
         setTimeout(() => setSavedOffline(false), 4000);
@@ -504,13 +541,21 @@ export function POS() {
               <UserPlus className="w-3.5 h-3.5 text-primary shrink-0" />
               <span className="font-semibold text-t1 truncate">{customer.name}</span>
               {customer.phone && <span className="text-t3">{customer.phone}</span>}
-              <button onClick={() => setCustomer(null)} className="ml-auto text-t4 hover:text-danger"><X className="w-3.5 h-3.5" /></button>
+              <button onClick={() => { setCustomer(null); setCardMsg(""); }} className="ml-auto text-t4 hover:text-danger"><X className="w-3.5 h-3.5" /></button>
             </div>
           ) : (
-            <button onClick={() => setCustomerOpen(true)} className="w-full flex items-center gap-2 px-3 h-9 rounded-ctl border border-dashed border-line-2 text-[12px] font-semibold text-t3 hover:text-primary hover:border-brand-400 transition-colors">
-              <UserPlus className="w-3.5 h-3.5" /> Attach customer (optional)
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCustomerOpen(true)} className="flex-1 flex items-center gap-2 px-3 h-9 rounded-ctl border border-dashed border-line-2 text-[12px] font-semibold text-t3 hover:text-primary hover:border-brand-400 transition-colors">
+                <UserPlus className="w-3.5 h-3.5" /> Attach customer (optional)
+              </button>
+              {hasModule("loyaltyCard") && (
+                <button onClick={() => setScanOpen(true)} title="Scan a loyalty card" className="shrink-0 w-9 h-9 rounded-ctl border border-dashed border-line-2 flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 transition-colors">
+                  <QrCode className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           )}
+          {cardMsg && <div className="px-3 py-2 rounded-ctl bg-success-soft text-success text-[11px] font-semibold">{cardMsg}</div>}
 
           {/* payment methods — one tap for the usual sale, split when needed */}
           <div className="space-y-2">
@@ -685,6 +730,7 @@ export function POS() {
 
       {/* customer modal */}
       <CustomerQuickAdd open={customerOpen} onClose={() => setCustomerOpen(false)} onPick={(c) => { setCustomer(c); setCustomerOpen(false); }} />
+      <QrScanModal open={scanOpen} onClose={() => setScanOpen(false)} onCode={onScanCode} />
 
       {/* receipt modal */}
       <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
@@ -844,9 +890,7 @@ function receiptText(r: Receipt) {
 }
 
 function whatsappUrl(r: Receipt) {
-  // Nigerian local numbers (0803…) become international (234803…).
-  let digits = (r.customerPhone || "").replace(/\D/g, "");
-  if (digits.startsWith("0") && digits.length === 11) digits = "234" + digits.slice(1);
+  const digits = toIntlPhone(r.customerPhone || "");
   const text = encodeURIComponent(receiptText(r));
   return digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
 }

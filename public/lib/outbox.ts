@@ -1,4 +1,5 @@
-import { api, ApiError } from "./api";
+import { api, ApiError, getToken } from "./api";
+import { idbPutSale, idbDeleteSale, registerOutboxSync } from "./outboxDb";
 
 /**
  * Offline sales outbox. When checkout can't reach the server, the sale is
@@ -31,10 +32,18 @@ function save(businessId: string, branchId: string, items: QueuedSale[]) {
 
 export function outboxEnqueue(businessId: string, branchId: string, sale: QueuedSale) {
   save(businessId, branchId, [...outboxList(businessId, branchId), sale]);
+  // Mirror into IndexedDB so a service worker can replay it even after this
+  // tab closes (localStorage isn't visible from there — see outboxDb.ts),
+  // then ask for a background sync. Both are best-effort: if either isn't
+  // supported (Safari/iOS, private browsing), the existing online-event
+  // flush below still covers the open-tab case exactly as before.
+  idbPutSale({ clientSaleId: sale.clientSaleId, businessId, branchId, body: sale.body, queuedAt: sale.queuedAt, token: getToken() });
+  registerOutboxSync();
 }
 
 export function outboxDiscard(businessId: string, branchId: string, clientSaleId: string) {
   save(businessId, branchId, outboxList(businessId, branchId).filter((s) => s.clientSaleId !== clientSaleId));
+  idbDeleteSale(clientSaleId);
 }
 
 /**

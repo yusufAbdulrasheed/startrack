@@ -16,6 +16,7 @@ import { withTransaction } from "#core/tx.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
 import { hasCapability } from "#shared/businessTypes.js";
+import { evaluateAndIssuePatronageCard } from "#modules/loyalty/loyaltyCard.service.js";
 
 export const salesRouter = Router();
 
@@ -86,6 +87,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
   const settings = req.ctx.business.settings;
+  let newLoyaltyCard = null; // set inside the transaction below, emailed after commit
 
   try {
     const out = await withTransaction(async (session) => {
@@ -357,6 +359,17 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
           if (sachetBagQty > 0) customer.sachetBagQty = (customer.sachetBagQty || 0) + sachetBagQty;
         }
         await customer.save({ session });
+
+        // Loyalty QR cards (any business — see settings.loyaltyRule). DB
+        // reads/writes only here, safe inside the transaction; the email
+        // goes out after commit, below. "Missing modules list" means
+        // everything is on, same convention as hasModule() client-side —
+        // but loyaltyRule.mode defaults to "off", so nothing actually
+        // fires until an owner explicitly configures a rule in Settings.
+        const modules = req.ctx.business.settings?.modules;
+        if (!modules || modules.includes("loyaltyCard")) {
+          newLoyaltyCard = await evaluateAndIssuePatronageCard(req.ctx, customer, req.ctx.business, session);
+        }
       }
 
       for (const serial of serialUpdates) {
@@ -405,6 +418,15 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
 
     
     afterStockChange(req.ctx, req.ctx.branchId, out.deductedIds);
+
+    // A customer here has a phone, never an email (CRM-lite — see
+    // Customer model), so there's nothing to auto-email. The card is ready
+    // the moment the cashier next opens this customer's profile, where they
+    // can share it by WhatsApp (the phone we do have) or type in an email
+    // on the spot — see loyaltyCard.routes.js's /email endpoint.
+    if (newLoyaltyCard) {
+      audit(req.ctx, "loyaltyCard.issue", { type: "loyaltyCard", id: newLoyaltyCard._id, label: out.customer?.name }, undefined, { issuedVia: "patronage" });
+    }
 
     res.status(201).json({
       sale: shapeSale(out.sale, canSeeCost(req.ctx)),

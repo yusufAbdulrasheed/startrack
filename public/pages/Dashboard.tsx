@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
   Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
-  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, type LucideIcon,
+  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, type LucideIcon, Bot,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -13,6 +13,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
 import { ProductTour, tourSeen, markTourSeen } from "@/components/tour/ProductTour";
+import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
@@ -203,6 +204,7 @@ export function Dashboard() {
         </div>
 
         <div className="space-y-4">
+          <AiInsightsCard />
           <AlertsPanel lowStock={m.lowStock} />
           <LiveFeed sales={m.recentSales} currency={currency} />
         </div>
@@ -335,6 +337,56 @@ function TopMovingProducts({ products, currency, onViewAll }: {
 
 // Severity is carried by the chip AND the left stripe, so the urgent rows
 // read before any of the words do.
+// On-demand, not auto-fired on load — an AI request costs something, so a
+// visit to the dashboard shouldn't spend one just by landing here.
+function AiInsightsCard() {
+  const [state, setState] = useState<"idle" | "loading" | "off" | "error" | "done">("idle");
+  const [narrative, setNarrative] = useState("");
+
+  async function generate() {
+    setState("loading");
+    try {
+      const r = await api<{ enabled: boolean; ok?: boolean; narrative?: string }>("/ai/digest");
+      if (!r.enabled) { setState("off"); return; }
+      if (!r.ok || !r.narrative) { setState("error"); return; }
+      setNarrative(r.narrative);
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
+        <Bot className="w-4 h-4 text-primary" />
+        <div className="text-[14px] font-bold text-t1">AI Insights</div>
+      </div>
+      <div className="px-5 py-4">
+        {state === "idle" && (
+          <button onClick={generate} className="w-full flex items-center justify-center gap-1.5 h-9 rounded-ctl border border-dashed border-line-2 text-[12px] font-semibold text-t3 hover:text-primary hover:border-brand-400 transition-colors">
+            <Sparkles className="w-3.5 h-3.5" /> Generate today's summary
+          </button>
+        )}
+        {state === "loading" && <div className="text-[12px] text-t4 text-center py-2">Thinking…</div>}
+        {state === "off" && <div className="text-[12px] text-t4 text-center py-2">AI isn't set up on this server yet.</div>}
+        {state === "error" && (
+          <div className="text-[12px] text-t4 text-center py-2">
+            Couldn't generate an insight right now.{" "}
+            <button onClick={generate} className="text-primary font-semibold hover:underline">Try again</button>
+          </div>
+        )}
+        {state === "done" && (
+          <>
+            <p className="text-[12.5px] text-t2 leading-relaxed whitespace-pre-line">{narrative}</p>
+            <button onClick={generate} className="mt-3 text-[11px] font-semibold text-primary hover:underline">Regenerate</button>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function AlertsPanel({ lowStock }: { lowStock: { id: string; name: string; stock: number; reorderLevel: number }[] }) {
   return (
     <Card className="overflow-hidden">

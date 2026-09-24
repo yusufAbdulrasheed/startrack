@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, ShoppingCart, Package, Settings, Receipt,
-  HelpCircle, LogOut, Globe2, Home, Plus,
+  HelpCircle, LogOut, Globe2, Home, Plus, LifeBuoy,
 } from "lucide-react";
 import { useSession } from "@/lib/session";
 import { typeMeta } from "@/lib/businessTypes";
@@ -19,7 +19,7 @@ type NavGroup = {
 };
 
 /**
- * Five primary destinations, matching the design. Everything else is a child
+ * Six primary destinations, matching the design. Everything else is a child
  * of one of them and appears once you're inside — so the spine stays short
  * without any screen becoming unreachable.
  *
@@ -36,6 +36,7 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
         { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain" },
         { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue" },
         { to: "/app/jobs", label: "Job Tickets", perm: "sales", capability: "jobs" },
+        { to: "/app/members", label: "Members", perm: "sales", capability: "memberships" },
         { to: "/app/returns", label: "Returns", perm: "returns", module: "returns" },
         { to: "/app/activity", label: "My Activity", perm: "activity" },
       ],
@@ -44,6 +45,7 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
       to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard_ops",
       children: [
         { to: "/app/dashboard", label: "Overview", perm: "dashboard_ops" },
+        { to: "/app/ask-ai", label: "Ask AI", perm: "dashboard_ops" },
         { to: "/app/customers", label: "Customers", perm: "customers", module: "customers" },
         { to: "/app/expenses", label: "Expenses", perm: "expenses", module: "expenses" },
         { to: "/app/staff", label: "Staff", perm: "staff_mgmt" },
@@ -65,6 +67,7 @@ function buildNav(t: { products: string; pos: string }): NavGroup[] {
       ],
     },
     { to: "/app/sales", label: "History", icon: Receipt, perm: "dashboard_ops" },
+    { to: "/app/tickets", label: "Support", icon: LifeBuoy, perm: "sales" },
     {
       to: "/app/settings", label: "Settings", icon: Settings, perm: "settings",
       children: [

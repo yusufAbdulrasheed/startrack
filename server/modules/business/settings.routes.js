@@ -5,6 +5,7 @@ import { Branch } from "#modules/business/branch.model.js";
 import { requirePerm } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { mailEnabled } from "#core/mailer.js";
+import { aiEnabled } from "#core/ai.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { withTransaction } from "#core/tx.js";
@@ -41,10 +42,23 @@ function shapeBusiness(b) {
         sachetBagsPerToken: b.settings.loyalty?.sachetBagsPerToken ?? 2,
         tokensPerFreePack: b.settings.loyalty?.tokensPerFreePack ?? 5,
       },
+      loyaltyRule: {
+        mode: b.settings.loyaltyRule?.mode ?? "off",
+        threshold: b.settings.loyaltyRule?.threshold ?? 5,
+        windowDays: b.settings.loyaltyRule?.windowDays ?? 0,
+        discountType: b.settings.loyaltyRule?.discountType ?? "percent",
+        discountValue: b.settings.loyaltyRule?.discountValue ?? 5,
+      },
+      ai: { digestEnabled: b.settings.ai?.digestEnabled ?? false },
+      gym: {
+        renewalReminderDays: b.settings.gym?.renewalReminderDays ?? 3,
+        smsReminders: b.settings.gym?.smsReminders ?? false,
+      },
     },
     // So the UI can say "email is off because nobody configured Resend"
     // rather than leaving the owner to wonder why nothing arrives.
     emailConfigured: mailEnabled(),
+    aiConfigured: aiEnabled(),
   };
 }
 
@@ -83,6 +97,22 @@ const updateSchema = z.object({
       tokensPerFreePack: z.number().int().min(1).max(1000).optional(),
     })
     .optional(),
+  loyaltyRule: z
+    .object({
+      mode: z.enum(["off", "visits", "spend"]).optional(),
+      threshold: z.number().min(1).optional(),
+      windowDays: z.number().int().min(0).max(365).optional(),
+      discountType: z.enum(["percent", "flat"]).optional(),
+      discountValue: z.number().min(0).optional(),
+    })
+    .optional(),
+  ai: z.object({ digestEnabled: z.boolean().optional() }).optional(),
+  gym: z
+    .object({
+      renewalReminderDays: z.number().int().min(0).max(30).optional(),
+      smsReminders: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 // PATCH /api/settings — audited (VAT changes move money)
@@ -113,6 +143,18 @@ settingsRouter.patch("/", requirePerm("settings"), async (req, res) => {
   if (d.loyalty !== undefined) {
     const merged = { ...(business.settings.loyalty?.toObject?.() || business.settings.loyalty || {}), ...d.loyalty };
     business.settings.loyalty = merged;
+  }
+  if (d.loyaltyRule !== undefined) {
+    const merged = { ...(business.settings.loyaltyRule?.toObject?.() || business.settings.loyaltyRule || {}), ...d.loyaltyRule };
+    business.settings.loyaltyRule = merged;
+  }
+  if (d.ai !== undefined) {
+    const merged = { ...(business.settings.ai?.toObject?.() || business.settings.ai || {}), ...d.ai };
+    business.settings.ai = merged;
+  }
+  if (d.gym !== undefined) {
+    const merged = { ...(business.settings.gym?.toObject?.() || business.settings.gym || {}), ...d.gym };
+    business.settings.gym = merged;
   }
   await business.save();
 

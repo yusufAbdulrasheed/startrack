@@ -15,7 +15,9 @@ export type Session = {
   mode?: "till";
   demo?: boolean;
   platformRole?: "none" | "support" | "overseer";
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; phone?: string };
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   account: { id: string; name: string; plan: string };
   role: "owner" | "admin" | "manager" | "staff";
   permissions: string[];
@@ -24,7 +26,7 @@ export type Session = {
 };
 
 type RegisterInput = {
-  name: string; email: string; password: string;
+  name: string; email: string; phone?: string; password: string;
   businessName: string; businessType?: string;
   tradingName?: string; taxId?: string; employees?: number;
   branchName?: string; currency?: string;
@@ -43,6 +45,9 @@ type Ctx = {
   tillLogin: (businessCode: string, pin: string) => Promise<void>;
   demoLogin: (type?: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  // Re-pulls /auth/me — used after a verify/confirm so the emailVerified /
+  // phoneVerified flags (and anything else) update without a full re-login.
+  refreshSession: () => Promise<void>;
   logout: () => void;
   can: (perm: string) => boolean;
   hasModule: (module: string) => boolean;
@@ -119,6 +124,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       register: async (input) => {
         const s = await api<Session>("/auth/register", { method: "POST", body: JSON.stringify(input) });
         applySession(s);
+      },
+      refreshSession: async () => {
+        const s = await api<Session>("/auth/me");
+        setSession(s);
       },
       logout: () => {
         setToken(null);

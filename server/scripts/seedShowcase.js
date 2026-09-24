@@ -20,7 +20,7 @@ import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { Counter, nextSeq } from "#core/counters.js";
 import { applyMovement } from "#modules/inventory/inventory.service.js";
 import { money } from "#core/money.js";
-import { localDay } from "#modules/metrics/metrics.service.js";
+import { localDay, bumpDailyMetric } from "#modules/metrics/metrics.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
 import { priceLines, totalsFor } from "#modules/jobs/jobs.service.js";
@@ -33,6 +33,14 @@ import { Stay } from "#modules/businesses/hotel/stay.model.js";
 import { ColdRoomBatch } from "#modules/businesses/coldroom/batch.model.js";
 import { ColdRoomBreakdown } from "#modules/businesses/coldroom/breakdown.model.js";
 import { syncCartonEquivalentStock } from "#modules/businesses/coldroom/coldroom.service.js";
+import { LoyaltyCard } from "#modules/loyalty/loyaltyCard.model.js";
+import { issueCardForCustomer } from "#modules/loyalty/loyaltyCard.service.js";
+import { Ticket } from "#modules/support/ticket.model.js";
+import { RestockSuggestion } from "#modules/ai/restockSuggestion.model.js";
+import { VerificationCode } from "#modules/auth/verificationCode.model.js";
+import { GymPlan } from "#modules/businesses/gym/gymPlan.model.js";
+import { GymSubscription } from "#modules/businesses/gym/gymSubscription.model.js";
+import { GymCheckIn } from "#modules/businesses/gym/gymCheckIn.model.js";
 
 /**
  * Seeds seven permanent, demonstrable businesses — one independent owner
@@ -99,10 +107,13 @@ async function purgeAccounts(accountIds) {
     Job.deleteMany(byAccount), ProductionRun.deleteMany(byAccount), Serial.deleteMany(byAccount),
     Cohort.deleteMany(byAccount), RoomType.deleteMany(byAccount), Room.deleteMany(byAccount), Stay.deleteMany(byAccount),
     ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
+    LoyaltyCard.deleteMany(byAccount), Ticket.deleteMany(byAccount), RestockSuggestion.deleteMany(byAccount),
+    GymPlan.deleteMany(byAccount), GymSubscription.deleteMany(byAccount), GymCheckIn.deleteMany(byAccount),
     Membership.deleteMany({ accountId: { $in: accountIds } }),
     Branch.deleteMany({ accountId: { $in: accountIds } }),
     Business.deleteMany({ accountId: { $in: accountIds } }),
     User.deleteMany({ _id: { $in: userIds } }),
+    VerificationCode.deleteMany({ userId: { $in: userIds } }),
     Counter.deleteMany({ scopeKey: { $regex: `:(${branchIds.map(String).join("|")})$` } }),
   ]);
   await Account.deleteMany({ _id: { $in: accountIds } });
@@ -423,6 +434,74 @@ async function seedColdroom(ctx, business, byName) {
   );
 }
 
+/**
+ * Three members in different states, so Members/Check-In have something
+ * real the moment the showcase opens — unlike the 24h "Try the demo"
+ * sandbox, which deliberately leaves this to the visitor (see demoShops.js's
+ * gym `pending` note): a permanent showcase should look permanently lived-in.
+ */
+async function seedGym(ctx, shop, customers) {
+  const plans = [];
+  for (const p of shop.gymPlans) {
+    plans.push(await GymPlan.create({ accountId: ctx.accountId, businessId: ctx.businessId, name: p.name, price: p.price, durationDays: p.durationDays }));
+  }
+  const planByName = new Map(plans.map((p) => [p.name, p]));
+  const monthly = planByName.get("Monthly") || plans[0];
+  const annual = planByName.get("Annual") || plans[plans.length - 1];
+
+  const members = [
+    { customer: customers[0], plan: annual, startedDaysAgo: 40 },   // comfortably active
+    { customer: customers[1], plan: monthly, startedDaysAgo: 28 },  // expires in ~2 days — the reminder case
+    { customer: customers[2], plan: monthly, startedDaysAgo: 45 },  // already expired
+  ];
+
+  for (const m of members) {
+    const startDate = daysAgo(m.startedDaysAgo);
+    const expiresAt = new Date(startDate.getTime() + m.plan.durationDays * 24 * 3600 * 1000);
+    const seq = await nextSeq(`sale:${ctx.branchId}`);
+    const sale = await Sale.create({
+      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
+      saleNo: `R-${String(seq).padStart(5, "0")}`, at: startDate,
+      staffId: ctx.userId, staffName: ctx.actorName,
+      customerId: m.customer._id, customerName: m.customer.name,
+      items: [{
+        productId: new mongoose.Types.ObjectId(), name: `${m.plan.name} membership`,
+        qty: 1, unitPrice: m.plan.price, lineCost: 0, lineNet: m.plan.price, returnedQty: 0,
+      }],
+      subtotal: m.plan.price, discount: 0, vat: 0, total: m.plan.price,
+      payments: [{ method: "cash", amount: m.plan.price }],
+    });
+
+    const status = expiresAt < new Date() ? "expired" : "active";
+    const subscription = await GymSubscription.create({
+      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
+      customerId: m.customer._id, customerName: m.customer.name,
+      planId: m.plan._id, planName: m.plan.name,
+      startDate, expiresAt, status, purchasedAt: startDate, saleId: sale._id,
+    });
+
+    await Customer.updateOne(
+      { _id: m.customer._id },
+      { $inc: { totalSpend: m.plan.price, visits: 1 }, $set: { lastSeen: startDate, lastBranchId: ctx.branchId } }
+    );
+    await bumpDailyMetric(ctx, ctx.branchId, localDay(startDate), { revenue: m.plan.price, profit: m.plan.price, txns: 1, payments: { cash: m.plan.price } });
+
+    // Access control IS the product — issued on signup, same as the real
+    // purchase route, reusing the loyalty module's QR card wholesale.
+    await issueCardForCustomer(ctx, m.customer._id, "gym_signup");
+
+    if (status === "active") {
+      for (const daysBack of [5, 2]) {
+        await GymCheckIn.create({
+          accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
+          customerId: m.customer._id, customerName: m.customer.name, subscriptionId: subscription._id,
+          allowed: true, at: daysAgo(daysBack), byStaffId: ctx.userId, byStaffName: ctx.actorName,
+        });
+      }
+    }
+  }
+}
+
 async function seedJobTicket(ctx, business, byName, { title, reference, lines, deposit, stage }) {
   const rawLines = lines.map((l) => (l.productId ? { productId: l.productId, qty: l.qty } : l));
   const { lines: priced, subtotal } = await priceLines(ctx, rawLines);
@@ -517,6 +596,17 @@ async function seedBusiness(typeKey, owner, account) {
       deposit: 10000, stage: "ready",
     });
   }
+  if (typeKey === "laundry") {
+    await seedJobTicket(ctx, business, byName, {
+      title: "Weekly drop-off — 3 shirts, 1 suit", reference: "Okafor Household",
+      lines: [
+        { name: "Dry Clean - Suit (2pc)", price: 5500, qty: 1 },
+        { name: "Iron - Shirt", price: 400, qty: 3 },
+      ],
+      deposit: 0, stage: "ready",
+    });
+  }
+  if (typeKey === "gym" && shop.gymPlans) await seedGym(ctx, shop, customers);
 
   const lastSale = await seedTradingHistory(ctx, byName, customers, [amaka, chidi, owner]);
   if (typeKey === "restaurant") await seedKitchenQueue(ctx, lastSale);
