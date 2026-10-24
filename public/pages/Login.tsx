@@ -4,6 +4,7 @@ import { LockOpen, AlertCircle, KeyRound, Delete } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useSession } from "@/lib/session";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { cn } from "@/lib/utils";
 
 const KEYPAD_MAX = 4; // a till PIN is exactly four digits
@@ -53,13 +54,7 @@ export function Login() {
     <div className="h-full flex items-center justify-center bg-canvas relative overflow-hidden">
       <div className="absolute top-5 right-5"><ThemeToggle /></div>
       <div className="relative w-[420px] max-w-[92vw] rounded-[24px] shadow-lg2 bg-surface border border-line p-9 text-center animate-fade-up">
-        <Link to="/" className="inline-flex w-11 h-11 rounded-[10px] bg-brand-700 items-center justify-center mb-5">
-          <svg viewBox="0 0 32 32" fill="none" className="w-6 h-6">
-            <path d="M4 8h24M4 16h15M4 24h19" stroke="white" strokeWidth="2.3" strokeLinecap="round" />
-            <circle cx="26" cy="24" r="4.5" fill="white" />
-            <path d="M24.2 24l1.2 1.3L28 22.4" stroke="#5b5bd6" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
+        <Link to="/" className="inline-flex mb-5" aria-label="StarTrack home"><BrandMark className="w-12 h-12" /></Link>
         <h1 className="text-[22px] font-semibold text-t1">Welcome back</h1>
         <p className="text-[13px] text-t3 mt-1 mb-6">Sign in to your business</p>
 

@@ -5,19 +5,8 @@ import { useSession } from "@/lib/session";
 import { HelpPanel } from "@/components/layout/HelpPanel";
 import { useNavGroups } from "@/components/layout/useNav";
 import { LockChip } from "@/components/plan/PlanUi";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { cn } from "@/lib/utils";
-
-export function BrandMark({ className }: { className?: string }) {
-  return (
-    <div className={cn("rounded-xl flex items-center justify-center shrink-0", className)} style={{ background: "var(--st-gradient-primary)", boxShadow: "var(--st-shadow-brand)" }}>
-      <svg viewBox="0 0 20 20" fill="none" className="w-[55%] h-[55%]">
-        <path d="M2 5h16M2 10h10M2 15h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-        <circle cx="16" cy="15" r="3" fill="white" />
-        <path d="M14.8 15l1 1L17.6 13.5" stroke="#4a3bf4" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
 
 // Labels disappear (but stay readable to screen readers) when the sidebar is
 // collapsed to its icon rail. The collapsed state only applies from `lg` up;
@@ -69,7 +58,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onClose }: {
         <div className="relative px-5 pt-6 pb-5 flex flex-col gap-3 group-data-[collapsed=true]/side:lg:px-2">
           <div className="flex items-center justify-between gap-2 group-data-[collapsed=true]/side:lg:flex-col group-data-[collapsed=true]/side:lg:gap-3">
             <Link to="/app/dashboard" className="flex items-center gap-3 min-w-0" aria-label="StarTrack">
-              <BrandMark className="w-10 h-10" />
+              <BrandMark className="w-10 h-10" glow />
               <span className={cn("font-extrabold text-[17px] tracking-[-0.02em] text-white", label)}>StarTrack</span>
             </Link>
             <button

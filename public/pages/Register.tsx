@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { TYPE_META } from "@/lib/businessTypes";
 import { useSession } from "@/lib/session";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { PLANS, TRIAL_DAYS } from "#shared/plans.js";
 import { cn } from "@/lib/utils";
 
@@ -87,9 +88,7 @@ export function Register() {
 
         <div className="relative">
           <div className="flex items-center gap-2.5">
-            <span className="w-8 h-8 rounded-lg bg-brand-700 flex items-center justify-center">
-              <Rocket className="w-4 h-4 text-white" strokeWidth={1.75} />
-            </span>
+            <BrandMark className="w-9 h-9" />
             <div>
               <div className="font-display font-semibold text-[15px] text-white leading-none">StarTrack</div>
               <div className="text-[11.5px] font-medium text-white/50 mt-1">Business OS</div>
@@ -129,14 +128,14 @@ export function Register() {
         </div>
 
         <div className="relative text-white/40 text-[11px]">
-          Free while we pilot · No card required
+          14-day free trial · No card required
         </div>
       </aside>
 
       {/* Right: the form */}
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="flex items-center justify-between px-6 lg:px-10 h-16 shrink-0">
-          <span className="lg:hidden font-display font-semibold text-[15px] text-t1">StarTrack</span>
+          <span className="lg:hidden flex items-center gap-2"><BrandMark className="w-8 h-8" /><span className="font-display font-semibold text-[15px] text-t1">StarTrack</span></span>
           <div className="ml-auto text-[13px] text-t3">
             Already have an account? <Link to="/login" className="font-semibold text-primary hover:underline">Sign in</Link>
           </div>

@@ -5,6 +5,7 @@ import {
   Menu, MessageCircle, QrCode, Receipt, ScanLine, Scissors, ShieldCheck, Smartphone, Sparkles, Store, TrendingUp, UtensilsCrossed, WifiOff, X,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { DemoButton } from "@/components/landing/DemoPicker";
 import { PLANS, PLAN_ORDER, TRIAL_DAYS } from "#shared/plans.js";
 import { fmtMoney } from "@/lib/format";
@@ -23,9 +24,7 @@ const LINKS = [["Features", "#features"], ["AI", "#ai"], ["Industries", "#indust
 function Logo({ dark }: { dark?: boolean }) {
   return (
     <Link to="/" className="flex items-center gap-2.5" aria-label="StarTrack">
-      <span className="grid place-items-center w-9 h-9 rounded-xl text-white" style={{ background: GRADIENT, boxShadow: "0 10px 20px -10px rgba(53,56,240,0.9)" }}>
-        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 17l5-6 4 3 7-9" /><path d="M16 5h4v4" /></svg>
-      </span>
+      <BrandMark className="w-9 h-9" />
       <span className={cn("font-extrabold text-[19px] tracking-[-0.02em]", dark ? "text-white" : "text-t1")}>StarTrack</span>
     </Link>
   );

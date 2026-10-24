@@ -111,13 +111,19 @@ export function renderPdf(report) {
       g.stop(0, C.deep).stop(0.5, C.brand).stop(1, C.violet);
       doc.rect(0, 0, W, bandH).fill(g);
 
-      // mark + wordmark
-      doc.roundedRect(MARGIN, 26, 24, 24, 7).fillOpacity(0.2).fill(C.white).fillOpacity(1);
-      doc.lineWidth(2).lineCap("round").strokeColor(C.white);
-      [[8, 14], [8, 20], [8, 26]].forEach(([dx], i) => {
-        const y = 31 + i * 6;
-        doc.moveTo(MARGIN + dx, y).lineTo(MARGIN + (i === 1 ? 14 : 18), y).stroke();
-      });
+      // mark + wordmark: the same logo as everywhere else (see public/components/brand/BrandMark.tsx),
+      // drawn at 24pt on a 32-unit grid.
+      {
+        const x0 = MARGIN, y0 = 26, k = 24 / 32;
+        const tile = doc.linearGradient(x0, y0, x0 + 24, y0 + 24);
+        tile.stop(0, C.brand).stop(0.6, "#5a3bf4").stop(1, C.violet);
+        doc.roundedRect(x0, y0, 24, 24, 8 * k).lineWidth(0.9).fillAndStroke(tile, C.white);
+        doc.lineWidth(2.4 * k).lineCap("round").strokeColor(C.white);
+        [[10.5, 24], [16, 18.5], [21.5, 20]].forEach(([y, xEnd]) => doc.moveTo(x0 + 8 * k, y0 + y * k).lineTo(x0 + xEnd * k, y0 + y * k).stroke());
+        doc.circle(x0 + 24 * k, y0 + 21.5 * k, 4 * k).fill(C.white);
+        doc.lineWidth(1.6 * k).lineCap("round").lineJoin("round").strokeColor("#4a3bf4")
+          .moveTo(x0 + 22.2 * k, y0 + 21.5 * k).lineTo(x0 + 23.6 * k, y0 + 22.9 * k).lineTo(x0 + 26 * k, y0 + 20.1 * k).stroke();
+      }
       put("StarTrack", MARGIN + 34, 31, { face: "B", size: 12, color: C.white });
       put(`Generated ${new Date(report.generatedAt).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}`, MARGIN, 33, { face: "R", size: 8.5, color: C.white, align: "right", width: CW, opacity: 0.8 });
 
