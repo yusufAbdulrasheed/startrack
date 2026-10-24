@@ -11,6 +11,11 @@
 
 [functions]
   node_bundler = "esbuild"
+  # pdfkit's modern build reads `import.meta.url` as it loads, which does not exist
+  # inside a bundled function, so bundling it crashes the whole API on start (every
+  # request 502s with "Invalid URL"). Shipping it as a normal installed package makes
+  # Node load its CommonJS build instead.
+  external_node_modules = ["pdfkit"]
   # The PDF reports embed these fonts at runtime, so they must ship with the function.
   included_files = ["node_modules/@fontsource/inter/files/inter-latin-*-normal.woff", "node_modules/@fontsource/inter/files/inter-latin-ext-*-normal.woff"]
 
