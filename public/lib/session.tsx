@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { api, setToken, setTenant } from "./api";
+import { planAllows, PLANS, type PlanKey } from "#shared/plans.js";
 
 export type Business = {
   id: string;
@@ -8,6 +9,11 @@ export type Business = {
   typeKey: string;
   settings: { currency: string; vatEnabled: boolean; vatRate: number; receiptFooter?: string; modules?: string[] };
   capabilities?: string[];
+};
+export type PlanSummary = {
+  key: PlanKey; name: string; features: string[];
+  limits: { businesses: number | null; branches: number | null; staff: number | null; products: number | null };
+  legacy: boolean; periodEnd: string | null; trial: boolean; lapsed: boolean;
 };
 export type Branch = { id: string; businessId: string; name: string };
 export type Session = {
@@ -19,6 +25,8 @@ export type Session = {
   emailVerified?: boolean;
   phoneVerified?: boolean;
   account: { id: string; name: string; plan: string };
+  /** Absent only on a stale cached session; treated as full access. */
+  plan?: PlanSummary;
   role: "owner" | "admin" | "manager" | "staff";
   permissions: string[];
   businesses: Business[];
@@ -30,6 +38,7 @@ type RegisterInput = {
   businessName: string; businessType?: string;
   tradingName?: string; taxId?: string; employees?: number;
   branchName?: string; currency?: string;
+  plan?: "free" | "pro" | "business";
 };
 
 type Ctx = {
@@ -41,6 +50,13 @@ type Ctx = {
   currency: string;
   setActiveBusiness: (id: string) => void;
   setActiveBranch: (id: string) => void;
+  /**
+   * Bumps whenever something changed the business's data from outside the page
+   * on screen (the AI added a list of products, say). The app shell re-keys the
+   * page on it, so what you're looking at re-fetches instead of going stale.
+   */
+  dataVersion: number;
+  refreshData: () => void;
   login: (email: string, password: string) => Promise<void>;
   tillLogin: (businessCode: string, pin: string) => Promise<void>;
   demoLogin: (type?: string) => Promise<void>;
@@ -52,6 +68,9 @@ type Ctx = {
   can: (perm: string) => boolean;
   hasModule: (module: string) => boolean;
   hasCapability: (capability: string) => boolean;
+  /** The subscription this account is on, and whether it includes a feature. */
+  plan: PlanSummary;
+  hasFeature: (feature: string) => boolean;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
@@ -61,6 +80,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [activeBusinessId, setActiveBusinessId] = useState<string | null>(null);
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
 
   // Bootstrap from a stored token on first load
   useEffect(() => {
@@ -109,6 +129,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setActiveBranchId(id);
         setTenant(activeBusinessId, id);
       },
+      dataVersion,
+      refreshData: () => setDataVersion((v) => v + 1),
       login: async (email, password) => {
         const s = await api<Session>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
         applySession(s);
@@ -145,10 +167,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // What the TRADE structurally supports. Unlike a module this is not a
       // preference — a supermarket has no job tickets to switch on.
       hasCapability: (capability) => (activeBusiness?.capabilities || []).includes(capability),
+      plan: planOf(session),
+      hasFeature: (feature) => planAllows(planOf(session).key, feature),
     };
-  }, [session, loading, activeBusinessId, activeBranchId]);
+  }, [session, loading, activeBusinessId, activeBranchId, dataVersion]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+const FULL: PlanSummary = { key: "business", name: PLANS.business.name, features: [], limits: PLANS.business.limits, legacy: true, periodEnd: null, trial: false, lapsed: false };
+function planOf(session: Session | null): PlanSummary {
+  return session?.plan || FULL;
 }
 
 export function useSession() {

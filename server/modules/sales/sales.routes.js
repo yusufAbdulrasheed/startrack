@@ -1,3 +1,4 @@
+import { receiptDesign } from "#modules/business/receiptDesign.js";
 import { Router } from "express";
 import { z } from "zod";
 import mongoose from "mongoose";
@@ -17,6 +18,7 @@ import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
 import { hasCapability } from "#shared/businessTypes.js";
 import { evaluateAndIssuePatronageCard } from "#modules/loyalty/loyaltyCard.service.js";
+import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 
 export const salesRouter = Router();
 
@@ -100,11 +102,12 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
         if (existing) return { replayed: true, sale: existing };
       }
 
-      const products = await Product.find({
+      // A store can only ring up what it sells (its own items + shared ones).
+      const products = await Product.find(scopedToBranch(req.ctx, {
         _id: { $in: [...new Set(d.items.map((i) => i.productId))] },
         businessId: req.ctx.businessId,
         status: "active",
-      }).session(session);
+      })).session(session);
       const byId = new Map(products.map((p) => [String(p._id), p]));
       for (const item of d.items) {
         if (!byId.has(item.productId)) throw badRequest("One of the products no longer exists.");
@@ -245,17 +248,18 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
       // Resolve the customer before moving stock (cheap to fail early).
       let customer = null;
       if (d.customerId) {
-        customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
+        customer = await Customer.findOne(scopedToBranch(req.ctx, { _id: d.customerId, businessId: req.ctx.businessId })).session(session);
         if (!customer) throw badRequest("That customer doesn't exist.");
       } else if (d.customer?.name) {
         customer =
           (d.customer.phone &&
-            (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
+            (await Customer.findOne(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, phone: d.customer.phone })).session(session))) ||
           (
             await Customer.create(
               [{
                 accountId: req.ctx.accountId,
                 businessId: req.ctx.businessId,
+                branchId: await ownerBranchForNew(req.ctx),
                 name: d.customer.name,
                 phone: d.customer.phone,
                 whatsapp: d.customer.phone,
@@ -447,6 +451,7 @@ salesRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
         change: out.change,
         footer: settings.receiptFooter,
         currency: settings.currency,
+        design: receiptDesign(req.ctx.business, req.ctx.plan),
       },
     });
   } catch (err) {
@@ -582,6 +587,9 @@ salesRouter.post("/:id/void", requirePerm("void_sales"), async (req, res) => {
       const sale = await Sale.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
       if (!sale) throw notFound("Sale not found.");
       if (sale.status === "voided") throw conflict("This sale is already voided.", "already_voided");
+      if (sale.service?.kind) {
+        throw conflict("This is a service payment — reverse it from the Academy, Appointments or Projects screen it belongs to.", "service_payment");
+      }
       if (sale.items.some((i) => i.returnedQty > 0)) {
         throw conflict("This sale has returns — void isn't possible.", "has_returns");
       }

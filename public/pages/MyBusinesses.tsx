@@ -62,8 +62,8 @@ export function MyBusinesses() {
             ["Taken today", fmtMoney(totalToday, currency)],
           ].map(([l, v]) => (
             <Card key={l} className="p-3.5">
-              <div className="text-[10px] font-bold uppercase tracking-[0.09em] text-t3">{l}</div>
-              <div className="font-mono font-extrabold text-[20px] text-t1 tabular-nums mt-1">{v}</div>
+              <div className="text-[11.5px] font-medium tracking-[0.09em] text-t3">{l}</div>
+              <div className="font-mono font-semibold text-[20px] text-t1 tabular-nums mt-1">{v}</div>
             </Card>
           ))}
         </div>
@@ -81,7 +81,7 @@ export function MyBusinesses() {
               className={cn(
                 "group animate-fade-up text-left rounded-card border bg-surface overflow-hidden transition-all duration-200",
                 active
-                  ? "border-brand-500 shadow-brand"
+                  ? "border-brand-500"
                   : "border-line hover:border-brand-400 hover:shadow-e2 hover:-translate-y-1"
               )}
             >
@@ -98,9 +98,9 @@ export function MyBusinesses() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-[15px] font-bold text-t1 truncate">{b.name}</span>
+                      <span className="text-[15px] font-semibold text-t1 truncate">{b.name}</span>
                       {active && (
-                        <span className="shrink-0 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-success-soft text-success">
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-success-soft text-success">
                           <Check className="w-2.5 h-2.5" /> Active
                         </span>
                       )}
@@ -113,20 +113,20 @@ export function MyBusinesses() {
 
                 <div className="grid grid-cols-2 gap-2 mt-3.5">
                   <div className="rounded-ctl bg-surface-2 border border-line px-2.5 py-2">
-                    <div className="text-[9px] font-bold uppercase tracking-wide text-t4">Today</div>
-                    <div className="font-mono font-bold text-[14px] text-t1 tabular-nums">{fmtMoney(b.todayRevenue, b.currency)}</div>
+                    <div className="text-[11px] font-medium text-t4">Today</div>
+                    <div className="font-mono font-semibold text-[14px] text-t1 tabular-nums">{fmtMoney(b.todayRevenue, b.currency)}</div>
                     <div className="text-[10px] text-t4">{b.todayTxns} sale{b.todayTxns === 1 ? "" : "s"}</div>
                   </div>
                   <div className="rounded-ctl bg-surface-2 border border-line px-2.5 py-2">
-                    <div className="text-[9px] font-bold uppercase tracking-wide text-t4">Team</div>
-                    <div className="font-mono font-bold text-[14px] text-t1 tabular-nums">{b.staff}</div>
+                    <div className="text-[11px] font-medium text-t4">Team</div>
+                    <div className="font-mono font-semibold text-[14px] text-t1 tabular-nums">{b.staff}</div>
                     <div className="text-[10px] text-t4">{b.branches.length} branch{b.branches.length === 1 ? "" : "es"}</div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-line">
                   <KeyRound className="w-3.5 h-3.5 text-t4 shrink-0" />
-                  <span className="font-mono text-[12px] font-bold tracking-[0.15em] text-t2">{b.code}</span>
+                  <span className="font-mono text-[12px] font-semibold tracking-[0.15em] text-t2">{b.code}</span>
                   <span className="ml-auto inline-flex items-center gap-1 text-[12px] font-semibold text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                     Open <ArrowRight className="w-3.5 h-3.5" />
                   </span>
@@ -141,10 +141,10 @@ export function MyBusinesses() {
             onClick={() => setAdding(true)}
             className="animate-fade-up rounded-card border-2 border-dashed border-line-2 min-h-[240px] flex flex-col items-center justify-center gap-2 text-t3 hover:border-brand-400 hover:text-primary hover:bg-primary-softer transition-colors"
           >
-            <span className="w-12 h-12 rounded-2xl bg-surface-3 flex items-center justify-center">
+            <span className="w-12 h-12 rounded-xl bg-surface-3 flex items-center justify-center">
               <Plus className="w-6 h-6" />
             </span>
-            <span className="text-[13px] font-bold">Add another business</span>
+            <span className="text-[13px] font-semibold">Add another business</span>
             <span className="text-[11px] text-t4 max-w-[200px] text-center">A different trade, its own staff, stock and books</span>
           </button>
         )}

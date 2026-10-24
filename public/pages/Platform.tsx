@@ -51,7 +51,7 @@ export function Platform() {
       <div className="p-8">
         <Card className="p-10 text-center">
           <ShieldAlert className="w-10 h-10 text-t4 mx-auto mb-3" />
-          <div className="text-[14px] font-bold text-t1">No platform access</div>
+          <div className="text-[14px] font-semibold text-t1">No platform access</div>
           <div className="text-[12px] text-t3 mt-1">This console is for StarTrack staff.</div>
         </Card>
       </div>
@@ -73,9 +73,9 @@ export function Platform() {
           <div>
             <div className="flex items-center gap-2">
               <Globe2 className="w-4 h-4 text-white/70" />
-              <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/60">StarTrack Platform</span>
+              <span className="text-[11px] font-medium tracking-[0.14em] text-white/60">StarTrack Platform</span>
             </div>
-            <h1 className="font-display font-extrabold text-white text-[26px] tracking-tight mt-1.5">
+            <h1 className="font-display font-semibold text-white text-[26px] tracking-tight mt-1.5">
               Every business on the platform
             </h1>
             <p className="text-white/55 text-[13px] mt-1">
@@ -84,7 +84,7 @@ export function Platform() {
           </div>
           <div className="flex items-center gap-2">
             <span className={cn(
-              "inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-bold",
+              "inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[11px] font-semibold",
               isOverseer ? "bg-white/15 text-white" : "bg-white/10 text-white/70"
             )}>
               {isOverseer ? <ShieldCheck className="w-3.5 h-3.5" /> : <ShieldAlert className="w-3.5 h-3.5" />}
@@ -101,10 +101,10 @@ export function Platform() {
             { label: "Volume · 30 days", value: fmtMoney(t.revenue30d, "₦"), sub: `${t.txns30d.toLocaleString()} sales`, icon: TrendingUp },
           ].map((s) => (
             <div key={s.label} className="rounded-ctl bg-white/[0.07] border border-white/10 backdrop-blur px-3.5 py-3">
-              <div className="flex items-center gap-1.5 text-white/50 text-[10px] font-bold uppercase tracking-wide">
+              <div className="flex items-center gap-1.5 text-white/50 text-[11.5px] font-medium">
                 <s.icon className="w-3 h-3" /> {s.label}
               </div>
-              <div className="font-mono font-extrabold text-[20px] text-white tabular-nums mt-1 truncate">{s.value}</div>
+              <div className="font-mono font-semibold text-[20px] text-white tabular-nums mt-1 truncate">{s.value}</div>
               <div className="text-[11px] text-white/40 mt-0.5">{s.sub}</div>
             </div>
           ))}
@@ -114,7 +114,7 @@ export function Platform() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
         <Card className="lg:col-span-2 p-5">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-[14px] font-bold text-t1">Trades on the platform</div>
+            <div className="text-[14px] font-semibold text-t1">Trades on the platform</div>
             <span className="text-[11px] text-t3">{ov.byType.length} of 26 in use</span>
           </div>
           <div className="space-y-2">
@@ -134,25 +134,25 @@ export function Platform() {
         </Card>
 
         <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-3">Mix</div>
+          <div className="text-[14px] font-semibold text-t1 mb-3">Mix</div>
           <div className="space-y-2.5">
             {Object.entries(ov.byPlan).map(([plan, n]) => (
               <div key={plan} className="flex items-center justify-between">
                 <span className="text-[12px] text-t2 capitalize">{plan} plan</span>
-                <span className="text-[13px] font-mono font-bold text-t1 tabular-nums">{n}</span>
+                <span className="text-[13px] font-mono font-semibold text-t1 tabular-nums">{n}</span>
               </div>
             ))}
             <div className="flex items-center justify-between pt-2.5 border-t border-line">
               <span className="inline-flex items-center gap-1.5 text-[12px] text-t3">
                 <FlaskConical className="w-3.5 h-3.5" /> Live demo sandboxes
               </span>
-              <span className="text-[13px] font-mono font-bold text-t3 tabular-nums">{t.sandboxes}</span>
+              <span className="text-[13px] font-mono font-semibold text-t3 tabular-nums">{t.sandboxes}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 text-[12px] text-t3">
                 <Users className="w-3.5 h-3.5" /> People with logins
               </span>
-              <span className="text-[13px] font-mono font-bold text-t3 tabular-nums">{t.users}</span>
+              <span className="text-[13px] font-mono font-semibold text-t3 tabular-nums">{t.users}</span>
             </div>
           </div>
         </Card>
@@ -160,7 +160,7 @@ export function Platform() {
 
       <Card className="overflow-hidden">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-line flex-wrap">
-          <div className="text-[14px] font-bold text-t1">Tenants</div>
+          <div className="text-[14px] font-semibold text-t1">Tenants</div>
           <div className="relative ml-auto">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
             <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Search accounts…" className="!w-56 !pl-9" />
@@ -181,7 +181,7 @@ export function Platform() {
                   className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors"
                 >
                   <span className={cn(
-                    "w-9 h-9 shrink-0 rounded-xl flex items-center justify-center text-[13px] font-bold",
+                    "w-9 h-9 shrink-0 rounded-xl flex items-center justify-center text-[13px] font-semibold",
                     a.status === "suspended" ? "bg-danger-soft text-danger" : "bg-primary-soft text-primary"
                   )}>
                     {a.name[0]?.toUpperCase()}
@@ -198,7 +198,7 @@ export function Platform() {
                     </div>
                   </div>
                   <div className="text-right shrink-0 hidden sm:block">
-                    <div className="font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(a.revenue, "₦")}</div>
+                    <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">{fmtMoney(a.revenue, "₦")}</div>
                     <div className="text-[10.5px] text-t4">{a.lastSaleAt ? `last sale ${fmtDate(a.lastSaleAt)}` : "no sales yet"}</div>
                   </div>
                   <ChevronRight className="w-4 h-4 text-t4 shrink-0" />
@@ -221,7 +221,7 @@ export function Platform() {
 }
 
 type Detail = {
-  account: { id: string; name: string; plan: string; status: string; isSandbox: boolean; createdAt: string };
+  account: { id: string; name: string; plan: string; legacy?: boolean; periodEnd?: string | null; status: string; isSandbox: boolean; createdAt: string };
   businesses: { id: string; name: string; typeLabel: string; capabilities: string[]; currency: string }[];
   people: { id: string; name: string; email: string; status: string; role: string }[];
   usage: { products: number; revenue: number; txns: number; lastSaleAt: string | null };
@@ -233,9 +233,23 @@ function TenantDetail({ id, canAct, onClose, onChanged }: {
   const { data, loading, reload } = useApi<Detail>(id ? `/platform/accounts/${id}` : null, [id]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [planPick, setPlanPick] = useState("pro");
+  const [planDays, setPlanDays] = useState("30");
   if (!id) return null;
 
   const d = data;
+
+  async function setPlan() {
+    setBusy(true); setError("");
+    try {
+      await api(`/platform/accounts/${id}/plan`, { method: "POST", body: JSON.stringify({ plan: planPick, days: Number(planDays) || 30 }) });
+      reload(); onChanged();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function setStatus(status: "active" | "suspended") {
     setBusy(true); setError("");
@@ -257,6 +271,28 @@ function TenantDetail({ id, canAct, onClose, onChanged }: {
         <div className="space-y-4">
           <ErrorBanner message={error} />
 
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3">
+            <div className="mr-auto">
+              <div className="text-[11.5px] font-semibold text-t3">Plan</div>
+              <div className="text-[14px] font-bold text-t1 capitalize">{d.account.plan}{d.account.legacy ? " (early access)" : ""}{d.account.periodEnd ? ` · until ${fmtDate(d.account.periodEnd)}` : ""}</div>
+            </div>
+            {canAct && !d.account.isSandbox && (
+              <>
+                <label className="text-[11.5px] font-semibold text-t3">Set to
+                  <select value={planPick} onChange={(e) => setPlanPick(e.target.value)} className="block mt-1 h-9 px-2.5 rounded-lg border border-line-2 bg-surface text-[13px] text-t1">
+                    <option value="free">Freemium</option><option value="pro">Pro</option><option value="business">Business</option><option value="legacy">Full access (early)</option>
+                  </select>
+                </label>
+                {(planPick === "pro" || planPick === "business") && (
+                  <label className="text-[11.5px] font-semibold text-t3">Days
+                    <input value={planDays} onChange={(e) => setPlanDays(e.target.value.replace(/\D/g, ""))} className="block mt-1 h-9 w-20 px-2.5 rounded-lg border border-line-2 bg-surface text-[13px] text-t1" />
+                  </label>
+                )}
+                <Button size="sm" onClick={setPlan} disabled={busy}>Apply</Button>
+              </>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {[
               ["Revenue", fmtMoney(d.usage.revenue, "₦")],
@@ -265,14 +301,14 @@ function TenantDetail({ id, canAct, onClose, onChanged }: {
               ["People", String(d.people.length)],
             ].map(([l, v]) => (
               <div key={l} className="rounded-ctl bg-surface-2 border border-line px-3 py-2">
-                <div className="text-[10px] font-bold uppercase tracking-wide text-t4">{l}</div>
-                <div className="font-mono font-bold text-[15px] text-t1 tabular-nums truncate">{v}</div>
+                <div className="text-[11.5px] font-medium text-t4">{l}</div>
+                <div className="font-mono font-semibold text-[15px] text-t1 tabular-nums truncate">{v}</div>
               </div>
             ))}
           </div>
 
           <div>
-            <div className="text-[12px] font-bold text-t1 mb-2">Businesses</div>
+            <div className="text-[12px] font-semibold text-t1 mb-2">Businesses</div>
             <div className="space-y-2">
               {d.businesses.map((b) => (
                 <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 rounded-ctl bg-surface-2 border border-line">
@@ -282,7 +318,7 @@ function TenantDetail({ id, canAct, onClose, onChanged }: {
                     <div className="text-[11px] text-t3">{b.typeLabel}</div>
                   </div>
                   {b.capabilities.slice(0, 3).map((c) => (
-                    <span key={c} className="hidden sm:inline text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-primary-soft text-primary">{c}</span>
+                    <span key={c} className="hidden sm:inline text-[11px] font-medium px-1.5 py-0.5 rounded bg-primary-soft text-primary">{c}</span>
                   ))}
                 </div>
               ))}
@@ -290,7 +326,7 @@ function TenantDetail({ id, canAct, onClose, onChanged }: {
           </div>
 
           <div>
-            <div className="text-[12px] font-bold text-t1 mb-2">People</div>
+            <div className="text-[12px] font-semibold text-t1 mb-2">People</div>
             <div className="rounded-ctl border border-line overflow-hidden">
               {d.people.map((p) => (
                 <div key={p.id} className="flex items-center gap-3 px-3 py-2 border-b border-line last:border-0">

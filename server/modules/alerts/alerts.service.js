@@ -11,6 +11,7 @@ import { config } from "#core/config.js";
 import { aiEnabled } from "#core/ai.js";
 import { generateDigest } from "#modules/ai/ai.service.js";
 import { hasCapability } from "#shared/businessTypes.js";
+import { businessHasFeature } from "#core/plan.js";
 import { GymSubscription } from "#modules/businesses/gym/gymSubscription.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
 
@@ -346,7 +347,7 @@ export async function sendDigest(business) {
   // logged-in request, and whoever gets this digest already opted in via
   // settings.alertEmails.
   const aiSections = [];
-  if (business.settings?.ai?.digestEnabled && aiEnabled()) {
+  if (business.settings?.ai?.digestEnabled && aiEnabled() && (await businessHasFeature(business, "ai"))) {
     const digest = await generateDigest({ accountId: business.accountId, businessId: business._id, branchId: null, perms: ["*"] });
     if (digest.ok) {
       aiSections.push(
@@ -398,7 +399,8 @@ export async function sendDigest(business) {
 /** Everything one business needs looked at on a schedule. */
 export async function sweepBusiness(business) {
   const stock = await scanStock(business);
-  const expiry = await scanExpiry(business);
+  // Expiry tracking is a Pro feature; Freemium businesses get no expiry alerts.
+  const expiry = (await businessHasFeature(business, "expiry")) ? await scanExpiry(business) : { raised: 0, resolved: 0 };
   const memberships = await scanGymExpiries(business);
 
   // Returns still waiting — catches any submitted while alerts were off.

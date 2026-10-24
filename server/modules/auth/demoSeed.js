@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { User } from "#modules/auth/user.model.js";
+import { AiChat } from "#modules/ai/chat.model.js";
 import { Account } from "#modules/auth/account.model.js";
 import { Business } from "#modules/business/business.model.js";
 import { Branch } from "#modules/business/branch.model.js";
@@ -22,7 +23,15 @@ import { hashPassword } from "#modules/auth/auth.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { money } from "#core/money.js";
 import { localDay } from "#modules/metrics/metrics.service.js";
-import { DEMOS, DEMO_TYPES } from "#modules/auth/demoShops.js";
+import { DEMOS } from "#modules/auth/demoShops.js";
+import { seedAcademyDemo, seedSalonDemo, seedAgencyDemo } from "#modules/services/demoSeedServices.js";
+import { Course } from "#modules/businesses/academy/course.model.js";
+import { Intake } from "#modules/businesses/academy/intake.model.js";
+import { Enrollment } from "#modules/businesses/academy/enrollment.model.js";
+import { ClassSession } from "#modules/businesses/academy/classSession.model.js";
+import { SalonService } from "#modules/businesses/salon/salonService.model.js";
+import { Appointment } from "#modules/businesses/salon/appointment.model.js";
+import { Project } from "#modules/businesses/agency/project.model.js";
 
 
 const CUSTOMER_NAMES = [
@@ -342,6 +351,12 @@ export async function createDemoSandbox(requestedType = "restaurant") {
     }
   }
 
+  // Service businesses sell time, not stock — their courses / appointments /
+  // projects are seeded through the same payment code a live business uses.
+  if (typeKey === "academy") await seedAcademyDemo({ base, branch, ctx: ownerCtx });
+  if (typeKey === "salon") await seedSalonDemo({ base, branch, ctx: ownerCtx });
+  if (typeKey === "agency") await seedAgencyDemo({ base, branch, ctx: ownerCtx });
+
   // Raise the alerts this shop's stock situation implies, so a visitor sees
   // the bell populated the moment they land rather than waiting for a sweep.
   try {
@@ -375,6 +390,9 @@ export async function cleanupSandboxes() {
     CustomerLedgerEntry.deleteMany(byAccount),
     ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
     Expense.deleteMany(byAccount), Attendance.deleteMany(byAccount), DailyMetric.deleteMany(byAccount),
+    Course.deleteMany(byAccount), Intake.deleteMany(byAccount), Enrollment.deleteMany(byAccount),
+    ClassSession.deleteMany(byAccount), SalonService.deleteMany(byAccount), Appointment.deleteMany(byAccount),
+    Project.deleteMany(byAccount), AiChat.deleteMany(byAccount),
     AuditLog.deleteMany(byAccount), Branch.deleteMany(byAccount), Business.deleteMany(byAccount),
     Counter.deleteMany({ scopeKey: { $in: branchIds.map((b) => `sale:${b}`) } }),
   ]);

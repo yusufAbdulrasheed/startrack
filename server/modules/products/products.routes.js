@@ -3,11 +3,15 @@ import multer from "multer";
 import { z } from "zod";
 import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
-import { requirePerm, canSeeCost } from "#core/middleware/tenant.js";
+import { requirePerm, canSeeCost, requireFeature, limitProblem, planRequired } from "#core/middleware/tenant.js";
+import { planAllows } from "#shared/plans.js";
 import { audit } from "#core/audit.js";
 import { money, isValidAmount } from "#core/money.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { imageUploadEnabled, uploadImage, deleteImage } from "#core/cloudinary.js";
+import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
+import { archiveProducts, archivableFilter } from "#modules/products/archive.service.js";
+import { findPhotos, downloadPhoto, photoSources } from "#modules/products/photoSearch.js";
 
 export const productsRouter = Router();
 
@@ -20,11 +24,12 @@ const upload = multer({
 // A store cannot have two products with the same name, matched case- and
 // whitespace-insensitively — "Egg Crate" and "egg crate " are the same
 // product. Scoped per business; another business can have its own.
-async function findNameTaken(businessId, name, excludeId) {
+async function findNameTaken(ctx, name, excludeId) {
   const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const filter = { businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } };
+  const filter = { businessId: ctx.businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } };
   if (excludeId) filter._id = { $ne: excludeId };
-  return Product.findOne(filter);
+  // Only clashes with what this store can see: another store may sell its own "Rice".
+  return Product.findOne(scopedToBranch(ctx, filter));
 }
 
 // Some trades genuinely can't sell in every unit a supermarket can (a
@@ -74,6 +79,7 @@ function shape(p, stockByProduct, showCost) {
     warrantyMonths: p.warrantyMonths || 0,
     status: p.status,
     imageUrl: p.imageUrl || "",
+    branchId: p.branchId || null, // null = shared by every store
     // MTO items carry no stock of their own — their components do.
     stock: mto ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
     // A recipe now belongs to either archetype: an MTO item's bom is expanded
@@ -115,7 +121,7 @@ productsRouter.get("/", async (req, res) => {
   if (req.query.category && req.query.category !== "All") filter.category = req.query.category;
   if (req.query.q) filter.name = { $regex: String(req.query.q).trim(), $options: "i" };
 
-  const products = await Product.find(filter).sort({ name: 1 }).limit(1000);
+  const products = await Product.find(scopedToBranch(req.ctx, filter)).sort({ name: 1 }).limit(1000);
   let stockByProduct = null;
   if (req.ctx.branchId) {
     const inv = await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: products.map((p) => p._id) } });
@@ -127,13 +133,13 @@ productsRouter.get("/", async (req, res) => {
 
 // GET /api/products/categories — distinct category list for filters
 productsRouter.get("/categories", async (req, res) => {
-  const cats = await Product.distinct("category", { businessId: req.ctx.businessId, status: "active" });
+  const cats = await Product.distinct("category", scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active" }));
   res.json({ categories: cats.sort((a, b) => a.localeCompare(b)) });
 });
 
 // GET /api/products/barcode/:code — scanner lookup on the POS
-productsRouter.get("/barcode/:code", async (req, res) => {
-  const p = await Product.findOne({ businessId: req.ctx.businessId, barcode: req.params.code, status: "active" });
+productsRouter.get("/barcode/:code", requireFeature("barcodes"), async (req, res) => {
+  const p = await Product.findOne(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, barcode: req.params.code, status: "active" }));
   if (!p) return res.status(404).json({ error: "not_found", message: "No product with that barcode." });
   let stock = 0;
   if (req.ctx.branchId) {
@@ -174,6 +180,9 @@ const productSchema = z.object({
     .nullable()
     .optional(),
   openingStock: z.number().int().min(0).default(0), // convenience on create
+  // With several stores a new product belongs to the active store unless this
+  // is set. Single-store businesses ignore it.
+  shareWithAllStores: z.boolean().default(false),
 });
 
 // POST /api/products — requires the prices permission
@@ -182,12 +191,17 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
+  if (d.barcode && !planAllows(req.ctx.plan, "barcodes")) return res.status(403).json(planRequired("barcodes"));
+  if (d.expiry && !planAllows(req.ctx.plan, "expiry")) return res.status(403).json(planRequired("expiry"));
+  const room = limitProblem(req.ctx.plan, "products", await Product.countDocuments({ businessId: req.ctx.businessId, status: "active" }));
+  if (room) return res.status(403).json(room);
+
   if (d.barcode) {
-    const dupe = await Product.findOne({ businessId: req.ctx.businessId, barcode: d.barcode, status: "active" });
+    const dupe = await Product.findOne(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, barcode: d.barcode, status: "active" }));
     if (dupe) return res.status(409).json({ error: "barcode_taken", message: `Barcode already on "${dupe.name}".` });
   }
 
-  const nameDupe = await findNameTaken(req.ctx.businessId, d.name);
+  const nameDupe = await findNameTaken(req.ctx, d.name);
   if (nameDupe) return res.status(409).json({ error: "name_taken", message: `"${nameDupe.name}" is already in your catalog.` });
 
   const template = typeTemplate(req.ctx.business.typeKey);
@@ -210,6 +224,7 @@ productsRouter.post("/", requirePerm("prices"), async (req, res) => {
   const product = await Product.create({
     accountId: req.ctx.accountId,
     businessId: req.ctx.businessId,
+    branchId: await ownerBranchForNew(req.ctx, { shared: d.shareWithAllStores }),
     name: d.name,
     sku,
     barcode: d.barcode,
@@ -263,9 +278,11 @@ const importRowSchema = z.object({
 // POST /api/products/import — bulk import (CSV parsed client-side into rows).
 // All-or-nothing per row: bad rows are reported and skipped, good rows land.
 // Duplicate names (case-insensitive) and barcodes already in the catalog are skipped.
-productsRouter.post("/import", requirePerm("prices"), async (req, res) => {
+productsRouter.post("/import", requirePerm("prices"), requireFeature("csvImport"), async (req, res) => {
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   if (!rows.length) return res.status(400).json({ error: "invalid", message: "No rows to import." });
+  const importRoom = limitProblem(req.ctx.plan, "products", await Product.countDocuments({ businessId: req.ctx.businessId, status: "active" }), rows.length);
+  if (importRoom) return res.status(403).json(importRoom);
   if (rows.length > 2000) return res.status(400).json({ error: "too_many", message: "Import at most 2,000 products at a time." });
 
   const existing = await Product.find({ businessId: req.ctx.businessId, status: "active" }).select("name barcode");
@@ -337,8 +354,11 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const product = await Product.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
+
+  if (d.barcode && d.barcode !== product.barcode && !planAllows(req.ctx.plan, "barcodes")) return res.status(403).json(planRequired("barcodes"));
+  if (d.expiry && !planAllows(req.ctx.plan, "expiry")) return res.status(403).json(planRequired("expiry"));
 
   if (d.barcode && d.barcode !== product.barcode) {
     const dupe = await Product.findOne({ businessId: req.ctx.businessId, barcode: d.barcode, status: "active", _id: { $ne: product._id } });
@@ -346,7 +366,7 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   }
 
   if (d.name !== undefined && d.name.trim().toLowerCase() !== product.name.trim().toLowerCase()) {
-    const nameDupe = await findNameTaken(req.ctx.businessId, d.name, product._id);
+    const nameDupe = await findNameTaken(req.ctx, d.name, product._id);
     if (nameDupe) return res.status(409).json({ error: "name_taken", message: `"${nameDupe.name}" is already in your catalog.` });
   }
 
@@ -412,14 +432,96 @@ productsRouter.patch("/:id", requirePerm("prices"), async (req, res) => {
   res.json({ product: shape(product, null, canSeeCost(req.ctx)) });
 });
 
+// POST /api/products/archive-all — remove every product this store can see from
+// the catalog at once. Archives (sales history keeps pointing at them), and
+// needs { confirm: true } so a stray request can't empty a catalog.
+productsRouter.post("/archive-all", requirePerm("prices"), async (req, res) => {
+  if (req.body?.confirm !== true) return res.status(400).json({ error: "confirm_required", message: "Confirm that you want to delete every product." });
+  const ids = (await Product.find(archivableFilter(req.ctx)).select("_id")).map((p) => p._id);
+  const count = await archiveProducts(req.ctx, ids, { via: "bulk" });
+  res.json({ ok: true, count });
+});
+
+// POST /api/products/photos/suggest — look photos up by product NAME. Body:
+// { ids?: string[], skip?: string[] } — ids omitted = the newest products that
+// have no photo yet; skip = ones already looked at (a product with no match
+// would otherwise come back every time). A small batch per call keeps each
+// request well inside serverless time limits; the page asks again for more.
+// Read-only: nothing is attached until /photos/apply, after a person has
+// looked at what was found.
+const PHOTO_BATCH = 12;
+const APPLY_BATCH = 8;
+const objectIds = (v) => (Array.isArray(v) ? v.filter((i) => typeof i === "string" && /^[a-f\d]{24}$/i.test(i)).slice(0, 500) : null);
+productsRouter.post("/photos/suggest", requirePerm("prices"), requireFeature("productPhotos"), async (req, res) => {
+  const ids = objectIds(req.body?.ids);
+  const skip = objectIds(req.body?.skip) || [];
+  const filter = { businessId: req.ctx.businessId, status: "active", $or: [{ imageUrl: "" }, { imageUrl: null }] };
+  filter._id = ids ? { $in: ids, $nin: skip } : { $nin: skip };
+  const total = await Product.countDocuments(scopedToBranch(req.ctx, filter));
+  const products = await Product.find(scopedToBranch(req.ctx, filter)).sort({ createdAt: -1, _id: -1 }).limit(PHOTO_BATCH).select("name category");
+
+  const results = new Array(products.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < products.length) {
+      const i = next++;
+      const p = products[i];
+      const { candidates } = await findPhotos(p.name, p.category);
+      results[i] = { id: String(p._id), name: p.name, category: p.category || "", candidates };
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  res.json({ items: results, remaining: Math.max(0, total - products.length), sources: photoSources(), canStore: imageUploadEnabled() });
+});
+
+// POST /api/products/photos/apply — save the photos a person chose.
+// Body: { items: [{ id, url, credit? }] }. Each URL must be from a known photo
+// host; the file is fetched here, and re-hosted on Cloudinary when it's set up.
+productsRouter.post("/photos/apply", requirePerm("prices"), requireFeature("productPhotos"), async (req, res) => {
+  const parsed = z.object({
+    items: z.array(z.object({ id: z.string().regex(/^[a-f\d]{24}$/i), url: z.string().url().max(600), credit: z.string().max(160).optional() })).min(1).max(APPLY_BATCH),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: "Choose at least one photo." });
+
+  let saved = 0;
+  const failed = [];
+  let next = 0;
+  const items = parsed.data.items;
+  const worker = async () => {
+    while (next < items.length) {
+      const it = items[next++];
+      const product = await Product.findOne(scopedToBranch(req.ctx, { _id: it.id, businessId: req.ctx.businessId }));
+      if (!product) { failed.push({ id: it.id, reason: "Product not found." }); continue; }
+      const buf = await downloadPhoto(it.url);
+      if (!buf) { failed.push({ id: it.id, name: product.name, reason: "That photo couldn't be downloaded." }); continue; }
+      let url = it.url;
+      let publicId = "";
+      if (imageUploadEnabled()) {
+        const up = await uploadImage(buf, `startrack/${req.ctx.businessId}/products`);
+        if (up.ok) { url = up.url; publicId = up.publicId; }
+      }
+      const oldPublicId = product.imagePublicId;
+      product.imageUrl = url;
+      product.imagePublicId = publicId;
+      product.imageCredit = (it.credit || "").slice(0, 160);
+      await product.save();
+      if (oldPublicId) deleteImage(oldPublicId);
+      saved++;
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
+  if (saved) audit(req.ctx, "product.photos", { type: "product", label: `${saved} photo${saved === 1 ? "" : "s"} added from search` });
+  res.json({ saved, failed });
+});
+
 // POST /api/products/:id/image — upload/replace this product's photo.
 // Multipart, field name "image". A replaced photo's old Cloudinary asset is
 // cleaned up best-effort; nothing here blocks on that cleanup succeeding.
-productsRouter.post("/:id/image", requirePerm("prices"), upload.single("image"), async (req, res) => {
+productsRouter.post("/:id/image", requirePerm("prices"), requireFeature("productPhotos"), upload.single("image"), async (req, res) => {
   if (!imageUploadEnabled()) return res.status(400).json({ error: "not_configured", message: "Photo upload isn't set up on this server yet." });
   if (!req.file) return res.status(400).json({ error: "invalid", message: "Choose an image (JPEG, PNG, WEBP or GIF, up to 5MB)." });
 
-  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const product = await Product.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
 
   const result = await uploadImage(req.file.buffer, `startrack/${req.ctx.businessId}/products`);
@@ -442,7 +544,7 @@ productsRouter.post("/:id/image", requirePerm("prices"), upload.single("image"),
 
 // DELETE /api/products/:id/image — remove the photo, fall back to the category icon
 productsRouter.delete("/:id/image", requirePerm("prices"), async (req, res) => {
-  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const product = await Product.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
   const oldPublicId = product.imagePublicId;
   product.imageUrl = "";
@@ -454,18 +556,8 @@ productsRouter.delete("/:id/image", requirePerm("prices"), async (req, res) => {
 
 // DELETE /api/products/:id — archive, never hard-delete (sales history points here)
 productsRouter.delete("/:id", requirePerm("prices"), async (req, res) => {
-  const product = await Product.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const product = await Product.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
-  product.status = "archived";
-  await product.save();
-  // An archived product can't be restocked or sold, so its alerts are noise.
-  const { resolveByPrefix, resolve, keys } = await import("#modules/alerts/notify.js");
-  const { Inventory } = await import("#modules/inventory/inventory.model.js");
-  const levels = await Inventory.find({ businessId: req.ctx.businessId, productId: product._id }).select("branchId");
-  for (const l of levels) {
-    await resolveByPrefix(req.ctx.businessId, keys.expiryPrefix(l.branchId, product._id));
-    await resolve(req.ctx.businessId, keys.stock(l.branchId, product._id));
-  }
-  audit(req.ctx, "product.archive", { type: "product", id: product._id, label: product.name });
+  await archiveProducts(req.ctx, [product._id], { via: "single" });
   res.json({ ok: true });
 });

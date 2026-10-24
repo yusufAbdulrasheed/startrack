@@ -89,7 +89,7 @@ export function Jobs() {
             >
               {t.label}
               {t.n !== undefined && t.n > 0 && (
-                <span className={cn("text-[10px] font-bold px-1.5 rounded-full", stage === t.k ? "bg-white/20" : "bg-surface-3")}>{t.n}</span>
+                <span className={cn("text-[10px] font-semibold px-1.5 rounded-full", stage === t.k ? "bg-white/20" : "bg-surface-3")}>{t.n}</span>
               )}
             </button>
           ))}
@@ -132,7 +132,7 @@ export function Jobs() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[12px] font-bold text-primary">{j.jobNo}</span>
+                      <span className="font-mono text-[12px] font-semibold text-primary">{j.jobNo}</span>
                       <span className="text-[13px] font-semibold text-t1 truncate">{j.title}</span>
                       {j.overdue && <Badge tone="danger">Overdue</Badge>}
                     </div>
@@ -142,7 +142,7 @@ export function Jobs() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(j.total, currency)}</div>
+                    <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">{fmtMoney(j.total, currency)}</div>
                     {j.balance > 0 && j.stage !== "cancelled" && (
                       <div className="text-[11px] text-warning font-semibold">{fmtMoney(j.balance, currency)} owing</div>
                     )}
@@ -234,7 +234,7 @@ function NewJob({ open, onClose, onSaved }: { open: boolean; onClose: () => void
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-t3">Parts & labour</span>
+            <span className="text-[11px] font-medium text-t3">Parts & labour</span>
             <button type="button" onClick={addLine} className="text-[12px] font-semibold text-primary hover:underline">+ Add line</button>
           </div>
           {lines.length === 0 ? (
@@ -274,7 +274,7 @@ function NewJob({ open, onClose, onSaved }: { open: boolean; onClose: () => void
 
         <div className="flex items-center justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line">
           <span className="text-[12px] text-t3">Estimated total (before VAT)</span>
-          <span className="font-mono font-bold text-[15px] text-t1 tabular-nums">{fmtMoney(subtotal, currency)}</span>
+          <span className="font-mono font-semibold text-[15px] text-t1 tabular-nums">{fmtMoney(subtotal, currency)}</span>
         </div>
 
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Creating…" : "Create ticket"}</Button>
@@ -330,11 +330,11 @@ function JobDetail({ job, currency, onClose, onChanged }: {
         <ErrorBanner message={error} />
 
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={cn("inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[12px] font-bold", meta.tone)}>
+          <span className={cn("inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[12px] font-semibold", meta.tone)}>
             <meta.icon className="w-3.5 h-3.5" /> {meta.label}
           </span>
           {job.overdue && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[12px] font-bold bg-danger-soft text-danger">
+            <span className="inline-flex items-center gap-1.5 px-2.5 h-7 rounded-full text-[12px] font-semibold bg-danger-soft text-danger">
               <AlertTriangle className="w-3.5 h-3.5" /> Past its promised date
             </span>
           )}
@@ -353,7 +353,7 @@ function JobDetail({ job, currency, onClose, onChanged }: {
             ["Promised", job.promisedAt ? fmtDate(job.promisedAt) : "—"],
           ].map(([l, v]) => (
             <div key={l} className="rounded-ctl bg-surface-2 border border-line px-3 py-2">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-t4">{l}</div>
+              <div className="text-[11.5px] font-medium text-t4">{l}</div>
               <div className="text-t1 font-semibold truncate mt-0.5">{v}</div>
             </div>
           ))}
@@ -365,7 +365,7 @@ function JobDetail({ job, currency, onClose, onChanged }: {
           ) : (
             job.lines.map((l, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-2 border-b border-line last:border-0">
-                <span className={cn("text-[9px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0",
+                <span className={cn("text-[11px] font-medium px-1.5 py-0.5 rounded shrink-0",
                   l.kind === "part" ? "bg-primary-soft text-primary" : "bg-surface-3 text-t3")}>{l.kind}</span>
                 <span className="text-[13px] text-t1 flex-1 truncate">{l.name}</span>
                 <span className="text-[12px] text-t3 font-mono">×{l.qty}</span>
@@ -411,7 +411,7 @@ function JobDetail({ job, currency, onClose, onChanged }: {
         )}
 
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">History</div>
+          <div className="text-[11px] font-medium text-t3 mb-1.5">History</div>
           <div className="space-y-1">
             {job.stageHistory.map((h, i) => (
               <div key={i} className="flex items-center gap-2 text-[11.5px] text-t3">
@@ -431,8 +431,8 @@ function JobDetail({ job, currency, onClose, onChanged }: {
 function Row({ label, value, bold, tone }: { label: string; value: string; bold?: boolean; tone?: string }) {
   return (
     <div className="flex justify-between items-center">
-      <span className={cn("text-[12px]", bold ? "font-bold text-t1" : "text-t2")}>{label}</span>
-      <span className={cn("font-mono tabular-nums", bold ? "text-[15px] font-bold" : "text-[12px]", tone || "text-t1")}>{value}</span>
+      <span className={cn("text-[12px]", bold ? "font-semibold text-t1" : "text-t2")}>{label}</span>
+      <span className={cn("font-mono tabular-nums", bold ? "text-[15px] font-semibold" : "text-[12px]", tone || "text-t1")}>{value}</span>
     </div>
   );
 }

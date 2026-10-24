@@ -55,11 +55,11 @@ const LEDGER_FILTERS = [
 ];
 
 export function StockIn() {
-  const { activeBranch, hasModule, currency } = useSession();
+  const { activeBranch, hasModule, hasFeature, currency } = useSession();
   const [tab, setTab] = useState<"receive" | "waste">("receive");
   const [ledgerFilter, setLedgerFilter] = useState<{ key: string; byRefType?: boolean }>({ key: "" });
   const { data: prodData, reload: reloadProducts } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const { data: supData } = useApi<{ suppliers: Supplier[] }>(hasModule("suppliers") ? "/suppliers" : null, [activeBranch?.id]);
+  const { data: supData } = useApi<{ suppliers: Supplier[] }>(hasModule("suppliers") && hasFeature("suppliers") ? "/suppliers" : null, [activeBranch?.id]);
   const { data: moveData, loading, reload: reloadMoves } = useApi<{ movements: Movement[] }>(
     `/inventory/movements?limit=40${ledgerFilter.key ? `&${ledgerFilter.byRefType ? "refType" : "type"}=${ledgerFilter.key}` : ""}`,
     [activeBranch?.id]
@@ -109,7 +109,7 @@ export function StockIn() {
 
         <Card className="lg:col-span-3 overflow-hidden self-start">
           <div className="p-4 pb-2 flex items-center gap-3 flex-wrap">
-            <span className="text-[14px] font-bold text-t1">Movement ledger</span>
+            <span className="text-[14px] font-semibold text-t1">Movement ledger</span>
             <div className="flex gap-1.5 ml-auto flex-wrap">
               {LEDGER_FILTERS.map((f) => (
                 <button
@@ -151,7 +151,7 @@ export function StockIn() {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className={cn("font-mono text-[13px] font-bold tabular-nums", m.qty > 0 ? "text-success" : "text-t1")}>
+                        <div className={cn("font-mono text-[13px] font-semibold tabular-nums", m.qty > 0 ? "text-success" : "text-t1")}>
                           {m.qty > 0 ? "+" : ""}{m.qty}
                         </div>
                         <div className="text-[10px] text-t4 font-mono">bal {m.balanceAfter}</div>

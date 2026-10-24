@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requirePerm } from "#core/middleware/tenant.js";
+import { requirePerm, requireFeature } from "#core/middleware/tenant.js";
 import {
   dayOffset, localDay, rebuildDailyMetrics,
   buildInventoryReport, buildDashboardSummary, buildSalesReport, buildCustomersReport, buildStaffReport,
@@ -15,17 +15,17 @@ metricsRouter.get("/sales-report", requirePerm("dashboard_ops"), async (req, res
 });
 
 // GET /api/metrics/inventory-report — the Inventory tab: value, gaps, expiry
-metricsRouter.get("/inventory-report", requirePerm("dashboard_ops", "stock"), async (req, res) => {
+metricsRouter.get("/inventory-report", requirePerm("dashboard_ops", "stock"), requireFeature("advancedDashboard"), async (req, res) => {
   res.json(await buildInventoryReport(req.ctx));
 });
 
 // GET /api/metrics/customers-report — the Customers tab
-metricsRouter.get("/customers-report", requirePerm("dashboard_ops"), async (req, res) => {
+metricsRouter.get("/customers-report", requirePerm("dashboard_ops"), requireFeature("advancedDashboard"), async (req, res) => {
   res.json(await buildCustomersReport(req.ctx));
 });
 
 // GET /api/metrics/staff-report — the Staff tab (30-day window)
-metricsRouter.get("/staff-report", requirePerm("dashboard_ops"), async (req, res) => {
+metricsRouter.get("/staff-report", requirePerm("dashboard_ops"), requireFeature("advancedDashboard"), async (req, res) => {
   res.json(await buildStaffReport(req.ctx));
 });
 

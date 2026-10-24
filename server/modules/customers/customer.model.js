@@ -6,6 +6,8 @@ const customerSchema = new mongoose.Schema(
   {
     accountId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     businessId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    // Empty = known at every store of the business; set = this store's customer.
+    branchId: { type: mongoose.Schema.Types.ObjectId, default: null },
     name: { type: String, required: true, trim: true },
     phone: { type: String, default: "", trim: true },
     whatsapp: { type: String, default: "", trim: true },

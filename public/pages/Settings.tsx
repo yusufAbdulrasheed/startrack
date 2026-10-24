@@ -62,13 +62,14 @@ const SECTIONS: { key: SectionKey; label: string; icon: any; blurb: string; owne
  * explicit now and each one owns a single save.
  */
 export function Settings() {
-  const { can } = useSession();
+  const { can, hasFeature } = useSession();
   const { data, loading, reload } = useApi<SettingsData>("/settings", []);
   const [section, setSection] = useState<SectionKey>("business");
 
   if (loading || !data) return <div className="p-8"><Spinner /></div>;
 
-  const visible = SECTIONS.filter((s) => !s.ownerOnly || can("dashboard_finance"));
+  // Loyalty cards are a Pro feature, so their settings only appear on plans that have them.
+  const visible = SECTIONS.filter((s) => (!s.ownerOnly || can("dashboard_finance")) && (s.key !== "loyaltyCard" || hasFeature("loyalty")));
   const current = visible.find((s) => s.key === section) || visible[0];
 
   return (
@@ -99,7 +100,7 @@ export function Settings() {
 
         <div className="flex-1 min-w-0 w-full">
           <div className="mb-4">
-            <h2 className="text-[17px] font-bold text-t1">{current.label}</h2>
+            <h2 className="text-[17px] font-semibold text-t1">{current.label}</h2>
             <p className="text-[13px] text-t3 mt-0.5">{current.blurb}</p>
           </div>
 
@@ -110,7 +111,7 @@ export function Settings() {
               prefs={data.business.settings.alerts}
               emailConfigured={data.business.emailConfigured}
               aiDigestEnabled={data.business.settings.ai.digestEnabled}
-              aiConfigured={data.business.aiConfigured}
+              aiConfigured={data.business.aiConfigured && hasFeature("ai")}
               onSaved={reload}
             />
           )}
@@ -226,13 +227,13 @@ function BusinessSection({ data, onSaved }: { data: SettingsData; onSaved: () =>
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-1">
           <KeyRound className="w-4 h-4 text-primary" />
-          <div className="text-[13px] font-bold text-t1">Till login code</div>
+          <div className="text-[13px] font-semibold text-t1">Till login code</div>
         </div>
         <div className="text-[12px] text-t3 mb-3">
           Staff type this once on a till device. After that they sign in with only their PIN.
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex-1 font-mono text-[22px] font-extrabold tracking-[0.3em] text-primary text-center py-3 rounded-ctl bg-primary-softer border border-line">
+          <div className="flex-1 font-mono text-[22px] font-semibold tracking-[0.3em] text-primary text-center py-3 rounded-ctl bg-primary-softer border border-line">
             {data.business.code}
           </div>
           <button
@@ -324,7 +325,7 @@ function AlertsSection({ emails, prefs, emailConfigured, aiDigestEnabled, aiConf
       <ErrorBanner message={error} />
 
       <Card className="p-5">
-        <div className="text-[13px] font-bold text-t1 mb-1">Tell me about</div>
+        <div className="text-[13px] font-semibold text-t1 mb-1">Tell me about</div>
         <div className="text-[12px] text-t3 mb-3">These appear in the bell at the top of the screen straight away.</div>
         <div className="space-y-1.5">
           {toggles.map((t) => (
@@ -379,7 +380,7 @@ function AlertsSection({ emails, prefs, emailConfigured, aiDigestEnabled, aiConf
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-1">
           {emailConfigured ? <Mail className="w-4 h-4 text-primary" /> : <MailWarning className="w-4 h-4 text-warning" />}
-          <div className="text-[13px] font-bold text-t1">Also email these people</div>
+          <div className="text-[13px] font-semibold text-t1">Also email these people</div>
         </div>
         <div className="text-[12px] text-t3 mb-3">
           One message per check, most urgent first — not one email per problem.
@@ -544,7 +545,7 @@ function LoyaltyCardSection({ rule, currency, onSaved }: { rule: LoyaltyRule; cu
     <div className="space-y-4">
       <ErrorBanner message={error} />
       <Card className="p-5">
-        <div className="text-[13px] font-bold text-t1 mb-1">Who qualifies</div>
+        <div className="text-[13px] font-semibold text-t1 mb-1">Who qualifies</div>
         <div className="text-[12px] text-t3 mb-3">
           A customer who crosses this line gets a QR loyalty card — emailed or shared by WhatsApp from their profile,
           scanned at the till on every visit after.
@@ -582,7 +583,7 @@ function LoyaltyCardSection({ rule, currency, onSaved }: { rule: LoyaltyRule; cu
 
       {form.mode !== "off" && (
         <Card className="p-5">
-          <div className="text-[13px] font-bold text-t1 mb-1">The reward</div>
+          <div className="text-[13px] font-semibold text-t1 mb-1">The reward</div>
           <div className="text-[12px] text-t3 mb-3">Applied at checkout when the cashier scans the card.</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Discount type">
@@ -643,7 +644,7 @@ function PermissionsSection() {
   return (
     <div className="space-y-4">
       <Card className="p-5">
-        <div className="text-[13px] font-bold text-t1 mb-1">Role ladder</div>
+        <div className="text-[13px] font-semibold text-t1 mb-1">Role ladder</div>
         <div className="text-[12px] text-t3 mb-4">
           What each role can do out of the box. A person can also be given permission overrides beyond their role from the Staff page.
         </div>
@@ -671,7 +672,7 @@ function PermissionsSection() {
 
       <Card className="p-5 flex items-center justify-between gap-4 flex-wrap">
         <div className="min-w-0">
-          <div className="text-[13px] font-bold text-t1">Manage individual staff</div>
+          <div className="text-[13px] font-semibold text-t1">Manage individual staff</div>
           <div className="text-[12px] text-t3 mt-0.5">
             Set roles, branches, PINs and per-person permission overrides for each team member.
           </div>
@@ -743,7 +744,7 @@ function AdvancedSection() {
 
   return (
     <Card className="p-5">
-      <div className="text-[13px] font-bold text-t1 mb-1">Dashboard figures look wrong?</div>
+      <div className="text-[13px] font-semibold text-t1 mb-1">Dashboard figures look wrong?</div>
       <div className="text-[12px] text-t3 mb-3 leading-relaxed">
         The dashboard keeps a running summary so it loads instantly instead of adding up every sale each time. If a
         figure ever disagrees with the sales list, recalculate the period below — it reads your sales, returns and

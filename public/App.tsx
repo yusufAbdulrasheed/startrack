@@ -6,6 +6,7 @@ import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
 import { LoyaltyCardView } from "@/pages/LoyaltyCardView";
 import { Dashboard } from "@/pages/Dashboard";
+import { AllStores } from "@/pages/AllStores";
 import { StaffHome } from "@/pages/StaffHome";
 import { POS } from "@/pages/POS";
 import { Sales } from "@/pages/Sales";
@@ -35,14 +36,28 @@ import { Audit } from "@/pages/Audit";
 import { Tickets } from "@/pages/Tickets";
 import { AskAI } from "@/pages/AskAI";
 import { Members } from "@/pages/Members";
+import { Academy } from "@/pages/Academy";
+import { Appointments } from "@/pages/Appointments";
+import { Projects } from "@/pages/Projects";
+import { MySite } from "@/pages/MySite";
+import { Billing } from "@/pages/Billing";
+import { ReceiptDesigner } from "@/pages/ReceiptDesigner";
+import { FeatureGate } from "@/components/plan/PlanUi";
+import { BusinessSite } from "@/pages/BusinessSite";
 
 // Owners/managers land on the dashboard; till-PIN staff land straight on the
 // POS (speed matters at the till); account-login staff without a dashboard
 // land on their own self-service home hub instead.
 function Home() {
-  const { can, session } = useSession();
+  const { can, session, hasCapability } = useSession();
   if (can("dashboard_ops")) return <Navigate to="dashboard" replace />;
-  if (session?.mode === "till") return <Navigate to="pos" replace />;
+  // A service business's front desk works in its own screen, not the product till.
+  if (session?.mode === "till") {
+    if (hasCapability("programs")) return <Navigate to="academy" replace />;
+    if (hasCapability("appointments")) return <Navigate to="appointments" replace />;
+    if (hasCapability("projects")) return <Navigate to="projects" replace />;
+    return <Navigate to="pos" replace />;
+  }
   return <Navigate to="home" replace />;
 }
 
@@ -53,6 +68,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/loyalty/:code" element={<LoyaltyCardView />} />
+      <Route path="/s/:slug" element={<BusinessSite />} />
       <Route
         path="/app"
         element={
@@ -64,34 +80,41 @@ export default function App() {
         <Route index element={<Home />} />
         <Route path="home" element={<StaffHome />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="all-stores" element={<FeatureGate feature="multiStore"><AllStores /></FeatureGate>} />
         <Route path="pos" element={<POS />} />
         <Route path="sales" element={<Sales />} />
         <Route path="products" element={<Products />} />
         <Route path="stock-in" element={<StockIn />} />
-        <Route path="transfers" element={<Transfers />} />
-        <Route path="returns" element={<Returns />} />
-        <Route path="jobs" element={<Jobs />} />
-        <Route path="members" element={<Members />} />
-        <Route path="serials" element={<Serials />} />
-        <Route path="production" element={<Production />} />
-        <Route path="vaccinations" element={<Vaccinations />} />
-        <Route path="suppliers" element={<Suppliers />} />
-        <Route path="stock-count" element={<StockCount />} />
-        <Route path="cohorts" element={<Cohorts />} />
-        <Route path="kitchen" element={<KitchenQueue />} />
-        <Route path="front-desk" element={<Hotel />} />
-        <Route path="cold-room" element={<ColdRoom />} />
+        <Route path="transfers" element={<FeatureGate feature="transfers"><Transfers /></FeatureGate>} />
+        <Route path="returns" element={<FeatureGate feature="returns"><Returns /></FeatureGate>} />
+        <Route path="jobs" element={<FeatureGate feature="verticals"><Jobs /></FeatureGate>} />
+        <Route path="members" element={<FeatureGate feature="verticals"><Members /></FeatureGate>} />
+        <Route path="academy" element={<FeatureGate feature="verticals"><Academy /></FeatureGate>} />
+        <Route path="appointments" element={<FeatureGate feature="verticals"><Appointments /></FeatureGate>} />
+        <Route path="projects" element={<FeatureGate feature="verticals"><Projects /></FeatureGate>} />
+        <Route path="serials" element={<FeatureGate feature="verticals"><Serials /></FeatureGate>} />
+        <Route path="production" element={<FeatureGate feature="verticals"><Production /></FeatureGate>} />
+        <Route path="vaccinations" element={<FeatureGate feature="verticals"><Vaccinations /></FeatureGate>} />
+        <Route path="suppliers" element={<FeatureGate feature="suppliers"><Suppliers /></FeatureGate>} />
+        <Route path="stock-count" element={<FeatureGate feature="stockCount"><StockCount /></FeatureGate>} />
+        <Route path="cohorts" element={<FeatureGate feature="verticals"><Cohorts /></FeatureGate>} />
+        <Route path="kitchen" element={<FeatureGate feature="verticals"><KitchenQueue /></FeatureGate>} />
+        <Route path="front-desk" element={<FeatureGate feature="verticals"><Hotel /></FeatureGate>} />
+        <Route path="cold-room" element={<FeatureGate feature="verticals"><ColdRoom /></FeatureGate>} />
         <Route path="businesses" element={<MyBusinesses />} />
         <Route path="platform" element={<Platform />} />
         <Route path="customers" element={<Customers />} />
         <Route path="expenses" element={<Expenses />} />
         <Route path="staff" element={<Staff />} />
-        <Route path="attendance" element={<Attendance />} />
+        <Route path="attendance" element={<FeatureGate feature="attendance"><Attendance /></FeatureGate>} />
         <Route path="activity" element={<Activity />} />
         <Route path="settings" element={<Settings />} />
-        <Route path="audit" element={<Audit />} />
+        <Route path="billing" element={<Billing />} />
+        <Route path="receipt" element={<FeatureGate feature="receiptCustom"><ReceiptDesigner /></FeatureGate>} />
+        <Route path="my-site" element={<FeatureGate feature="sitePage"><MySite /></FeatureGate>} />
+        <Route path="audit" element={<FeatureGate feature="auditLog"><Audit /></FeatureGate>} />
         <Route path="tickets" element={<Tickets />} />
-        <Route path="ask-ai" element={<AskAI />} />
+        <Route path="ask-ai" element={<FeatureGate feature="ai"><AskAI /></FeatureGate>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

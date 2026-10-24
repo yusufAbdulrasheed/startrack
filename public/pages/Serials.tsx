@@ -66,7 +66,7 @@ export function Serials() {
                   )}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-mono text-[13px] font-bold text-t1 truncate">{s.serialNo}</div>
+                    <div className="font-mono text-[13px] font-semibold text-t1 truncate">{s.serialNo}</div>
                     <div className="text-[11px] text-t3 truncate">{s.productName}</div>
                   </div>
                   <Badge tone={STATUS_TONE[s.status] || "neutral"} className="capitalize shrink-0">{s.status.replace("_", " ")}</Badge>
@@ -90,7 +90,7 @@ function SerialDetail({ serialNo, currency }: { serialNo: string; currency: stri
   return (
     <Card className="p-5 self-start">
       <div className="flex items-center justify-between mb-1">
-        <div className="font-mono text-[15px] font-bold text-t1">{serial.serialNo}</div>
+        <div className="font-mono text-[15px] font-semibold text-t1">{serial.serialNo}</div>
         <Badge tone={STATUS_TONE[serial.status] || "neutral"} className="capitalize">{serial.status.replace("_", " ")}</Badge>
       </div>
       <div className="text-[12px] text-t3 mb-4">{serial.productName}</div>
@@ -117,7 +117,7 @@ function SerialDetail({ serialNo, currency }: { serialNo: string; currency: stri
         </div>
       )}
 
-      <div className="text-[11px] font-bold uppercase tracking-wide text-t4 mb-2">Repair history</div>
+      <div className="text-[11px] font-medium text-t4 mb-2">Repair history</div>
       {jobs.length === 0 ? (
         <div className="text-[12px] text-t4">No job tickets opened against this unit.</div>
       ) : (
@@ -130,7 +130,7 @@ function SerialDetail({ serialNo, currency }: { serialNo: string; currency: stri
                 <div className="text-[10.5px] text-t3">{j.jobNo} · {fmtDateTime(j.receivedAt)}</div>
               </div>
               <Badge tone="neutral" className="capitalize shrink-0">{j.stage.replace("_", " ")}</Badge>
-              <span className="font-mono text-[12px] font-bold text-t1 shrink-0">{fmtMoney(j.total, currency)}</span>
+              <span className="font-mono text-[12px] font-semibold text-t1 shrink-0">{fmtMoney(j.total, currency)}</span>
             </div>
           ))}
         </div>

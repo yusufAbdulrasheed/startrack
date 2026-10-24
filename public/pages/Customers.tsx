@@ -29,7 +29,7 @@ type LoyaltyStatus = { sachetBagQty: number; tokens: number; tokensRedeemed: num
 type SupplySchedule = { interval: "none" | "daily" | "weekly" | "biweekly" | "monthly"; nextDueAt: string | null };
 
 export function Customers() {
-  const { currency, hasCapability, hasModule } = useSession();
+  const { currency, hasCapability, hasModule, hasFeature } = useSession();
   const creditOn = hasCapability("credit");
   const [searchParams] = useSearchParams();
   const [q, setQ] = useState(searchParams.get("q") || "");
@@ -65,7 +65,7 @@ export function Customers() {
               <HandCoins className="w-[18px] h-[18px]" />
             </div>
             <div>
-              <div className="text-[13px] font-bold text-t1">{fmtMoney(data.totalOutstanding, currency)} owed on credit</div>
+              <div className="text-[13px] font-semibold text-t1">{fmtMoney(data.totalOutstanding, currency)} owed on credit</div>
               <div className="text-[11px] text-t3">Across every customer with a balance</div>
             </div>
           </div>
@@ -106,7 +106,7 @@ export function Customers() {
           <div className="divide-y divide-line">
             {paged.rows.map((c) => (
               <button key={c.id} onClick={() => setSelected(c)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors">
-                <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-semibold text-[13px] flex items-center justify-center shrink-0">
                   {c.name[0]?.toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -116,7 +116,7 @@ export function Customers() {
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(c.totalSpend, currency)}</div>
+                  <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">{fmtMoney(c.totalSpend, currency)}</div>
                   <div className="text-[11px] text-t4">{c.visits} visit{c.visits === 1 ? "" : "s"}</div>
                   {creditOn && c.creditBalance > 0 && (
                     <Badge tone="warning" className="mt-0.5">owes {fmtMoney(c.creditBalance, currency)}</Badge>
@@ -134,8 +134,8 @@ export function Customers() {
       <CustomerDetail
         customer={selected}
         currency={currency}
-        showLoyalty={hasCapability("loyalty")}
-        showLoyaltyCard={hasModule("loyaltyCard")}
+        showLoyalty={hasCapability("loyalty") && hasFeature("loyalty")}
+        showLoyaltyCard={hasModule("loyaltyCard") && hasFeature("loyalty")}
         showCredit={creditOn}
         onClose={() => setSelected(null)}
         onChanged={reload}
@@ -145,7 +145,9 @@ export function Customers() {
 }
 
 function AddCustomer({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const { activeBranch, branchesForActive } = useSession();
   const [form, setForm] = useState({ name: "", phone: "", notes: "" });
+  const [shared, setShared] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -153,8 +155,9 @@ function AddCustomer({ open, onClose, onSaved }: { open: boolean; onClose: () =>
     e.preventDefault();
     setBusy(true); setError("");
     try {
-      await api("/customers", { method: "POST", body: JSON.stringify(form) });
+      await api("/customers", { method: "POST", body: JSON.stringify({ ...form, shareWithAllStores: shared }) });
       setForm({ name: "", phone: "", notes: "" });
+      setShared(false);
       onSaved();
     } catch (err: any) {
       setError(err.message);
@@ -170,6 +173,12 @@ function AddCustomer({ open, onClose, onSaved }: { open: boolean; onClose: () =>
         <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></Field>
         <Field label="Phone / WhatsApp"><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} /></Field>
         <Field label="Notes"><TextArea rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></Field>
+        {branchesForActive.length > 1 && (
+          <label className="flex items-start gap-2 text-[12px] text-t2">
+            <input type="checkbox" className="mt-0.5" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+            <span>Known at every branch. Left off, this customer belongs to <b>{activeBranch?.name}</b> only.</span>
+          </label>
+        )}
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : "Add customer"}</Button>
       </form>
     </Modal>
@@ -196,7 +205,7 @@ function CustomerDetail({ customer, currency, showLoyalty, showLoyaltyCard, show
           { l: "Customer since", v: fmtDate(c.firstSeen) },
         ].map((s) => (
           <div key={s.l} className="rounded-xl bg-surface-2 border border-line p-3 min-w-0">
-            <div className="text-[15px] font-bold font-mono text-t1 truncate">{s.v}</div>
+            <div className="text-[15px] font-semibold font-mono text-t1 truncate">{s.v}</div>
             <div className="text-[10px] font-medium text-t3 mt-0.5 truncate">{s.l}</div>
           </div>
         ))}
@@ -205,7 +214,7 @@ function CustomerDetail({ customer, currency, showLoyalty, showLoyaltyCard, show
       {showLoyaltyCard && <LoyaltyCardPanel customerId={customer.id} customerPhone={c.phone || c.whatsapp} />}
       {showLoyalty && <LoyaltySection customerId={customer.id} onChanged={onChanged} />}
       {showCredit && <CreditSection customerId={customer.id} currency={currency} onChanged={onChanged} />}
-      <div className="text-[12px] font-bold uppercase tracking-wide text-t3 mb-2">Purchase history</div>
+      <div className="text-[12px] font-medium text-t3 mb-2">Purchase history</div>
       {loading ? (
         <Spinner />
       ) : !data?.sales.length ? (
@@ -216,13 +225,13 @@ function CustomerDetail({ customer, currency, showLoyalty, showLoyaltyCard, show
             <div key={s.id} className="flex items-center gap-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[12px] font-bold text-primary">{s.saleNo}</span>
+                  <span className="font-mono text-[12px] font-semibold text-primary">{s.saleNo}</span>
                   {s.status === "voided" && <Badge tone="danger">voided</Badge>}
                   <span className="text-[11px] text-t4">{fmtDateTime(s.at)}</span>
                 </div>
                 <div className="text-[12px] text-t3 truncate">{s.summary}</div>
               </div>
-              <span className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(s.total, currency)}</span>
+              <span className="font-mono text-[13px] font-semibold text-t1 tabular-nums shrink-0">{fmtMoney(s.total, currency)}</span>
             </div>
           ))}
         </div>
@@ -291,7 +300,7 @@ function LoyaltyCardPanel({ customerId, customerPhone }: { customerId: string; c
     <div className="mb-4 rounded-ctl border border-line bg-surface-2 p-3.5">
       <div className="flex items-center gap-2 mb-3">
         <QrCode className="w-3.5 h-3.5 text-primary" />
-        <span className="text-[12px] font-bold text-t1">Loyalty card</span>
+        <span className="text-[12px] font-semibold text-t1">Loyalty card</span>
         <span className="ml-auto text-[11px] text-t4">{card.scanCount} scan{card.scanCount === 1 ? "" : "s"}</span>
       </div>
       <div className="flex items-start gap-4 flex-wrap">
@@ -391,7 +400,7 @@ function LoyaltySection({ customerId, onChanged }: { customerId: string; onChang
       <div className="rounded-ctl bg-surface-2 border border-line p-3">
         <div className="flex items-center gap-2 mb-2">
           <Coins className="w-3.5 h-3.5 text-primary" />
-          <span className="text-[12px] font-bold text-t1">Loyalty tokens</span>
+          <span className="text-[12px] font-semibold text-t1">Loyalty tokens</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
           {[
@@ -401,7 +410,7 @@ function LoyaltySection({ customerId, onChanged }: { customerId: string; onChang
             { l: "Free packs due", v: data.redeemable },
           ].map((s) => (
             <div key={s.l} className="text-center">
-              <div className="font-mono text-[14px] font-bold text-t1">{s.v}</div>
+              <div className="font-mono text-[14px] font-semibold text-t1">{s.v}</div>
               <div className="text-[9px] text-t4">{s.l}</div>
             </div>
           ))}
@@ -414,7 +423,7 @@ function LoyaltySection({ customerId, onChanged }: { customerId: string; onChang
       <div className="rounded-ctl bg-surface-2 border border-line p-3">
         <div className="flex items-center gap-2 mb-2">
           <Truck className="w-3.5 h-3.5 text-primary" />
-          <span className="text-[12px] font-bold text-t1">Supply schedule</span>
+          <span className="text-[12px] font-semibold text-t1">Supply schedule</span>
         </div>
         <div className="flex items-end gap-2">
           <Field label="Repeats" className="flex-1">
@@ -482,9 +491,9 @@ function CreditSection({ customerId, currency, onChanged }: { customerId: string
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <HandCoins className="w-3.5 h-3.5 text-primary" />
-            <span className="text-[12px] font-bold text-t1">Credit balance</span>
+            <span className="text-[12px] font-semibold text-t1">Credit balance</span>
           </div>
-          <span className={cn("font-mono text-[16px] font-bold", data.creditBalance > 0 ? "text-warning" : "text-t1")}>
+          <span className={cn("font-mono text-[16px] font-semibold", data.creditBalance > 0 ? "text-warning" : "text-t1")}>
             {fmtMoney(data.creditBalance, currency)}
           </span>
         </div>

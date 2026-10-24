@@ -158,7 +158,7 @@ export function NotificationBell() {
         {unread > 0 && (
           <span
             className={cn(
-              "absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[9px] font-bold flex items-center justify-center",
+              "absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[9px] font-semibold flex items-center justify-center",
               criticals > 0 ? "bg-danger" : "bg-warning"
             )}
           >
@@ -168,11 +168,11 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute top-full mt-1.5 right-0 w-[min(380px,calc(100vw-2rem))] bg-surface border border-line-2 rounded-xl shadow-e2 z-50 overflow-hidden animate-fade-up">
+        <div className="absolute top-full mt-1.5 right-0 w-[min(380px,calc(100vw-2rem))] pop border border-line-2 rounded-xl shadow-e2 z-50 overflow-hidden animate-fade-up">
           <div className="flex items-center gap-2 px-4 py-3 border-b border-line">
-            <span className="text-[13px] font-bold text-t1">Alerts</span>
+            <span className="text-[13px] font-semibold text-t1">Alerts</span>
             {items.length > 0 && (
-              <span className={cn("text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded", TONE[criticals > 0 ? "critical" : "warning"].chip)}>
+              <span className={cn("text-[11.5px] font-medium px-1.5 py-0.5 rounded", TONE[criticals > 0 ? "critical" : "warning"].chip)}>
                 {items.length} open
               </span>
             )}
@@ -190,7 +190,7 @@ export function NotificationBell() {
               </div>
             ) : items.length === 0 ? (
               <div className="px-6 py-10 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-success-soft text-success flex items-center justify-center mx-auto mb-3">
+                <div className="w-12 h-12 rounded-xl bg-success-soft text-success flex items-center justify-center mx-auto mb-3">
                   <Check className="w-6 h-6" />
                 </div>
                 <div className="text-[13px] font-semibold text-t2">Nothing needs you</div>

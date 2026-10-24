@@ -47,7 +47,7 @@ export function StockCount() {
 
       {!openCount && counts.length > 0 && (
         <div className="mt-6">
-          <div className="text-[12px] font-bold uppercase tracking-wide text-t3 mb-2">History</div>
+          <div className="text-[12px] font-medium text-t3 mb-2">History</div>
           <Card className="overflow-hidden">
             <div className="divide-y divide-line">
               {counts.map((c) => {
@@ -101,7 +101,7 @@ function StartCountModal({ open, onClose, onStarted }: { open: boolean; onClose:
   if (!open) return null;
   return (
     <Card className="p-5 mb-6">
-      <div className="text-[13px] font-bold text-t1 mb-3">Start a new count</div>
+      <div className="text-[13px] font-semibold text-t1 mb-3">Start a new count</div>
       {error && <div className="text-[12px] text-danger mb-2">{error}</div>}
       <div className="flex items-end gap-2">
         <Field label="Scope" hint="Optional — leave blank to count everything" className="flex-1 max-w-xs">
@@ -150,7 +150,7 @@ function ActiveCount({ count, canManage, onChanged }: { count: Count; canManage:
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-line flex-wrap">
-        <span className="text-[13px] font-bold text-t1">{count.countNo}</span>
+        <span className="text-[13px] font-semibold text-t1">{count.countNo}</span>
         <Badge tone="brand">Open</Badge>
         <span className="text-[11px] text-t3">{countedSoFar}/{count.lines.length} counted</span>
         {canManage && (
@@ -163,7 +163,7 @@ function ActiveCount({ count, canManage, onChanged }: { count: Count; canManage:
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="text-left text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line">
+            <tr className="text-left text-[11.5px] font-medium text-t4 border-b border-line">
               <th className="px-4 py-2">Product</th>
               <th className="px-4 py-2 text-right">System</th>
               <th className="px-4 py-2 text-right">Counted</th>
@@ -187,7 +187,7 @@ function ActiveCount({ count, canManage, onChanged }: { count: Count; canManage:
                       className="!w-24 !h-8 text-right ml-auto"
                     />
                   </td>
-                  <td className={cn("px-4 py-2 text-right font-mono text-[12px] font-bold", variance === null ? "text-t4" : variance === 0 ? "text-success" : "text-warning")}>
+                  <td className={cn("px-4 py-2 text-right font-mono text-[12px] font-semibold", variance === null ? "text-t4" : variance === 0 ? "text-success" : "text-warning")}>
                     {variance === null ? "—" : variance > 0 ? `+${variance}` : variance}
                   </td>
                 </tr>

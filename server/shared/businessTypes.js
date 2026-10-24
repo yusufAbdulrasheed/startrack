@@ -40,6 +40,10 @@ export const CAPABILITIES = {
   lots:         { label: "Batch / lot tracking", hint: "Expiry and recall by batch, not by product" },
   loyalty:      { label: "Loyalty tokens", hint: "Reward tokens from repeat purchases, redeemable for free packs" },
   coldChain:    { label: "Cold-chain batches", hint: "Cartons that convert into kg and pieces, with the weight loss between them and power-failure loss both tracked explicitly" },
+  // The three service capabilities below sell no stock at all. Their money
+  // still lands as ordinary Sales/DailyMetrics (see server/modules/services/).
+  programs:     { label: "Courses & classes", hint: "Courses run as intakes; students enrol, pay fees in instalments and are marked present each session" },
+  projects:     { label: "Client projects", hint: "Work agreed for a budget, delivered in milestones, paid in stages and logged against hours" },
 };
 
 export const ALL_CAPABILITIES = Object.keys(CAPABILITIES);
@@ -177,6 +181,42 @@ export const BUSINESS_TYPES = {
       "Members who tap in, not stock that runs out",
       ["memberships"]),
     skuPrefix: "GYM",
+  },
+
+  // ── Service businesses ──────────────────────────────────────────────
+  // These sell time and expertise, not stock. Each has its own workflow
+  // (server/modules/businesses/{academy,salon,agency}/); the product catalog
+  // is only for the few physical extras they also sell (books, hair products).
+  academy: {
+    label: "Training Academy / Tech School",
+    ...T("Store Items", "Front Desk",
+      ["Books & Materials", "Merchandise", "Equipment"],
+      ["customers", "expenses", "attendance"],
+      "Courses, classes and students — with the fees still owed",
+      ["programs"]),
+    skuPrefix: "ACA",
+    positions: [
+      "Director", "Head of Training", "Lead Tutor", "Tutor", "Teaching Assistant",
+      "Admissions Officer", "Accountant", "Front Desk",
+    ],
+  },
+  salon: {
+    label: "Salon / Barber / Spa",
+    ...T("Salon Products", "Front Desk",
+      ["Hair Products", "Skin Care", "Accessories"],
+      ["customers", "expenses", "attendance", "suppliers", "stock_count", "loyaltyCard"],
+      "A full chair is the product — book it, serve it, get paid",
+      ["appointments"]),
+    skuPrefix: "SAL",
+  },
+  agency: {
+    label: "Tech Agency / Freelance Studio",
+    ...T("Equipment & Licences", "Billing Desk",
+      ["Equipment", "Licences"],
+      ["customers", "expenses", "attendance"],
+      "Projects, milestones and the money still to collect",
+      ["projects"]),
+    skuPrefix: "AGE",
   },
 };
 

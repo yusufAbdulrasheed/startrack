@@ -6,7 +6,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-const KEYPAD_MAX = 6;
+const KEYPAD_MAX = 4; // a till PIN is exactly four digits
 
 export function Login() {
   const navigate = useNavigate();
@@ -47,28 +47,24 @@ export function Login() {
   }
 
   const inputCls =
-    "w-full h-11 px-4 rounded-ctl bg-surface-2 border border-line-2 text-[14px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer";
+    "w-full h-11 px-3.5 rounded-ctl bg-surface border border-line-2 text-[14px] text-t1 placeholder:text-t4 hover:border-t4 focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-soft transition-[border-color,box-shadow]";
 
   return (
     <div className="h-full flex items-center justify-center bg-canvas relative overflow-hidden">
       <div className="absolute top-5 right-5"><ThemeToggle /></div>
-      <div
-        className="absolute inset-0 pointer-events-none opacity-60"
-        style={{ backgroundImage: "radial-gradient(circle, var(--st-border-2) 1px, transparent 1px)", backgroundSize: "28px 28px" }}
-      />
-      <div className="relative w-[400px] max-w-[92vw] rounded-3xl bg-surface border border-line-2 shadow-e2 p-10 text-center animate-fade-up">
-        <Link to="/" className="inline-flex w-16 h-16 rounded-2xl bg-primary shadow-brand items-center justify-center mb-5">
-          <svg viewBox="0 0 32 32" fill="none" className="w-8 h-8">
+      <div className="relative w-[420px] max-w-[92vw] rounded-[24px] shadow-lg2 bg-surface border border-line p-9 text-center animate-fade-up">
+        <Link to="/" className="inline-flex w-11 h-11 rounded-[10px] bg-brand-700 items-center justify-center mb-5">
+          <svg viewBox="0 0 32 32" fill="none" className="w-6 h-6">
             <path d="M4 8h24M4 16h15M4 24h19" stroke="white" strokeWidth="2.3" strokeLinecap="round" />
-            <circle cx="26" cy="24" r="4.5" fill="white" opacity=".92" />
-            <path d="M24.2 24l1.2 1.3L28 22.4" stroke="var(--st-brand-700)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="26" cy="24" r="4.5" fill="white" />
+            <path d="M24.2 24l1.2 1.3L28 22.4" stroke="#5b5bd6" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </Link>
-        <h1 className="font-display text-2xl font-extrabold tracking-tight text-t1">Welcome back</h1>
+        <h1 className="text-[22px] font-semibold text-t1">Welcome back</h1>
         <p className="text-[13px] text-t3 mt-1 mb-6">Sign in to your business</p>
 
         {/* Mode tabs */}
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-ctl bg-surface-2 border border-line mb-5">
+        <div className="grid grid-cols-2 gap-0.5 p-0.5 rounded-ctl bg-surface-3 mb-5">
           {([
             { k: "account", label: "Account" },
             { k: "till", label: "Staff PIN" },
@@ -78,8 +74,8 @@ export function Login() {
               type="button"
               onClick={() => { setTab(t.k); setError(""); setPin(""); }}
               className={cn(
-                "h-9 rounded-lg text-[13px] font-semibold transition-colors",
-                tab === t.k ? "bg-surface text-primary shadow-e1" : "text-t3 hover:text-t1"
+                "h-8 rounded-md text-[13px] font-medium transition-colors",
+                tab === t.k ? "bg-surface text-t1 shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-t3 hover:text-t1"
               )}
             >
               {t.label}
@@ -88,7 +84,7 @@ export function Login() {
         </div>
 
         {error && (
-          <div className="flex items-center gap-2 text-left px-3 py-2.5 mb-4 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">
+          <div className="flex items-center gap-2 text-left px-3 py-2.5 mb-4 rounded-ctl bg-danger-soft text-danger text-[12.5px] font-medium">
             <AlertCircle className="w-4 h-4 shrink-0" /> {error}
           </div>
         )}
@@ -133,7 +129,7 @@ export function Login() {
                     key={d}
                     type="button"
                     onClick={() => pressDigit(d)}
-                    className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-bold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
+                    className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-semibold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
                   >
                     {d}
                   </button>
@@ -141,14 +137,14 @@ export function Login() {
                 <button
                   type="button"
                   onClick={() => { setError(""); setPin(""); }}
-                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[11px] font-bold uppercase tracking-wide text-t3 hover:bg-surface-3 active:scale-95 transition-all"
+                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[11px] font-medium text-t3 hover:bg-surface-3 active:scale-95 transition-all"
                 >
                   Clear
                 </button>
                 <button
                   type="button"
                   onClick={() => pressDigit("0")}
-                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-bold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
+                  className="h-12 rounded-ctl bg-surface-2 border border-line-2 text-[17px] font-semibold text-t1 hover:bg-surface-3 active:scale-95 transition-all"
                 >
                   0
                 </button>
@@ -162,7 +158,7 @@ export function Login() {
                 </button>
               </div>
 
-              <Button type="submit" size="lg" className="w-full mt-2" disabled={busy || pin.length < 4}>
+              <Button type="submit" size="lg" className="w-full mt-2" disabled={busy || pin.length < KEYPAD_MAX}>
                 <KeyRound className="w-4 h-4" /> {busy ? "Signing in…" : "Sign in with PIN"}
               </Button>
               <p className="text-[11px] text-t4 text-center">Ask your manager for the business code and your PIN.</p>

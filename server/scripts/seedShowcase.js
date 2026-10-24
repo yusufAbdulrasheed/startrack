@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { SHOWCASE_OWNER_PASSWORD, SHOWCASE_PLANS, showcaseSubscription } from "./showcasePlans.js";
 import { connectDb } from "#core/db.js";
 import { hashPassword } from "#modules/auth/auth.service.js";
 import { User } from "#modules/auth/user.model.js";
@@ -23,6 +24,14 @@ import { money } from "#core/money.js";
 import { localDay, bumpDailyMetric } from "#modules/metrics/metrics.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
+import { seedAcademyDemo, seedSalonDemo, seedAgencyDemo } from "#modules/services/demoSeedServices.js";
+import { Course } from "#modules/businesses/academy/course.model.js";
+import { Intake } from "#modules/businesses/academy/intake.model.js";
+import { Enrollment } from "#modules/businesses/academy/enrollment.model.js";
+import { ClassSession } from "#modules/businesses/academy/classSession.model.js";
+import { SalonService } from "#modules/businesses/salon/salonService.model.js";
+import { Appointment } from "#modules/businesses/salon/appointment.model.js";
+import { Project } from "#modules/businesses/agency/project.model.js";
 import { priceLines, totalsFor } from "#modules/jobs/jobs.service.js";
 import { Job } from "#modules/jobs/job.model.js";
 import { ProductionRun } from "#modules/production/productionRun.model.js";
@@ -50,10 +59,11 @@ import { GymCheckIn } from "#modules/businesses/gym/gymCheckIn.model.js";
  * (the 24h "Try the demo" sandbox, still untouched and still random-password),
  * everything here uses fixed, known credentials and never expires.
  *
- * Run: `node server/scripts/seedShowcase.js` (add --reset to wipe and rebuild).
+ * Run: `node server/scripts/seedShowcase.js` (add --reset to wipe and rebuild;
+ * add --only=<type> to act on a single business, e.g. `--reset --only=academy`).
  */
 
-const OWNER_PASSWORD = "Demo@1234";
+const OWNER_PASSWORD = SHOWCASE_OWNER_PASSWORD;
 const STAFF_PIN_STAFF = "1111";
 const STAFF_PIN_MANAGER = "2222";
 
@@ -81,7 +91,8 @@ async function getOrCreateOwner(typeKey, shop) {
     return { user, account };
   }
   user = await User.create({ name: `${shop.business} Owner`, email, passwordHash: await hashPassword(OWNER_PASSWORD) });
-  const account = await Account.create({ name: shop.business, ownerUserId: user._id, isSandbox: false });
+  const plan = SHOWCASE_PLANS[typeKey] || "business";
+  const account = await Account.create({ name: shop.business, ownerUserId: user._id, isSandbox: false, plan, subscription: showcaseSubscription(plan) });
   return { user, account };
 }
 
@@ -109,6 +120,8 @@ async function purgeAccounts(accountIds) {
     ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
     LoyaltyCard.deleteMany(byAccount), Ticket.deleteMany(byAccount), RestockSuggestion.deleteMany(byAccount),
     GymPlan.deleteMany(byAccount), GymSubscription.deleteMany(byAccount), GymCheckIn.deleteMany(byAccount),
+    Course.deleteMany(byAccount), Intake.deleteMany(byAccount), Enrollment.deleteMany(byAccount), ClassSession.deleteMany(byAccount),
+    SalonService.deleteMany(byAccount), Appointment.deleteMany(byAccount), Project.deleteMany(byAccount),
     Membership.deleteMany({ accountId: { $in: accountIds } }),
     Branch.deleteMany({ accountId: { $in: accountIds } }),
     Business.deleteMany({ accountId: { $in: accountIds } }),
@@ -368,7 +381,7 @@ async function seedColdroom(ctx, business, byName) {
   if (!titus || !panla) return;
 
   // An open batch, mostly still sealed — the normal state.
-  const b1 = await ColdRoomBatch.create({
+  await ColdRoomBatch.create({
     accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: titus._id, productName: titus.name,
     purchaseDate: daysAgo(6), cartonsReceived: 30, packSizeKg: 20, unitCostPerCarton: 15600,
     remainingCartons: 22, remainingKg: 0, remainingPieces: 0,
@@ -403,7 +416,6 @@ async function seedColdroom(ctx, business, byName) {
   b2.remainingKg = b2LooseKg > 0 ? b2LooseKg : 6.4;
   await b2.save();
 
-  const secondBreakdownExpected = money(2 * b3.packSizeKg + 2 * b3.packSizeKg);
   await ColdRoomBreakdown.create({
     accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, batchId: b3._id, productId: panla._id, productName: panla.name,
     cartonsOpened: 2, expectedYieldKg: money(2 * b3.packSizeKg), actualWeighedKg: 19.2,
@@ -609,6 +621,8 @@ async function seedBusiness(typeKey, owner, account) {
     });
   }
   if (typeKey === "gym" && shop.gymPlans) await seedGym(ctx, shop, customers);
+  const svcSeed = { academy: seedAcademyDemo, salon: seedSalonDemo, agency: seedAgencyDemo }[typeKey];
+  if (svcSeed) await svcSeed({ base: { accountId: account._id, businessId: business._id }, branch, ctx });
 
   const lastSale = await seedTradingHistory(ctx, byName, customers, [amaka, chidi, owner]);
   if (typeKey === "restaurant") await seedKitchenQueue(ctx, lastSale);
@@ -639,15 +653,33 @@ async function seedBusiness(typeKey, owner, account) {
 
 async function main() {
   const reset = process.argv.includes("--reset");
+  // --only=<type> limits the run (and a --reset) to ONE business, so repairing
+  // or rebuilding one showcase never touches the others — important when
+  // MONGODB_URI points at a shared cloud database.
+  const only = process.argv.find((a) => a.startsWith("--only="))?.slice("--only=".length);
+  if (only && !DEMOS[only]) {
+    console.error(`Unknown business type "${only}". Choose one of: ${Object.keys(DEMOS).join(", ")}`);
+    process.exit(1);
+  }
   await connectDb();
 
-  if (reset) {
+  if (reset && only) {
+    console.log(`Resetting the ${only} showcase only…`);
+    const email = ownerEmailFor(only);
+    const owner = await User.findOne({ email });
+    if (owner) {
+      const accounts = await Account.find({ ownerUserId: owner._id }).select("_id");
+      await purgeAccounts(accounts.map((a) => a._id));
+      await User.deleteOne({ _id: owner._id }); // the owner may have no membership to be swept up by the purge
+    }
+  } else if (reset) {
     console.log("Resetting previous showcase data…");
     await wipeAllShowcaseData();
   }
 
   const results = [];
   for (const typeKey of Object.keys(DEMOS)) {
+    if (only && typeKey !== only) continue;
     const shop = DEMOS[typeKey];
     const { user: owner, account } = await getOrCreateOwner(typeKey, shop);
 

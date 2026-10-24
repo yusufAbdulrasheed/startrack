@@ -7,14 +7,14 @@ import { Branch } from "#modules/business/branch.model.js";
 import { Shift } from "#modules/staff/shift.model.js";
 import { RosterEntry } from "#modules/staff/rosterEntry.model.js";
 import { hashPassword, permsForRole } from "#modules/auth/auth.service.js";
-import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
+import { requirePerm, requireBranch, limitProblem } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { localDay } from "#modules/metrics/metrics.service.js";
 
 export const staffRouter = Router();
 
 const ASSIGNABLE_ROLES = ["admin", "manager", "staff"];
-const pinSchema = z.string().regex(/^\d{4,6}$/, "PIN must be 4–6 digits");
+const pinSchema = z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits");
 
 function shape(m, user, branch, shift, reportsToUser) {
   return {
@@ -39,12 +39,22 @@ function shape(m, user, branch, shift, reportsToUser) {
   };
 }
 
-// GET /api/staff — the team for the active business
+// People who work at the active branch: those assigned to it, plus the
+// branch-less roles (owner/admin = "All branches"). `scope=all` lifts the
+// branch filter so an owner can still see the whole business's team.
+function teamFilter(req) {
+  const base = { accountId: req.ctx.accountId, $or: [{ businessId: req.ctx.businessId }, { businessId: null }] };
+  if (req.ctx.branchId && req.query.scope !== "all") {
+    // Owners count everywhere: registration pins theirs to the first branch,
+    // but they run every one.
+    return { ...base, $and: [{ $or: [{ branchId: req.ctx.branchId }, { branchId: null }, { role: "owner" }] }] };
+  }
+  return base;
+}
+
+// GET /api/staff[?scope=all] — the team for the active branch of the active business
 staffRouter.get("/", requirePerm("staff_mgmt"), async (req, res) => {
-  const memberships = await Membership.find({
-    accountId: req.ctx.accountId,
-    $or: [{ businessId: req.ctx.businessId }, { businessId: null }],
-  }).sort({ createdAt: 1 });
+  const memberships = await Membership.find(teamFilter(req)).sort({ createdAt: 1 });
   const users = await User.find({ _id: { $in: memberships.map((m) => m.userId) } }).select("name email status");
   const branches = await Branch.find({ businessId: req.ctx.businessId }).select("name");
   const shifts = await Shift.find({ businessId: req.ctx.businessId });
@@ -65,11 +75,7 @@ staffRouter.get("/", requirePerm("staff_mgmt"), async (req, res) => {
 // Purely organizational (see Membership.position/reportsToId); the security
 // role ladder (owner/admin/manager/staff) is unaffected by this view.
 staffRouter.get("/org-chart", requirePerm("staff_mgmt"), async (req, res) => {
-  const memberships = await Membership.find({
-    accountId: req.ctx.accountId,
-    $or: [{ businessId: req.ctx.businessId }, { businessId: null }],
-    status: "active",
-  });
+  const memberships = await Membership.find({ ...teamFilter(req), status: "active" });
   const users = await User.find({ _id: { $in: memberships.map((m) => m.userId) } }).select("name");
   const userById = new Map(users.map((u) => [String(u._id), u]));
 
@@ -138,6 +144,10 @@ staffRouter.post("/", requirePerm("staff_mgmt"), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
+
+  // The owner doesn't count toward the plan's staff cap, only the people they add.
+  const staffRoom = limitProblem(req.ctx.plan, "staff", await Membership.countDocuments({ businessId: req.ctx.businessId, status: "active", role: { $ne: "owner" } }));
+  if (staffRoom) return res.status(403).json(staffRoom);
 
   if ((d.role === "manager" || d.role === "staff") && !d.branchId) {
     return res.status(400).json({ error: "invalid", message: "Managers and staff must be assigned to a branch." });

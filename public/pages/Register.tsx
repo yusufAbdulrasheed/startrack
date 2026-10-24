@@ -1,18 +1,21 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, Check, Search, Rocket, Store, MapPin, User,
   Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg, Snowflake,
+  GraduationCap, Scissors, Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { TYPE_META } from "@/lib/businessTypes";
 import { useSession } from "@/lib/session";
+import { PLANS, TRIAL_DAYS } from "#shared/plans.js";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, any> = {
   blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
   restaurant: UtensilsCrossed, water: Droplets, poultry: Egg, coldroom: Snowflake,
+  academy: GraduationCap, salon: Scissors, agency: Code2,
 };
 
 const STEPS = [
@@ -23,6 +26,9 @@ const STEPS = [
 
 export function Register() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // A plan picked on the landing page: after sign-up, go straight to paying for it.
+  const wantedPlan = (["free", "pro", "business"].includes(params.get("plan") || "") ? params.get("plan") : null) as "free" | "pro" | "business" | null;
   const { register } = useSession();
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -64,6 +70,7 @@ export function Register() {
         employees: Number(form.employees) || 0,
         branchName: form.branchName.trim(),
         currency: form.currency,
+        ...(wantedPlan ? { plan: wantedPlan } : {}),
       } as any);
       navigate("/app/dashboard");
     } catch (err: any) {
@@ -77,26 +84,21 @@ export function Register() {
     <div className="min-h-full flex bg-canvas">
       {/* Left: the pitch. Fixed dark panel, the one place the app goes bold. */}
       <aside className="hidden lg:flex w-[42%] max-w-[560px] shrink-0 flex-col justify-between p-10 relative overflow-hidden" style={{ background: "var(--st-ink)" }}>
-        {/* A slow, quiet field of light — motion that doesn't ask for attention. */}
-        <div aria-hidden className="absolute inset-0 opacity-70">
-          <div className="absolute -top-32 -left-24 w-[420px] h-[420px] rounded-full blur-3xl animate-drift" style={{ background: "radial-gradient(circle, rgba(0,40,142,.55), transparent 70%)" }} />
-          <div className="absolute bottom-[-140px] right-[-80px] w-[380px] h-[380px] rounded-full blur-3xl animate-drift-slow" style={{ background: "radial-gradient(circle, rgba(30,64,175,.4), transparent 70%)" }} />
-        </div>
 
         <div className="relative">
           <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center">
-              <Rocket className="w-[18px] h-[18px] text-white" />
+            <span className="w-8 h-8 rounded-lg bg-brand-700 flex items-center justify-center">
+              <Rocket className="w-4 h-4 text-white" strokeWidth={1.75} />
             </span>
             <div>
-              <div className="font-display font-bold text-[15px] text-white leading-none">StarTrack</div>
-              <div className="text-[10px] font-semibold tracking-[0.18em] uppercase text-white/50 mt-1">Business OS</div>
+              <div className="font-display font-semibold text-[15px] text-white leading-none">StarTrack</div>
+              <div className="text-[11.5px] font-medium text-white/50 mt-1">Business OS</div>
             </div>
           </div>
         </div>
 
         <div className="relative">
-          <h1 className="font-display font-extrabold text-white text-[38px] leading-[1.05] tracking-tight text-balance">
+          <h1 className="font-display font-semibold text-white text-[36px] leading-[1.1] tracking-[-0.025em] text-balance">
             Launch your<br />business.
           </h1>
           <p className="text-white/60 text-[14px] leading-relaxed mt-4 max-w-[380px]">
@@ -110,9 +112,9 @@ export function Register() {
               return (
                 <div key={s.n} className="flex items-center gap-3">
                   <span className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0 transition-all duration-300",
+                    "w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-medium shrink-0 transition-colors",
                     done ? "bg-white text-[color:var(--st-ink)]"
-                      : active ? "bg-white/15 text-white ring-2 ring-white/40"
+                      : active ? "bg-white/15 text-white ring-1 ring-white/40"
                       : "bg-white/5 text-white/40"
                   )}>
                     {done ? <Check className="w-4 h-4" /> : s.n}
@@ -134,7 +136,7 @@ export function Register() {
       {/* Right: the form */}
       <main className="flex-1 min-w-0 flex flex-col">
         <div className="flex items-center justify-between px-6 lg:px-10 h-16 shrink-0">
-          <span className="lg:hidden font-display font-bold text-[15px] text-t1">StarTrack</span>
+          <span className="lg:hidden font-display font-semibold text-[15px] text-t1">StarTrack</span>
           <div className="ml-auto text-[13px] text-t3">
             Already have an account? <Link to="/login" className="font-semibold text-primary hover:underline">Sign in</Link>
           </div>
@@ -153,8 +155,9 @@ export function Register() {
             </div>
 
             <div className="mb-6">
-              <div className="text-[11px] font-bold uppercase tracking-[0.1em] text-t4">Step {step} of 3</div>
-              <h2 className="font-display font-extrabold text-t1 text-[26px] tracking-tight mt-1">
+              <div className="text-[11px] font-medium tracking-[0.1em] text-t4">Step {step} of 3</div>
+              {wantedPlan && <div className="mt-1 text-[12.5px] font-semibold text-primary">You're starting a {TRIAL_DAYS}-day free trial of {PLANS[wantedPlan].name}.</div>}
+              <h2 className="font-display font-semibold text-t1 text-[26px] tracking-tight mt-1">
                 {step === 1 ? "What kind of business?" : step === 2 ? "Who's the owner?" : "Where do you trade?"}
               </h2>
               <p className="text-[13px] text-t3 mt-1">
@@ -204,8 +207,8 @@ export function Register() {
                             className={cn(
                               "group relative flex flex-col items-start gap-2 p-3 rounded-card border text-left transition-all duration-150",
                               on
-                                ? "border-brand-500 bg-primary-softer shadow-brand -translate-y-0.5"
-                                : "border-line bg-surface hover:border-brand-300 hover:-translate-y-0.5"
+                                ? "border-brand-500 bg-primary-softer"
+                                : "border-line bg-surface hover:border-brand-300"
                             )}
                           >
                             <span className={cn(
@@ -231,7 +234,7 @@ export function Register() {
                   {/* Shows the consequence of the choice, immediately. */}
                   {chosen && (
                     <div className="animate-fade-in rounded-card border border-line bg-surface-2 p-3.5">
-                      <div className="text-[11px] font-bold uppercase tracking-wide text-t4 mb-1.5">What you'll get</div>
+                      <div className="text-[11px] font-medium text-t4 mb-1.5">What you'll get</div>
                       <div className="flex flex-wrap items-center gap-2 text-[12px]">
                         <span className="text-t2">Your products will be called</span>
                         <span className="px-2 py-0.5 rounded-md bg-primary-soft text-primary font-semibold">{chosen.products}</span>
@@ -281,7 +284,7 @@ export function Register() {
 
                   {/* The whole thing, read back before they commit. */}
                   <div className="rounded-card border border-line overflow-hidden">
-                    <div className="px-4 py-2.5 bg-surface-2 border-b border-line text-[11px] font-bold uppercase tracking-wide text-t4">
+                    <div className="px-4 py-2.5 bg-surface-2 border-b border-line text-[11px] font-medium text-t4">
                       Ready to launch
                     </div>
                     <dl className="divide-y divide-line">

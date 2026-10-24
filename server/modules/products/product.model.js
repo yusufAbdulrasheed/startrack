@@ -6,6 +6,8 @@ const productSchema = new mongoose.Schema(
   {
     accountId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
     businessId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    // Empty = sold at every store of the business; set = this store only.
+    branchId: { type: mongoose.Schema.Types.ObjectId, default: null },
     name: { type: String, required: true, trim: true },
     barcode: { type: String, default: "", trim: true },
     // System-generated identifier, never typed by a user — see
@@ -71,6 +73,8 @@ const productSchema = new mongoose.Schema(
     // replace/remove knows which Cloudinary asset to clean up.
     imageUrl: { type: String, default: "" },
     imagePublicId: { type: String, default: "" },
+    // Who to credit when the photo was found online ("Photo by … on Pexels").
+    imageCredit: { type: String, default: "" },
     custom: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }

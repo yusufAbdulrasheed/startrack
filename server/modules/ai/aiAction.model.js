@@ -17,9 +17,10 @@ const aiActionSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        "create_customer", "create_product", "adjust_stock",
+        "create_customer", "create_product", "adjust_stock", "record_expense", "archive_products",
         "record_sale", "process_return",
         "create_staff",
+        "import_catalog", // a whole spreadsheet's worth, drafted from an uploaded file
       ],
     },
     // Shape depends on `type` — see aiActions.service.js's per-type schemas.

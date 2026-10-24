@@ -39,7 +39,7 @@ export function LoyaltyCardView() {
             <div className="w-10 h-10 mx-auto rounded-full bg-primary-soft text-primary flex items-center justify-center mb-3">
               <Sparkles className="w-5 h-5" />
             </div>
-            <h1 className="font-display text-[18px] font-extrabold text-t1">Hi {card.firstName} 👋</h1>
+            <h1 className="font-display text-[18px] font-semibold text-t1">Hi {card.firstName}</h1>
             <p className="text-[13px] text-t3 mt-1">Your loyalty card for {card.businessName}</p>
             {qr && <img src={qr} width={260} height={260} alt="Your loyalty QR code" className="mx-auto mt-5 rounded-ctl border border-line" />}
             <p className="text-[11px] text-t4 mt-4">Show this at the till on your next visit to get your discount.</p>

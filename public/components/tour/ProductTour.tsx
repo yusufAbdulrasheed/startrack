@@ -175,7 +175,7 @@ export function ProductTour({ steps, open, onClose }: { steps: TourStep[]; open:
 
       <div
         ref={cardRef}
-        className="fixed w-[316px] bg-surface border border-line-2 rounded-card shadow-e2 p-4 animate-fade-in"
+        className="fixed w-[316px] pop border border-line-2 rounded-card shadow-e2 p-4 animate-fade-in"
         style={{ top: tooltipPos.top, left: tooltipPos.left }}
       >
         <div className="flex items-start justify-between gap-2 mb-2">
@@ -188,7 +188,7 @@ export function ProductTour({ steps, open, onClose }: { steps: TourStep[]; open:
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-        <div className="text-[13.5px] font-bold text-t1 mb-1">{step.title}</div>
+        <div className="text-[13.5px] font-semibold text-t1 mb-1">{step.title}</div>
         <p className="text-[12.5px] text-t3 leading-relaxed mb-3.5">{step.body}</p>
         <div className="flex items-center justify-between">
           <button onClick={finish} className="text-[11.5px] font-semibold text-t4 hover:text-t2 transition-colors">

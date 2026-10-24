@@ -149,8 +149,8 @@ export function GlobalSearch() {
   let runningIndex = -1;
 
   return (
-    <div ref={boxRef} className="flex-1 max-w-xl mx-auto relative max-sm:hidden" data-tour="topbar-search">
-      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
+    <div ref={boxRef} className="flex-1 max-w-md relative max-sm:hidden" data-tour="topbar-search">
+      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-t3 pointer-events-none" />
       <input
         ref={inputRef}
         value={q}
@@ -158,11 +158,11 @@ export function GlobalSearch() {
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
         placeholder="Search anything… (Ctrl+K)"
-        className="w-full h-9 pl-9 pr-3 rounded-lg bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer"
+        className="w-full h-11 pl-11 pr-4 rounded-xl bg-surface-3 border border-transparent text-[13px] text-t1 placeholder:text-t3 focus:outline-none focus:border-primary focus:bg-surface focus:shadow-[var(--st-focus-ring)] transition-[border-color,box-shadow,background-color]"
       />
 
       {open && term.length >= 2 && (
-        <div className="absolute top-full mt-1.5 left-0 right-0 bg-surface border border-line-2 rounded-xl shadow-e2 py-1.5 z-50 max-h-[70vh] overflow-y-auto">
+        <div className="absolute top-full mt-1.5 left-0 right-0 pop border border-line-2 rounded-xl shadow-e2 py-1.5 z-50 max-h-[70vh] overflow-y-auto">
           {loading && !flat.length && (
             <div className="flex items-center gap-2 px-3.5 py-4 text-[12.5px] text-t4">
               <Loader2 className="w-3.5 h-3.5 animate-spin" /> Searching…
@@ -175,7 +175,7 @@ export function GlobalSearch() {
             const Meta = CATEGORY_META[g.cat];
             return (
               <div key={g.cat} className="mb-1 last:mb-0">
-                <div className="px-3.5 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-wide text-t4">{Meta.heading}</div>
+                <div className="px-3.5 pt-1.5 pb-1 text-[11.5px] font-medium text-t4">{Meta.heading}</div>
                 {g.items.map((r) => {
                   runningIndex += 1;
                   const idx = runningIndex;

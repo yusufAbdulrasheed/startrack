@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronDown, KeyRound, LogOut, Menu, Store, Building2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { ChevronDown, KeyRound, LogOut, Store, Building2, Plus, Menu, Lock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { AiAssistant } from "@/components/ai/AiAssistant";
+import { PlanChip } from "@/components/plan/PlanUi";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
@@ -43,7 +45,7 @@ function ChangePinModal({ open, onClose, businessId }: { open: boolean; onClose:
           <Input type="password" inputMode="numeric" maxLength={6} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))} />
         </Field>
         <Field label="New PIN">
-          <Input required type="password" inputMode="numeric" pattern="\d{4,6}" maxLength={6} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} />
+          <Input required type="password" inputMode="numeric" pattern="\d{4}" maxLength={4} value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} />
         </Field>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Changing…" : "Change PIN"}</Button>
       </form>
@@ -51,9 +53,9 @@ function ChangePinModal({ open, onClose, businessId }: { open: boolean; onClose:
   );
 }
 
-export function Topbar({ onMenu }: { onMenu?: () => void }) {
+export function Topbar({ onMenu }: { onMenu: () => void }) {
   const navigate = useNavigate();
-  const { session, activeBusiness, activeBranch, branchesForActive, setActiveBusiness, setActiveBranch, logout } = useSession();
+  const { session, can, hasFeature, activeBusiness, activeBranch, branchesForActive, setActiveBusiness, setActiveBranch, logout } = useSession();
   const [branchOpen, setBranchOpen] = useState(false);
   const [bizOpen, setBizOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
@@ -69,90 +71,109 @@ export function Topbar({ onMenu }: { onMenu?: () => void }) {
   if (!session) return null;
   const multiBiz = session.businesses.length > 1;
 
+  const chip = "flex items-center gap-2 px-3 h-10 rounded-xl text-[13px] font-semibold text-t1 hover:bg-surface-3 transition-colors";
+  const menu = "absolute top-full mt-2 left-0 pop border border-line rounded-2xl shadow-e2 py-2 z-50";
+
   return (
-    <header ref={ref} className="h-16 shrink-0 bg-surface border-b border-line flex items-center gap-3 px-4">
-      {/* Wordmark — the sidebar carries the mark, this carries the name. */}
-      <span className="hidden lg:block font-display font-bold text-[15px] tracking-tight text-t1 mr-1">StarTrack</span>
-      {/* Mobile menu button */}
-      <button
-        onClick={onMenu}
-        className="lg:hidden w-9 h-9 shrink-0 rounded-lg border border-line flex items-center justify-center text-t2 hover:bg-surface-3"
-        title="Menu"
-      >
-        <Menu className="w-[18px] h-[18px]" />
+    <header ref={ref} className="frost h-[72px] shrink-0 border-b border-line flex items-center gap-3 px-4 lg:px-12 relative z-30">
+      <button onClick={onMenu} aria-label="Open menu" className="lg:hidden w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-t1 hover:bg-surface-3">
+        <Menu className="w-5 h-5" />
       </button>
-
-      {/* Business (shows only if 2+) → Branch switcher */}
-      <div className="flex items-center gap-2">
-        {multiBiz ? (
-          <div className="relative">
-            <button onClick={() => { setBizOpen((v) => !v); setBranchOpen(false); setUserOpen(false); }} className="flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-2 border border-line text-[13px] font-semibold text-t1 hover:bg-surface-3">
-              <Store className="w-4 h-4 text-primary" /> <span className="max-sm:hidden">{activeBusiness?.name}</span> <ChevronDown className="w-3.5 h-3.5 text-t3" />
-            </button>
-            {bizOpen && (
-              <div className="absolute top-full mt-1 left-0 w-52 bg-surface border border-line-2 rounded-xl shadow-e2 py-1 z-50">
-                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-t4">My Businesses</div>
-                {session.businesses.map((b) => (
-                  <button key={b.id} onClick={() => { setActiveBusiness(b.id); setBizOpen(false); }} className={cn("w-full flex items-center gap-2 text-left px-3 py-2 text-[13px] hover:bg-surface-3", b.id === activeBusiness?.id ? "text-primary font-semibold" : "text-t2")}>
-                    <Building2 className="w-3.5 h-3.5" /> {b.name}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="max-sm:hidden flex items-center gap-2 px-3 h-9 rounded-lg bg-surface-2 border border-line text-[13px] font-semibold text-t1">
-            <Store className="w-4 h-4 text-primary" /> {activeBusiness?.name}
-          </div>
-        )}
-
-        {branchesForActive.length > 0 && (
-          <div className="relative">
-            <button onClick={() => { setBranchOpen((v) => !v); setBizOpen(false); setUserOpen(false); }} className="flex items-center gap-1.5 px-3 h-9 rounded-lg border border-line-2 text-[13px] font-medium text-t2 hover:bg-surface-3">
-              {activeBranch?.name} <ChevronDown className="w-3.5 h-3.5 text-t3" />
-            </button>
-            {branchOpen && (
-              <div className="absolute top-full mt-1 left-0 w-44 bg-surface border border-line-2 rounded-xl shadow-e2 py-1 z-50">
-                {branchesForActive.map((b) => (
-                  <button key={b.id} onClick={() => { setActiveBranch(b.id); setBranchOpen(false); }} className={cn("w-full text-left px-3 py-2 text-[13px] hover:bg-surface-3", b.id === activeBranch?.id ? "text-primary font-semibold" : "text-t2")}>{b.name}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       <GlobalSearch />
 
-      <div className="flex items-center gap-1.5 ml-auto">
-        <span data-tour="topbar-notifications">
+      {/* Workspace: which business, which branch. */}
+      <div className="flex items-center min-w-0 shrink max-md:hidden">
+        <div className="relative">
+          <button onClick={() => { setBizOpen((v) => !v); setBranchOpen(false); setUserOpen(false); }} className={cn(chip, !multiBiz && "cursor-default hover:bg-transparent")}>
+            <span className="w-6 h-6 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0"><Store className="w-3.5 h-3.5" strokeWidth={2} /></span>
+            <span className="truncate max-w-[150px]">{activeBusiness?.name}</span>
+            {multiBiz && <ChevronDown className="w-3.5 h-3.5 text-t3" />}
+          </button>
+          {bizOpen && multiBiz && (
+            <div className={cn(menu, "w-60")}>
+              <div className="px-4 py-1.5 text-[12px] font-semibold text-t3">My businesses</div>
+              {session.businesses.map((b) => (
+                <button key={b.id} onClick={() => { setActiveBusiness(b.id); setBizOpen(false); }} className={cn("w-full flex items-center gap-2 text-left px-4 py-2.5 text-[13px] font-medium hover:bg-surface-3", b.id === activeBusiness?.id ? "text-primary" : "text-t2")}>
+                  <Building2 className="w-3.5 h-3.5" /> {b.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {branchesForActive.length > 0 && (
+          <>
+            <span className="text-t4 text-[16px] select-none">/</span>
+            <div className="relative">
+              <button onClick={() => { setBranchOpen((v) => !v); setBizOpen(false); setUserOpen(false); }} className={cn(chip, "text-t2 font-medium")}>
+                <span className="truncate max-w-[130px]">{activeBranch?.name}</span>
+                {branchesForActive.length > 1 && <ChevronDown className="w-3.5 h-3.5 text-t3 shrink-0" />}
+              </button>
+              {branchOpen && branchesForActive.length > 1 && (
+                <div className={cn(menu, "w-52")}>
+                  {branchesForActive.map((b) => (
+                    <button key={b.id} onClick={() => { setActiveBranch(b.id); setBranchOpen(false); }} className={cn("w-full text-left px-4 py-2.5 text-[13px] font-medium hover:bg-surface-3", b.id === activeBranch?.id ? "text-primary" : "text-t2")}>{b.name}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 ml-auto shrink-0">
+        {can("sales") && (
+          <Link
+            to="/app/pos"
+            data-tour="new-sale-btn"
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-primary text-white text-[13px] font-bold"
+          >
+            <Plus className="w-4 h-4" /> <span className="max-sm:hidden">New sale</span>
+          </Link>
+        )}
+        <span data-tour="topbar-notifications" className="flex">
           <NotificationBell />
         </span>
-        <ThemeToggle />
+        {hasFeature("ai") ? <AiAssistant /> : can("*") && (
+          <Link to="/app/billing?plan=pro" title="AI assistant is on the Pro plan" className="hidden sm:inline-flex items-center gap-1.5 h-10 px-3.5 rounded-full border border-line-2 bg-surface text-[13px] font-bold text-t2 hover:text-primary hover:border-primary transition-colors">
+            <Lock className="w-3.5 h-3.5" /> AI <PlanChip plan="pro" />
+          </Link>
+        )}
+        <ThemeToggle className="max-sm:hidden" />
+        <span className="hidden sm:block w-px h-8 bg-line mx-1" />
 
-        {/* User menu */}
         <div className="relative">
-          <button onClick={() => { setUserOpen((v) => !v); setBizOpen(false); setBranchOpen(false); }} className="flex items-center gap-2 h-9 pl-1 pr-2 rounded-lg hover:bg-surface-3 transition-colors">
-            <span className="w-7 h-7 rounded-lg bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center">{session.user.name[0]?.toUpperCase()}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-t3" />
+          <button onClick={() => { setUserOpen((v) => !v); setBizOpen(false); setBranchOpen(false); }} className="flex items-center gap-3 rounded-full hover:bg-surface-3 transition-colors pr-2 sm:pr-3">
+            <span
+              className="grid place-items-center w-10 h-10 rounded-full text-white text-[14px] font-bold shrink-0"
+              style={{ background: "var(--st-gradient-primary)", boxShadow: "0 0 0 3px var(--st-surface), 0 0 0 4px var(--st-brand-100)" }}
+            >
+              {session.user.name[0]?.toUpperCase()}
+            </span>
+            <span className="hidden md:flex flex-col leading-[1.3] text-left">
+              <span className="text-[13px] font-bold text-t1 max-w-[140px] truncate">{session.user.name}</span>
+              <span className="text-[12px] text-t3 capitalize">{session.role}</span>
+            </span>
+            <ChevronDown className="w-3.5 h-3.5 text-t3 max-sm:hidden" />
           </button>
           {userOpen && (
-            <div className="absolute top-full mt-1 right-0 w-52 bg-surface border border-line-2 rounded-xl shadow-e2 py-1 z-50">
-              <div className="px-3 py-2.5 border-b border-line">
-                <div className="text-[13px] font-semibold text-t1 truncate">{session.user.name}</div>
-                <div className="text-[11px] text-t3 truncate">{session.user.email}</div>
-                <div className="mt-1 inline-flex text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary-soft text-primary capitalize">{session.role}</div>
+            <div className={cn(menu, "left-auto right-0 w-60")}>
+              <div className="px-4 py-3 border-b border-line">
+                <div className="text-[13px] font-bold text-t1 truncate">{session.user.name}</div>
+                <div className="text-[12px] text-t3 truncate">{session.user.email}</div>
               </div>
-              <button onClick={() => { setUserOpen(false); setPinOpen(true); }} className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-[13px] text-t2 hover:bg-surface-3">
+              <button onClick={() => { setUserOpen(false); setPinOpen(true); }} className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-[13px] font-medium text-t2 hover:bg-surface-3">
                 <KeyRound className="w-4 h-4" /> Change my PIN
               </button>
-              <button onClick={() => { logout(); navigate("/login"); }} className="w-full flex items-center gap-2 text-left px-3 py-2.5 text-[13px] text-danger hover:bg-danger-soft">
+              <button onClick={() => { logout(); navigate("/login"); }} className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-[13px] font-medium text-danger hover:bg-danger-soft">
                 <LogOut className="w-4 h-4" /> Sign out
               </button>
             </div>
           )}
         </div>
       </div>
+
       <ChangePinModal open={pinOpen} onClose={() => setPinOpen(false)} businessId={activeBusiness?.id || ""} />
     </header>
   );

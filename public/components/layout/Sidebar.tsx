@@ -1,161 +1,170 @@
 import { useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import { HelpCircle, LogOut, Globe2, Home, Plus } from "lucide-react";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
+import { ChevronLeft, ChevronRight, Globe2, HelpCircle, Home, LogOut, X } from "lucide-react";
 import { useSession } from "@/lib/session";
-import { typeMeta } from "@/lib/businessTypes";
-import { buildNav, type NavGroup } from "@/lib/navItems";
 import { HelpPanel } from "@/components/layout/HelpPanel";
+import { useNavGroups } from "@/components/layout/useNav";
+import { LockChip } from "@/components/plan/PlanUi";
 import { cn } from "@/lib/utils";
 
-function Brand() {
+export function BrandMark({ className }: { className?: string }) {
   return (
-    <div className="flex items-center gap-2.5 px-4 h-16 shrink-0 border-b border-nav-line">
-      <div className="w-8 h-8 rounded-lg bg-nav-active flex items-center justify-center shrink-0">
-        <svg viewBox="0 0 20 20" fill="none" className="w-[18px] h-[18px]">
-          <path d="M2 5h16M2 10h10M2 15h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-          <circle cx="16" cy="15" r="3" fill="white" opacity=".9" />
-          <path d="M14.8 15l1 1L17.6 13.5" stroke="var(--st-nav-active)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
-      <span className="font-display font-bold text-[15px] tracking-tight text-nav-strong">StarTrack</span>
+    <div className={cn("rounded-xl flex items-center justify-center shrink-0", className)} style={{ background: "var(--st-gradient-primary)", boxShadow: "var(--st-shadow-brand)" }}>
+      <svg viewBox="0 0 20 20" fill="none" className="w-[55%] h-[55%]">
+        <path d="M2 5h16M2 10h10M2 15h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="16" cy="15" r="3" fill="white" />
+        <path d="M14.8 15l1 1L17.6 13.5" stroke="#4a3bf4" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </div>
   );
 }
 
-export function Sidebar({ open = false }: { open?: boolean }) {
-  const { session, can, hasModule, hasCapability, activeBusiness, activeBranch, logout } = useSession();
+// Labels disappear (but stay readable to screen readers) when the sidebar is
+// collapsed to its icon rail. The collapsed state only applies from `lg` up;
+// on a phone the sidebar is a full drawer.
+const label = "group-data-[collapsed=true]/side:lg:sr-only";
+
+const linkBase =
+  "flex items-center gap-3 px-4 py-[11px] rounded-xl text-[14px] font-semibold whitespace-nowrap transition-colors group-data-[collapsed=true]/side:lg:justify-center group-data-[collapsed=true]/side:lg:px-2";
+
+export function Sidebar({ collapsed, onToggle, mobileOpen, onClose }: {
+  collapsed: boolean; onToggle: () => void; mobileOpen: boolean; onClose: () => void;
+}) {
+  const { session, can, logout } = useSession();
+  const { groups, active } = useNavGroups();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [helpOpen, setHelpOpen] = useState(false);
+  const isPlatform = !!session?.platformRole && session.platformRole !== "none";
 
-  const groups = buildNav(typeMeta(activeBusiness?.typeKey))
-    .filter((g) => !g.perm || can(g.perm))
-    .map((g) => ({
-      ...g,
-      children: g.children?.filter(
-        (c) => (!c.perm || can(c.perm)) && (!c.module || hasModule(c.module)) && (!c.capability || hasCapability(c.capability))
-      ),
-    }))
-    // A group with a single child is just itself — don't show a list of one.
-    .map((g) => ({ ...g, children: (g.children?.length ?? 0) > 1 ? g.children : undefined }));
-
-  const isGroupActive = (g: NavGroup) =>
-    pathname === g.to || (g.children?.some((c) => c.to === pathname) ?? false);
+  const item = (isActive: boolean) =>
+    cn(linkBase, isActive ? "bg-primary text-white" : "text-nav-fg hover:bg-nav-hover hover:text-nav-strong");
 
   return (
-    <aside
-      className={cn(
-        "w-[236px] shrink-0 h-full bg-nav border-r border-nav-line flex flex-col",
-        "max-lg:fixed max-lg:inset-y-0 max-lg:left-0 max-lg:z-50 max-lg:transition-transform max-lg:duration-200",
-        open ? "max-lg:translate-x-0" : "max-lg:-translate-x-full"
-      )}
-    >
-      <Brand />
-
-      {/* Who and where — the design puts this at the top of the spine. */}
-      <div className="px-4 py-3.5 border-b border-nav-line">
-        <div className="text-[13px] font-semibold text-nav-strong truncate capitalize">
-          {session?.role === "owner" || session?.role === "admin" ? "Admin Portal" : `${session?.role ?? ""} Portal`}
-        </div>
-        <div className="text-[11px] text-nav-fg truncate mt-0.5">{activeBranch?.name || activeBusiness?.name || "—"}</div>
-      </div>
-
-      {can("sales") && (
-        <div className="px-3 pt-3" data-tour="new-sale-btn">
-          <NavLink
-            to="/app/pos"
-            className="w-full flex items-center justify-center gap-1.5 h-9 rounded-ctl bg-nav-active text-white text-[13px] font-semibold hover:brightness-110 transition-all"
-          >
-            <Plus className="w-4 h-4" /> New Sale
-          </NavLink>
-        </div>
-      )}
-
-      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-0.5">
-        {/* Staff without a dashboard land on POS for speed; this is how they
-            get back to their own home hub (tasks/schedule/announcements). */}
-        {!can("dashboard_ops") && (
-          <NavLink
-            to="/app/home"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 px-3 h-10 rounded-ctl text-[13px] font-medium transition-colors",
-                isActive ? "bg-nav-active text-white font-semibold" : "text-nav-fg hover:bg-nav-hover hover:text-nav-strong"
-              )
-            }
-          >
-            <Home className="w-[18px] h-[18px] shrink-0" /> Home
-          </NavLink>
+    <>
+      {/* Mobile backdrop */}
+      <div
+        onClick={onClose}
+        className={cn("lg:hidden fixed inset-0 z-[55] bg-ink/55 backdrop-blur-[2px] transition-opacity", mobileOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
+      />
+      <aside
+        data-collapsed={collapsed}
+        style={{ background: "var(--st-gradient-ink)" }}
+        className={cn(
+          "group/side text-nav-strong flex flex-col overflow-hidden shrink-0",
+          "fixed inset-y-0 left-0 z-[60] w-[280px] transition-[width,transform] duration-200 ease-out",
+          "lg:relative lg:z-20 lg:translate-x-0",
+          collapsed ? "lg:w-[80px]" : "lg:w-[264px]",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
-        {groups.map((g) => {
-          const active = isGroupActive(g);
-          const Icon = g.icon;
-          return (
-            <div key={g.label} data-tour={`nav-${g.to.replace("/app/", "")}`}>
-              <NavLink
-                to={g.to}
-                className={cn(
-                  "flex items-center gap-3 px-3 h-10 rounded-ctl text-[13px] font-medium transition-colors",
-                  active ? "bg-nav-active text-white font-semibold" : "text-nav-fg hover:bg-nav-hover hover:text-nav-strong"
+      >
+        {/* Decorative wave, bottom of the sidebar */}
+        <svg aria-hidden viewBox="0 0 264 240" preserveAspectRatio="none" className="absolute inset-x-0 bottom-0 w-full h-60 pointer-events-none group-data-[collapsed=true]/side:lg:hidden">
+          <path d="M0 150 C 60 110, 110 190, 170 150 S 250 100, 264 120 V240 H0 Z" fill="rgba(143,148,255,0.06)" />
+          <path d="M0 190 C 70 150, 120 230, 180 190 S 245 150, 264 165 V240 H0 Z" fill="rgba(143,148,255,0.07)" />
+          <path d="M0 150 C 60 110, 110 190, 170 150 S 250 100, 264 120" fill="none" stroke="rgba(160,170,255,0.18)" strokeWidth="1" />
+        </svg>
+
+        {/* Brand block */}
+        <div className="relative px-5 pt-6 pb-5 flex flex-col gap-3 group-data-[collapsed=true]/side:lg:px-2">
+          <div className="flex items-center justify-between gap-2 group-data-[collapsed=true]/side:lg:flex-col group-data-[collapsed=true]/side:lg:gap-3">
+            <Link to="/app/dashboard" className="flex items-center gap-3 min-w-0" aria-label="StarTrack">
+              <BrandMark className="w-10 h-10" />
+              <span className={cn("font-extrabold text-[17px] tracking-[-0.02em] text-white", label)}>StarTrack</span>
+            </Link>
+            <button
+              onClick={onToggle}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className="hidden lg:grid place-items-center w-9 h-9 rounded-full border border-nav-line bg-white/5 text-nav-fg hover:bg-white/10 hover:text-white transition-colors"
+            >
+              {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </button>
+            <button onClick={onClose} aria-label="Close menu" className="lg:hidden grid place-items-center w-9 h-9 rounded-full border border-nav-line bg-white/5 text-nav-fg hover:text-white">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <span className={cn("self-start px-2.5 py-[3px] rounded-full border border-nav-line bg-white/5 text-[11px] font-bold tracking-[0.12em] uppercase text-nav-fg whitespace-nowrap", label)}>
+            {session?.role === "owner" || session?.role === "admin" ? "Admin portal" : `${session?.role ?? ""} portal`}
+          </span>
+        </div>
+
+        {/* Sections. The current section opens to show its pages. */}
+        <nav className="relative flex-1 overflow-y-auto px-4 group-data-[collapsed=true]/side:lg:px-3 flex flex-col gap-1.5" aria-label="Main">
+          {!can("dashboard_ops") && (
+            <NavLink to="/app/home" onClick={onClose} title="Home" className={() => item(pathname === "/app/home")}>
+              <Home className="w-[18px] h-[18px] shrink-0 opacity-90" strokeWidth={1.8} />
+              <span className={label}>Home</span>
+            </NavLink>
+          )}
+          {groups.map((g) => {
+            const isActive = active?.to === g.to;
+            return (
+              <div key={g.label}>
+                <NavLink to={g.to} onClick={onClose} title={g.label} data-tour={`nav-${g.to.replace("/app/", "")}`} className={() => item(isActive)}>
+                  <g.icon className="w-[18px] h-[18px] shrink-0 opacity-90" strokeWidth={1.8} />
+                  <span className={label}>{g.label}</span>
+                </NavLink>
+                {isActive && g.children && (
+                  <div className="my-1.5 ml-[26px] pl-4 border-l border-nav-line space-y-0.5 group-data-[collapsed=true]/side:lg:hidden">
+                    {g.children.map((c) => (
+                      <NavLink
+                        key={c.to + c.label}
+                        to={c.to}
+                        end
+                        onClick={onClose}
+                        className={({ isActive: on }) =>
+                          cn(
+                            "block px-3 py-2 rounded-lg text-[13px] font-medium transition-colors",
+                            on ? "bg-white/10 text-white" : "text-nav-fg hover:text-white hover:bg-white/[0.06]"
+                          )
+                        }
+                      >
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate">{c.label}</span>
+                          {c.locked && c.feature && <LockChip feature={c.feature} className="!bg-white/10 !text-white/80" />}
+                        </span>
+                      </NavLink>
+                    ))}
+                  </div>
                 )}
-              >
-                <Icon className="w-[18px] h-[18px] shrink-0" />
-                {g.label}
-              </NavLink>
+              </div>
+            );
+          })}
+        </nav>
 
-              {active && g.children && (
-                <div className="mt-0.5 mb-1.5 ml-[22px] pl-3.5 border-l border-nav-line space-y-0.5">
-                  {g.children.map((c) => (
-                    <NavLink
-                      key={c.to + c.label}
-                      to={c.to}
-                      end
-                      className={({ isActive }) =>
-                        cn(
-                          "block px-2.5 h-8 leading-8 rounded-md text-[12.5px] transition-colors truncate",
-                          isActive ? "text-nav-strong font-semibold bg-nav-hover" : "text-nav-fg hover:text-nav-strong"
-                        )
-                      }
-                    >
-                      {c.label}
-                    </NavLink>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className="p-3 border-t border-nav-line space-y-0.5">
-        {/* platformLink: only StarTrack's own staff ever see this. */}
-        {session?.platformRole && session.platformRole !== "none" && (
-          <NavLink
-            to="/app/platform"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center gap-3 px-3 h-9 rounded-ctl text-[13px] font-semibold transition-colors",
-                isActive ? "bg-nav-active text-white" : "text-nav-fg hover:bg-nav-hover hover:text-nav-strong"
-              )
-            }
+        {/* Footer: support and sign out */}
+        <div className="relative p-4 flex flex-col gap-1 group-data-[collapsed=true]/side:lg:px-3">
+          {isPlatform && (
+            <NavLink to="/app/platform" onClick={onClose} title="Platform" className={() => item(pathname === "/app/platform")}>
+              <Globe2 className="w-[18px] h-[18px] shrink-0 opacity-90" strokeWidth={1.8} />
+              <span className={label}>Platform</span>
+            </NavLink>
+          )}
+          <button
+            data-tour="sidebar-help"
+            onClick={() => setHelpOpen(true)}
+            title="Help"
+            className="flex items-center gap-3 p-3 rounded-xl text-white hover:bg-white/[0.07] transition-colors text-left group-data-[collapsed=true]/side:lg:justify-center group-data-[collapsed=true]/side:lg:px-2"
           >
-            <Globe2 className="w-[18px] h-[18px] shrink-0" /> Platform
-          </NavLink>
-        )}
-        <button
-          data-tour="sidebar-help"
-          onClick={() => setHelpOpen(true)}
-          className="w-full flex items-center gap-3 px-3 h-9 rounded-ctl text-[13px] font-medium text-nav-fg hover:bg-nav-hover hover:text-nav-strong transition-colors"
-        >
-          <HelpCircle className="w-[18px] h-[18px] shrink-0" /> Help
-        </button>
-        <button
-          onClick={logout}
-          className="w-full flex items-center gap-3 px-3 h-9 rounded-ctl text-[13px] font-medium text-nav-fg hover:bg-nav-hover hover:text-nav-strong transition-colors"
-        >
-          <LogOut className="w-[18px] h-[18px] shrink-0" /> Logout
-        </button>
-      </div>
-      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
-    </aside>
+            <span className="grid place-items-center w-10 h-10 rounded-full bg-white/10 shrink-0">
+              <HelpCircle className="w-[18px] h-[18px]" strokeWidth={1.8} />
+            </span>
+            <span className={cn("flex flex-col min-w-0 leading-[1.3]", label)}>
+              <strong className="text-[14px]">Help & support</strong>
+              <span className="text-[12px] text-nav-fg">Guides and shortcuts</span>
+            </span>
+          </button>
+          <button
+            onClick={() => { logout(); navigate("/login"); }}
+            title="Sign out"
+            className={cn(linkBase, "w-full text-nav-fg hover:bg-white/[0.06] hover:text-white")}
+          >
+            <LogOut className="w-[18px] h-[18px] shrink-0 opacity-90" strokeWidth={1.8} />
+            <span className={label}>Sign out</span>
+          </button>
+        </div>
+        <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      </aside>
+    </>
   );
 }

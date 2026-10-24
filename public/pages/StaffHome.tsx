@@ -54,9 +54,11 @@ export function StaffHome() {
 }
 
 function Header({ onTakeTour }: { onTakeTour: () => void }) {
-  const { session, activeBranch } = useSession();
+  const { session, activeBranch, hasFeature } = useSession();
   const navigate = useNavigate();
-  const mine = useApi<{ attendance: Attendance | null }>("/attendance/today", [activeBranch?.id]);
+  // Clocking in is a Pro feature; on Freemium the screen simply doesn't offer it.
+  const canClock = hasFeature("attendance");
+  const mine = useApi<{ attendance: Attendance | null }>(canClock ? "/attendance/today" : null, [activeBranch?.id]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const my = mine.data?.attendance;
@@ -77,7 +79,7 @@ function Header({ onTakeTour }: { onTakeTour: () => void }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
       <div>
-        <h1 className="font-display text-[24px] font-extrabold tracking-tight text-t1">
+        <h1 className="font-display text-[24px] font-semibold tracking-tight text-t1">
           Welcome back, {session?.user.name.split(" ")[0]}
         </h1>
         <p className="text-[13px] text-t3 mt-1">
@@ -89,7 +91,7 @@ function Header({ onTakeTour }: { onTakeTour: () => void }) {
       </div>
       <div className="flex items-center flex-wrap gap-2 shrink-0">
         <Button variant="secondary" onClick={onTakeTour}><Sparkles className="w-4 h-4" /> Take a tour</Button>
-        <div data-tour="staffhome-clock" className="flex items-center gap-2">
+        {canClock && <div data-tour="staffhome-clock" className="flex items-center gap-2">
           {clockedIn ? (
             <Button variant="danger" disabled={busy} onClick={() => punch("clock-out")}>
               <LogOut className="w-4 h-4" /> Clock out
@@ -99,7 +101,7 @@ function Header({ onTakeTour }: { onTakeTour: () => void }) {
               <LogIn className="w-4 h-4" /> Clock in
             </Button>
           )}
-        </div>
+        </div>}
         <Button variant="secondary" onClick={() => navigate("/app/pos")}>
           <ShoppingCart className="w-4 h-4" /> Open Till
         </Button>
@@ -122,7 +124,7 @@ function TasksCard({ className }: { className?: string }) {
   return (
     <Card className={cn("p-5", className)} data-tour="staffhome-tasks">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-[14px] font-bold text-t1">
+        <div className="flex items-center gap-2 text-[14px] font-semibold text-t1">
           <ListChecks className="w-[18px] h-[18px] text-primary" /> My Tasks
         </div>
         <div className="flex items-center gap-3">
@@ -216,7 +218,7 @@ function ScheduleCard() {
 
   return (
     <Card className="p-5" data-tour="staffhome-schedule">
-      <div className="flex items-center gap-2 text-[14px] font-bold text-t1 mb-3">
+      <div className="flex items-center gap-2 text-[14px] font-semibold text-t1 mb-3">
         <Calendar className="w-[18px] h-[18px] text-primary" /> My Schedule
       </div>
       {roster.loading ? (
@@ -230,8 +232,8 @@ function ScheduleCard() {
             return (
               <div key={r.id} className="flex items-center gap-3 border-l-2 border-primary pl-3 py-0.5">
                 <div className="text-center w-11 shrink-0">
-                  <div className="text-[9px] font-bold uppercase tracking-wide text-t3">{month}</div>
-                  <div className="text-[18px] font-bold font-display text-t1 leading-none">{day}</div>
+                  <div className="text-[11px] font-medium text-t3">{month}</div>
+                  <div className="text-[18px] font-semibold font-display text-t1 leading-none">{day}</div>
                 </div>
                 <div className="min-w-0">
                   <div className="text-[13px] font-semibold text-t1 truncate">{r.shiftName}</div>
@@ -254,7 +256,7 @@ function AnnouncementsCard() {
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-[14px] font-bold text-t1">
+        <div className="flex items-center gap-2 text-[14px] font-semibold text-t1">
           <Megaphone className="w-[18px] h-[18px] text-primary" /> Branch Announcements
         </div>
         {can("staff_mgmt") && (

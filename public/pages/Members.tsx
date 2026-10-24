@@ -81,7 +81,7 @@ export function Members() {
               <span className="font-semibold text-danger">{checkInError}</span>
             ) : (
               <>
-                <span className="font-bold text-t1">{checkInResult!.memberName}</span>{" "}
+                <span className="font-semibold text-t1">{checkInResult!.memberName}</span>{" "}
                 <span className={checkInResult!.allowed ? "text-success font-semibold" : "text-warning font-semibold"}>
                   {checkInResult!.allowed ? `checked in — ${checkInResult!.planName}, expires ${fmtDate(checkInResult!.expiresAt!)}` : `not allowed (${checkInResult!.reason === "expired" ? "membership expired" : "no membership"})`}
                 </span>
@@ -94,16 +94,16 @@ export function Members() {
 
       <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-t3">Active members</div>
-          <div className="mt-2 font-mono font-extrabold text-[22px] text-t1">{active.length}</div>
+          <div className="text-[11px] font-medium text-t3">Active members</div>
+          <div className="mt-2 font-mono font-semibold text-[22px] text-t1">{active.length}</div>
         </Card>
         <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-t3">Expiring within 3 days</div>
-          <div className="mt-2 font-mono font-extrabold text-[22px] text-warning">{expiringSoon.length}</div>
+          <div className="text-[11px] font-medium text-t3">Expiring within 3 days</div>
+          <div className="mt-2 font-mono font-semibold text-[22px] text-warning">{expiringSoon.length}</div>
         </Card>
         <Card className="p-4 col-span-2 xl:col-span-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-t3">Check-ins today</div>
-          <div className="mt-2 font-mono font-extrabold text-[22px] text-t1">{checkInData?.checkIns.length ?? "—"}</div>
+          <div className="text-[11px] font-medium text-t3">Check-ins today</div>
+          <div className="mt-2 font-mono font-semibold text-[22px] text-t1">{checkInData?.checkIns.length ?? "—"}</div>
         </Card>
       </div>
 
@@ -124,7 +124,7 @@ export function Members() {
                   const daysLeft = Math.ceil((new Date(s.expiresAt).getTime() - Date.now()) / 86400000);
                   return (
                     <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                      <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
+                      <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-semibold text-[13px] flex items-center justify-center shrink-0">
                         {s.customerName[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -143,7 +143,7 @@ export function Members() {
         </div>
 
         <div>
-          <div className="text-[13px] font-bold text-t1 mb-2">Today's check-ins</div>
+          <div className="text-[13px] font-semibold text-t1 mb-2">Today's check-ins</div>
           <Card className="overflow-hidden">
             {!checkInData?.checkIns.length ? (
               <div className="px-4 py-8 text-center text-[12px] text-t4 flex items-center justify-center gap-1.5">
@@ -236,7 +236,7 @@ function SellMembershipModal({ open, onClose, onSold, currency }: { open: boolea
             </Field>
             <div className="flex justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-[13px]">
               <span className="text-t3">Amount due</span>
-              <span className="font-mono font-bold text-t1">{fmtMoney(plan.price, currency)}</span>
+              <span className="font-mono font-semibold text-t1">{fmtMoney(plan.price, currency)}</span>
             </div>
           </>
         )}

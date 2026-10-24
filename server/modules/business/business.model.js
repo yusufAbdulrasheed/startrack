@@ -14,11 +14,90 @@ const businessSchema = new mongoose.Schema(
     employees: { type: Number, default: 0, min: 0 },
     // Short code staff type once on a till device before PIN login.
     code: { type: String, unique: true, sparse: true, uppercase: true, trim: true },
+    // The public page at /s/<slug> — owner-edited (modules/site). Absent until the
+    // owner first opens the editor; `enabled` is what actually publishes it.
+    // Logo/hero files are only ever set through the upload route, never from a
+    // client-supplied URL, so a page can't be pointed at arbitrary hosts.
+    site: {
+      enabled: { type: Boolean, default: false },
+      slug: { type: String, trim: true, lowercase: true },
+      template: { type: String, enum: ["classic", "bold", "minimal"], default: "classic" },
+      mode: { type: String, enum: ["light", "dark"], default: "light" },
+      accent: { type: String, default: "#3538f0" },
+      headline: { type: String, default: "" },
+      tagline: { type: String, default: "" },
+      about: { type: String, default: "" },
+      logoUrl: { type: String, default: "" },
+      logoPublicId: { type: String, default: "" },
+      heroUrl: { type: String, default: "" },
+      heroPublicId: { type: String, default: "" },
+      contact: {
+        phone: { type: String, default: "" },
+        whatsapp: { type: String, default: "" },
+        email: { type: String, default: "" },
+        address: { type: String, default: "" },
+        mapUrl: { type: String, default: "" },
+      },
+      social: {
+        instagram: { type: String, default: "" },
+        facebook: { type: String, default: "" },
+        tiktok: { type: String, default: "" },
+        website: { type: String, default: "" },
+      },
+      // Seven entries, Sunday = 0. Empty = hours aren't shown.
+      hours: { type: [{ _id: false, day: Number, open: String, close: String, closed: Boolean }], default: [] },
+      show: {
+        about: { type: Boolean, default: true },
+        products: { type: Boolean, default: true },
+        hours: { type: Boolean, default: true },
+        contact: { type: Boolean, default: true },
+        stats: { type: Boolean, default: true },
+        features: { type: Boolean, default: true },
+        gallery: { type: Boolean, default: true },
+        testimonials: { type: Boolean, default: true },
+        faq: { type: Boolean, default: true },
+        cta: { type: Boolean, default: true },
+      },
+      // A thin bar above the page ("Free delivery this week").
+      announcement: { type: String, default: "" },
+      aboutImageUrl: { type: String, default: "" },
+      aboutImagePublicId: { type: String, default: "" },
+      stats: { type: [{ _id: false, value: String, label: String }], default: [] },
+      features: { type: [{ _id: false, icon: String, title: String, text: String }], default: [] },
+      // Photos are added/removed through the upload routes, never from the form.
+      gallery: { type: [{ _id: false, url: String, publicId: String }], default: [] },
+      testimonials: { type: [{ _id: false, name: String, role: String, quote: String, rating: Number }], default: [] },
+      faqs: { type: [{ _id: false, q: String, a: String }], default: [] },
+      cta: {
+        headline: { type: String, default: "" },
+        text: { type: String, default: "" },
+        label: { type: String, default: "" },
+        action: { type: String, enum: ["whatsapp", "call", "email", "directions"], default: "whatsapp" },
+      },
+      // Order of the middle sections on the page.
+      order: { type: [String], default: [] },
+      productMode: { type: String, enum: ["all", "featured", "none"], default: "all" },
+      featuredIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+    },
     settings: {
       currency: { type: String, default: "₦" },
       vatEnabled: { type: Boolean, default: false },
       vatRate: { type: Number, default: 7.5 },
       receiptFooter: { type: String, default: "Thank you for your patronage!" },
+      // How the printed/shared receipt looks (see receiptDesign.js, which also
+      // applies what the plan allows). Template choice needs the Business plan.
+      receipt: {
+        template: { type: String, enum: ["classic", "modern", "compact", "bold"], default: "classic" },
+        headerNote: { type: String, default: "" },
+        address: { type: String, default: "" },
+        phone: { type: String, default: "" },
+        showTaxId: { type: Boolean, default: false },
+        showCashier: { type: Boolean, default: true },
+        showCustomer: { type: Boolean, default: true },
+        showPayments: { type: Boolean, default: true },
+        paperWidth: { type: String, enum: ["58", "80"], default: "80" },
+        textSize: { type: String, enum: ["sm", "md", "lg"], default: "md" },
+      },
       // Kept for documents written before alerts went multi-recipient. Read
       // through alertRecipients() below, never directly.
       alertEmail: { type: String, default: "" },
@@ -101,5 +180,7 @@ businessSchema.pre("validate", function (next) {
   if (!this.code) this.code = generateBusinessCode();
   next();
 });
+
+businessSchema.index({ "site.slug": 1 }, { unique: true, partialFilterExpression: { "site.slug": { $type: "string" } } });
 
 export const Business = mongoose.model("Business", businessSchema);

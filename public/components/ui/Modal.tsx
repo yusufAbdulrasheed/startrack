@@ -54,24 +54,24 @@ export function Modal({
       aria-modal="true"
       aria-label={title}
     >
-      <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 bg-ink/55 backdrop-blur-[3px]" onClick={onClose} />
       <div
         className={cn(
-          "relative w-full bg-surface border border-line-2 rounded-card shadow-e2 animate-fade-up",
+          "relative w-full pop border border-line rounded-[24px] shadow-e2 animate-fade-up",
           "my-auto max-h-[calc(100dvh-2rem)] flex flex-col",
           wide ? "max-w-2xl" : "max-w-md"
         )}
       >
         {/* Sticky so the way out is always on screen, however long the body. */}
-        <div className="flex items-start justify-between gap-3 p-5 pb-3 shrink-0 sticky top-0 bg-surface rounded-t-card z-10">
+        <div className="flex items-start justify-between gap-3 p-5 pb-3 shrink-0 sticky top-0 rounded-t-card z-10">
           <div className="min-w-0">
-            <h2 className="text-[16px] font-bold text-t1">{title}</h2>
+            <h2 className="text-[17px] font-bold text-t1">{title}</h2>
             {subtitle && <p className="text-[12px] text-t3 mt-0.5">{subtitle}</p>}
           </div>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center text-t3 hover:bg-surface-3 hover:text-t1 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 transition-colors"
+            className="w-8 h-8 shrink-0 rounded-md flex items-center justify-center text-t3 hover:bg-surface-3 hover:text-t1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-colors"
           >
             <X className="w-4 h-4" />
           </button>

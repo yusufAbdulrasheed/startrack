@@ -8,6 +8,8 @@ import { Membership } from "#modules/auth/membership.model.js";
 import { hashPassword, checkPassword, signToken, permsForRole } from "#modules/auth/auth.service.js";
 import { requireAuth } from "#core/middleware/requireAuth.js";
 import { rateLimit } from "#core/rateLimit.js";
+import { config } from "#core/config.js";
+import { effectivePlan, featuresFor, isPlan, planStatus, PLANS, TRIAL_DAYS } from "#shared/plans.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { createDemoSandbox } from "#modules/auth/demoSeed.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
@@ -28,6 +30,8 @@ const registerSchema = z.object({
   employees: z.number().int().min(0).max(100000).default(0),
   currency: z.string().default("₦"),
   branchName: z.string().default("Main Branch"),
+  // The plan to try for the first 14 days (chosen on the landing page).
+  plan: z.enum(["free", "pro", "business"]).optional(),
 });
 
 // POST /api/auth/register — creates user + account + business + branch + owner membership
@@ -51,7 +55,12 @@ authRouter.post("/register", async (req, res) => {
     await withTransaction(async (session) => {
       const passwordHash = await hashPassword(d.password);
       [created.user] = await User.create([{ name: d.name, email: d.email, phone: d.phone, passwordHash }], { session });
-      [created.account] = await Account.create([{ name: d.businessName, ownerUserId: created.user._id }], { session });
+      const startPlan = isPlan(d.plan) ? d.plan : config.defaultPlan;
+      [created.account] = await Account.create([{
+        name: d.businessName, ownerUserId: created.user._id, plan: startPlan,
+        // Everyone starts with a free trial of the plan they chose; after that it's paid.
+        subscription: { plan: startPlan, trial: true, currentPeriodEnd: new Date(Date.now() + TRIAL_DAYS * 86_400_000) },
+      }], { session });
       [created.business] = await Business.create(
         [{
           accountId: created.account._id,
@@ -226,7 +235,7 @@ authRouter.post("/till", async (req, res) => {
 const changePinSchema = z.object({
   businessId: z.string(),
   currentPin: z.string().default(""),
-  newPin: z.string().regex(/^\d{4,6}$/, "New PIN must be 4–6 digits"),
+  newPin: z.string().regex(/^\d{4}$/, "New PIN must be exactly 4 digits"),
 });
 
 // POST /api/auth/change-pin — staff change their OWN till PIN.
@@ -263,8 +272,28 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   const account = await Account.findById(req.auth.accountId);
   const businesses = await Business.find({ accountId: req.auth.accountId });
   const branches = await Branch.find({ accountId: req.auth.accountId });
-  return res.json(sessionPayload(user, account, membership, { businesses, branches }, false));
+  const body = sessionPayload(user, account, membership, { businesses, branches }, false);
+  // A page refresh re-reads the session from here. Without this a till
+  // session came back as an ordinary login, so staff were sent to the
+  // self-service home page instead of back to their till.
+  if (req.auth.mode === "till") body.mode = "till";
+  return res.json(body);
 });
+
+/** What the app needs to know about the plan: which features are on, the caps, and when it ends. */
+function planSummary(account) {
+  const s = planStatus(account);
+  return {
+    key: s.plan,
+    name: PLANS[s.plan].name,
+    features: featuresFor(s.plan),
+    limits: PLANS[s.plan].limits,
+    legacy: s.legacy,
+    trial: s.trial,
+    lapsed: s.lapsed,
+    periodEnd: s.periodEnd,
+  };
+}
 
 // Shapes the response the frontend needs. `withToken` false on /me (already has one).
 function sessionPayload(user, account, membership, { businesses, branches }, withToken = true) {
@@ -275,7 +304,8 @@ function sessionPayload(user, account, membership, { businesses, branches }, wit
     // Platform access is a property of the PERSON, not of any business they
     // belong to — see user.model.js.
     platformRole: user.platformRole || "none",
-    account: { id: account._id, name: account.name, plan: account.plan },
+    account: { id: account._id, name: account.name, plan: effectivePlan(account) },
+    plan: planSummary(account),
     demo: !!account.isSandbox,
     role: membership?.role || "staff",
     permissions: permsForRole(membership?.role || "staff", membership?.permsOverride || []),

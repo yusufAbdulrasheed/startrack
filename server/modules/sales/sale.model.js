@@ -76,6 +76,15 @@ const saleSchema = new mongoose.Schema(
       at: { type: Date },
     },
     clientSaleId: { type: String }, // offline-queue idempotency key
+    // Set only on payments taken by a service business (academy fees, salon
+    // appointments, agency project payments — see server/modules/services/).
+    // Their lines have no real product behind them, so the stock-based void
+    // and return flows must not touch them: they are reversed through the
+    // owning record instead.
+    service: {
+      kind: { type: String, enum: ["academy", "salon", "agency"] },
+      refId: { type: mongoose.Schema.Types.ObjectId },
+    },
   },
   { timestamps: true }
 );

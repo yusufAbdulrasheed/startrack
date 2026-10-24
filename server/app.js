@@ -34,6 +34,8 @@ import { announcementsRouter } from "#modules/announcements/announcements.routes
 import { ticketsRouter } from "#modules/support/tickets.routes.js";
 import { aiRouter } from "#modules/ai/ai.routes.js";
 import { searchRouter } from "#modules/search/search.routes.js";
+import { overviewRouter } from "#modules/overview/overview.routes.js";
+import { reportsRouter } from "#modules/reports/reports.routes.js";
 
 // Business-vertical modules (server/modules/businesses/*/) — genuinely
 // single-consumer logic that lives in its own directory. Blinds has none:
@@ -47,11 +49,19 @@ import { kitchenQueueRouter } from "#modules/businesses/restaurant/kitchenQueue.
 import { loyaltyRouter } from "#modules/businesses/water/loyalty.routes.js";
 import { coldroomRouter } from "#modules/businesses/coldroom/coldroom.routes.js";
 import { gymRouter } from "#modules/businesses/gym/gym.routes.js";
+// Service businesses — sell time and expertise, not stock.
+import { academyRouter } from "#modules/businesses/academy/academy.routes.js";
+import { salonRouter } from "#modules/businesses/salon/salon.routes.js";
+import { agencyRouter } from "#modules/businesses/agency/agency.routes.js";
 
 // Cross-vertical loyalty QR cards — usable by any business, not just water's
 // sachet-token mechanic above. See server/modules/loyalty/.
 import { loyaltyCardRouter } from "#modules/loyalty/loyaltyCard.routes.js";
 import { loyaltyCardPublicRouter } from "#modules/loyalty/loyaltyCardPublic.routes.js";
+import { requireFeature } from "#core/middleware/tenant.js";
+import { billingRouter, billingWebhook } from "#modules/billing/billing.routes.js";
+import { siteRouter } from "#modules/site/site.routes.js";
+import { sitePublicRouter } from "#modules/site/site.public.routes.js";
 
 /**
  * The whole API, and nothing else — no static-file serving, no app.listen(),
@@ -66,6 +76,9 @@ app.set("trust proxy", 1); // real client IPs behind Render/Netlify/railway prox
 // One app on one origin, so there is normally nothing to negotiate. CORS is
 // switched on only when WEB_ORIGIN names a separately hosted client.
 if (config.webOrigins.length) app.use(cors({ origin: config.webOrigins, credentials: true }));
+// Paystack signs the exact bytes it sends, so this one route reads the body raw —
+// and must be registered before the JSON parser below consumes it.
+app.post("/api/billing/webhook", express.raw({ type: "*/*", limit: "1mb" }), billingWebhook);
 app.use(express.json());
 
 // Log every request so you can watch the backend work in the terminal.
@@ -87,46 +100,56 @@ app.use("/api/auth", authRouter);
 // Identity-scoped, not business-scoped — knows WHO via the JWT, not which
 // business they're acting in, so it sits behind requireAuth alone.
 app.use("/api/verify", requireAuth, verifyRouter);
+// Account-level too: the plan belongs to the person paying, not to one business.
+app.use("/api/billing", requireAuth, billingRouter);
 
 // Business-data routes: auth → tenant context → module
 const tenant = [requireAuth, tenantContext];
+// Spans every business of the account, so it resolves access itself (no tenantContext).
+app.use("/api/overview", requireAuth, overviewRouter);
 app.use("/api/staff", tenant, staffRouter);
 app.use("/api/products", tenant, productsRouter);
-app.use("/api/production", tenant, productionRouter);
-app.use("/api/suppliers", tenant, suppliersRouter);
-app.use("/api/stock-counts", tenant, stockCountRouter);
+app.use("/api/production", tenant, requireFeature("verticals"), productionRouter);
+app.use("/api/suppliers", tenant, requireFeature("suppliers"), suppliersRouter);
+app.use("/api/stock-counts", tenant, requireFeature("stockCount"), stockCountRouter);
 app.use("/api/inventory", tenant, inventoryRouter);
 app.use("/api/sales", tenant, salesRouter);
-app.use("/api/returns", tenant, returnsRouter);
+app.use("/api/returns", tenant, requireFeature("returns"), returnsRouter);
 app.use("/api/customers", tenant, customersRouter);
 app.use("/api/expenses", tenant, expensesRouter);
-app.use("/api/attendance", tenant, attendanceRouter);
+app.use("/api/attendance", tenant, requireFeature("attendance"), attendanceRouter);
 app.use("/api/metrics", tenant, metricsRouter);
 app.use("/api/settings", tenant, settingsRouter);
-app.use("/api/audit", tenant, auditRouter);
+app.use("/api/audit", tenant, requireFeature("auditLog"), auditRouter);
 app.use("/api/notifications", tenant, notificationsRouter);
-app.use("/api/jobs", tenant, jobsRouter);
+app.use("/api/jobs", tenant, requireFeature("verticals"), jobsRouter);
 app.use("/api/tasks", tenant, tasksRouter);
 app.use("/api/announcements", tenant, announcementsRouter);
 app.use("/api/tickets", tenant, ticketsRouter);
-app.use("/api/ai", tenant, aiRouter);
+app.use("/api/ai", tenant, requireFeature("ai"), aiRouter);
 app.use("/api/search", tenant, searchRouter);
+app.use("/api/reports", tenant, requireFeature("reports"), reportsRouter);
 
 // Business-vertical routes (server/modules/businesses/*/) — same auth/tenant
 // gate as everything else above, just physically grouped so "every business
 // has its own directory" is visible here too, not only in server/modules/.
-app.use("/api/hotel", tenant, hotelRouter);
-app.use("/api/serials", tenant, serialsRouter);
-app.use("/api/vaccinations", tenant, vaccinationsRouter);
-app.use("/api/cohorts", tenant, cohortsRouter);
-app.use("/api/kitchen-queue", tenant, kitchenQueueRouter);
-app.use("/api/loyalty", tenant, loyaltyRouter);
-app.use("/api/coldroom", tenant, coldroomRouter);
-app.use("/api/gym", tenant, gymRouter);
-app.use("/api/loyalty-cards", tenant, loyaltyCardRouter);
+app.use("/api/hotel", tenant, requireFeature("verticals"), hotelRouter);
+app.use("/api/serials", tenant, requireFeature("verticals"), serialsRouter);
+app.use("/api/vaccinations", tenant, requireFeature("verticals"), vaccinationsRouter);
+app.use("/api/cohorts", tenant, requireFeature("verticals"), cohortsRouter);
+app.use("/api/kitchen-queue", tenant, requireFeature("verticals"), kitchenQueueRouter);
+app.use("/api/loyalty", tenant, requireFeature("loyalty"), loyaltyRouter);
+app.use("/api/coldroom", tenant, requireFeature("verticals"), coldroomRouter);
+app.use("/api/gym", tenant, requireFeature("verticals"), gymRouter);
+app.use("/api/academy", tenant, requireFeature("verticals"), academyRouter);
+app.use("/api/salon", tenant, requireFeature("verticals"), salonRouter);
+app.use("/api/agency", tenant, requireFeature("verticals"), agencyRouter);
+app.use("/api/loyalty-cards", tenant, requireFeature("loyalty"), loyaltyCardRouter);
+app.use("/api/site", tenant, requireFeature("sitePage"), siteRouter);
 
 // Public: a customer opening their card link isn't logged into anything.
 app.use("/api/public/loyalty-cards", loyaltyCardPublicRouter);
+app.use("/api/public/sites", sitePublicRouter);
 
 // StarTrack's own staff, looking across every tenant. Deliberately NOT behind
 // `tenant` — it carries its own gate (see platform.routes.js).

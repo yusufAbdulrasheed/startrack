@@ -11,6 +11,7 @@ import { requireAuth } from "#core/middleware/requireAuth.js";
 import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { money } from "#core/money.js";
 import { typeTemplate } from "#shared/businessTypes.js";
+import { effectivePlan, isPlan, isLegacyAccount, planStatus } from "#shared/plans.js";
 
 export const platformRouter = Router();
 
@@ -125,7 +126,8 @@ platformRouter.get("/accounts", async (req, res) => {
       return {
         id: a._id,
         name: a.name,
-        plan: a.plan,
+        plan: effectivePlan(a),
+        legacy: isLegacyAccount(a),
         status: a.status,
         isSandbox: !!a.isSandbox,
         createdAt: a.createdAt,
@@ -162,7 +164,8 @@ platformRouter.get("/accounts/:id", async (req, res) => {
 
   res.json({
     account: {
-      id: account._id, name: account.name, plan: account.plan, status: account.status,
+      id: account._id, name: account.name, plan: effectivePlan(account), legacy: isLegacyAccount(account), status: account.status,
+      periodEnd: account.subscription?.currentPeriodEnd || null,
       isSandbox: !!account.isSandbox, createdAt: account.createdAt,
     },
     businesses: businesses.map((b) => ({
@@ -177,6 +180,38 @@ platformRouter.get("/accounts/:id", async (req, res) => {
     })),
     usage: { products, revenue: money(sales[0]?.total || 0), txns: sales[0]?.txns || 0, lastSaleAt: sales[0]?.last || null },
   });
+});
+
+// POST /api/platform/accounts/:id/plan — set an account's plan by hand (comp, refund, support fix).
+// plan "legacy" returns it to the full access accounts had before plans existed.
+platformRouter.post("/accounts/:id/plan", requireOverseer, async (req, res) => {
+  const plan = req.body?.plan;
+  const days = Math.min(3650, Math.max(1, Math.round(Number(req.body?.days) || 30)));
+  if (plan !== "legacy" && !isPlan(plan)) return res.status(400).json({ error: "invalid", message: "Plan must be free, pro, business or legacy." });
+  const account = await Account.findById(req.params.id);
+  if (!account) return res.status(404).json({ error: "not_found", message: "Account not found." });
+  if (account.isSandbox) return res.status(400).json({ error: "invalid", message: "Demo sandboxes always show everything." });
+
+  const before = effectivePlan(account);
+  if (plan === "legacy") {
+    account.subscription = undefined;
+    account.plan = "business";
+  } else {
+    account.plan = plan;
+    account.subscription = {
+      plan,
+      trial: false,
+      currentPeriodEnd: new Date(Date.now() + days * DAY),
+      payments: account.subscription?.payments || [],
+    };
+  }
+  await account.save();
+  await AuditLog.create({
+    accountId: account._id, businessId: account._id, actorId: req.platformUser._id, actorName: `${req.platformUser.name} (StarTrack)`,
+    action: "platform.plan", target: { type: "account", id: account._id, label: account.name },
+    before: { plan: before }, after: { plan: effectivePlan(account), days: plan === "legacy" ? undefined : days },
+  });
+  res.json({ ok: true, plan: effectivePlan(account), legacy: isLegacyAccount(account), lapsed: planStatus(account).lapsed, periodEnd: account.subscription?.currentPeriodEnd || null });
 });
 
 // POST /api/platform/accounts/:id/status — suspend or restore a tenant

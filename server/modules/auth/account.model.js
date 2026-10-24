@@ -6,7 +6,20 @@ const accountSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     ownerUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    plan: { type: String, enum: ["free", "growth", "pro"], default: "free" },
+    // Legacy label, kept in step with subscription.plan for the platform screen.
+    // What an account may actually do comes from `subscription` (shared/plans.js).
+    plan: { type: String, enum: ["free", "growth", "pro", "business"], default: "free" },
+    // Absent on accounts that existed before plans did — those keep full access.
+    subscription: {
+      plan: { type: String, enum: ["free", "pro", "business"] },
+      // True while the first, unpaid period is running; cleared by the first payment.
+      trial: { type: Boolean, default: false },
+      // When the paid period ends; after that the account is on Freemium.
+      currentPeriodEnd: { type: Date, default: null },
+      // Every payment that has been applied, so a replayed webhook or a
+      // double-click on "verify" can never extend the plan twice.
+      payments: { type: [{ _id: false, reference: String, plan: String, amount: Number, at: Date }], default: [] },
+    },
     status: { type: String, enum: ["active", "suspended"], default: "active" },
     // Throwaway "Try the demo" sandboxes — swept after 24h.
     isSandbox: { type: Boolean, default: false, index: true },

@@ -61,7 +61,7 @@ export function Suppliers() {
           <div className="divide-y divide-line">
             {paged.rows.map((s) => (
               <button key={s.id} onClick={() => setSelected(s)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors">
-                <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-semibold text-[13px] flex items-center justify-center shrink-0">
                   {s.name[0]?.toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -161,7 +161,7 @@ function SupplierDetail({ supplier, currency, onClose, onChanged, canManage }: {
         )}
       </div>
       {supplier.notes && <div className="text-[12px] text-t2 px-3 py-2 rounded-ctl bg-surface-2 border border-line mb-4">{supplier.notes}</div>}
-      <div className="text-[12px] font-bold uppercase tracking-wide text-t3 mb-2">Recent deliveries</div>
+      <div className="text-[12px] font-medium text-t3 mb-2">Recent deliveries</div>
       {loading ? (
         <Spinner />
       ) : !data?.deliveries.length ? (
@@ -175,7 +175,7 @@ function SupplierDetail({ supplier, currency, onClose, onChanged, canManage }: {
                 <div className="text-[11px] text-t4">{fmtDateTime(d.at)}</div>
               </div>
               <div className="text-right shrink-0">
-                <div className="font-mono text-[13px] font-bold text-t1 tabular-nums">+{d.qty}</div>
+                <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">+{d.qty}</div>
                 {d.unitCost !== undefined && <div className="text-[11px] text-t4 font-mono">{fmtMoney(d.unitCost, currency)}/unit</div>}
               </div>
             </div>

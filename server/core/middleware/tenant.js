@@ -4,6 +4,9 @@ import { Business } from "#modules/business/business.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { User } from "#modules/auth/user.model.js";
 import { permsForRole } from "#modules/auth/auth.service.js";
+import { hasCapability } from "#shared/businessTypes.js";
+import { Account } from "#modules/auth/account.model.js";
+import { planStatus, planAllows, requiredPlanFor, limitOf, PLANS, FEATURES } from "#shared/plans.js";
 
 const oid = (v) => (mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null);
 
@@ -58,7 +61,22 @@ export async function tenantContext(req, res, next) {
       return res.status(401).json({ error: "unauthorized", message: "Please sign in again." });
     }
 
+    const account = await Account.findById(business.accountId).select("isSandbox subscription status");
+    const status = planStatus(account);
+
+    // A lapsed account can still look at everything it has; it just can't change
+    // anything until it renews. (Billing lives outside this middleware, so paying
+    // is always possible.)
+    if (status.lapsed && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      return res.status(402).json({
+        error: "subscription_lapsed",
+        message: "Your plan has ended. You can still view your data, but changes are paused until you renew.",
+      });
+    }
+
     req.ctx = {
+      plan: status.plan,
+      lapsed: status.lapsed,
       userId: membership.userId,
       actorName: user.name,
       accountId: business.accountId,
@@ -86,6 +104,16 @@ export function requirePerm(...perms) {
   };
 }
 
+// Gate for a business-vertical API: the active business's TRADE must support
+// the capability. Hiding the menu is not enough — a restaurant owner shouldn't
+// be able to POST to /api/academy by hand and litter their books with classes.
+export function requireCapability(capability) {
+  return (req, res, next) => {
+    if (hasCapability(req.ctx?.business?.typeKey, capability)) return next();
+    return res.status(404).json({ error: "not_available", message: "This business type doesn't use that feature." });
+  };
+}
+
 // Requires an explicit branch context (most operational endpoints).
 export function requireBranch(req, res, next) {
   if (!req.ctx.branchId) {
@@ -98,4 +126,46 @@ export function requireBranch(req, res, next) {
 // cost/profit fields — enforced here at the data layer, not in the UI.
 export function canSeeCost(ctx) {
   return ctx.perms.includes("*") || ctx.perms.includes("dashboard_finance") || ctx.perms.includes("costs");
+}
+
+/**
+ * Refuses a feature the account's plan doesn't include. The error carries what
+ * the app needs to offer the right upgrade: which feature, and which plan has it.
+ */
+export function requireFeature(feature) {
+  return (req, res, next) => {
+    if (planAllows(req.ctx?.plan || "free", feature)) return next();
+    return res.status(403).json(planRequired(feature));
+  };
+}
+
+export function planRequired(feature) {
+  const need = requiredPlanFor(feature);
+  const f = FEATURES[feature];
+  return {
+    error: "plan_required",
+    feature,
+    requiredPlan: need,
+    message: `${f?.label || "This feature"} is part of the ${PLANS[need].name} plan. Upgrade to use it.`,
+  };
+}
+
+/**
+ * Called before creating something a plan caps ("products", "staff", …).
+ * Returns null when there's room, or the refusal body when there isn't.
+ * `adding` is how many are about to be created. Existing data over a limit
+ * (after a downgrade) is never touched; only new additions are refused.
+ */
+export function limitProblem(plan, name, currentCount, adding = 1) {
+  const cap = limitOf(plan, name);
+  if (cap === null || currentCount + adding <= cap) return null;
+  const upTo = ["free", "pro", "business"].find((p) => limitOf(p, name) === null || limitOf(p, name) > cap);
+  const noun = { businesses: "businesses", branches: "branches", staff: "staff accounts", products: "products" }[name];
+  return {
+    error: "plan_limit",
+    limit: name,
+    cap,
+    requiredPlan: upTo || "business",
+    message: `Your ${PLANS[plan].name} plan includes up to ${cap} ${noun}. Upgrade to ${PLANS[upTo || "business"].name} to add more.`,
+  };
 }

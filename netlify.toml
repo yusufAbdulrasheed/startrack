@@ -11,6 +11,8 @@
 
 [functions]
   node_bundler = "esbuild"
+  # The PDF reports embed these fonts at runtime, so they must ship with the function.
+  included_files = ["node_modules/@fontsource/inter/files/inter-latin-*-normal.woff", "node_modules/@fontsource/inter/files/inter-latin-ext-*-normal.woff"]
 
 # Every /api/* call the client makes (see public/lib/api.ts's same-origin
 # "/api" default) is rewritten to the function above — the browser never

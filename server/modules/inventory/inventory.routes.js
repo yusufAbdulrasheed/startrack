@@ -6,7 +6,8 @@ import { Inventory } from "#modules/inventory/inventory.model.js";
 import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { Supplier } from "#modules/suppliers/supplier.model.js";
-import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
+import { requirePerm, requireBranch, requireFeature, planRequired } from "#core/middleware/tenant.js";
+import { planAllows } from "#shared/plans.js";
 import { applyMovement, InsufficientStockError } from "#modules/inventory/inventory.service.js";
 import { money } from "#core/money.js";
 import { audit } from "#core/audit.js";
@@ -35,6 +36,7 @@ inventoryRouter.post("/stock-in", requirePerm("stock"), requireBranch, async (re
   const parsed = stockInSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const { items, note, supplierId } = parsed.data;
+  if (supplierId && !planAllows(req.ctx.plan, "suppliers")) return res.status(403).json(planRequired("suppliers"));
 
   const products = await Product.find({ _id: { $in: items.map((i) => i.productId) }, businessId: req.ctx.businessId });
   const byId = new Map(products.map((p) => [String(p._id), p]));
@@ -187,7 +189,7 @@ const transferSchema = z.object({
 });
 
 // POST /api/inventory/transfer — move stock from the active branch to another
-inventoryRouter.post("/transfer", requirePerm("stock"), requireBranch, async (req, res) => {
+inventoryRouter.post("/transfer", requirePerm("stock"), requireFeature("transfers"), requireBranch, async (req, res) => {
   const parsed = transferSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const { toBranchId, items, note } = parsed.data;

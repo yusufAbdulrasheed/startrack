@@ -139,7 +139,7 @@ export function Tickets() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-[12px] font-bold text-primary">{t.ticketNo}</span>
+                      <span className="font-mono text-[12px] font-semibold text-primary">{t.ticketNo}</span>
                       <span className="text-[13px] font-semibold text-t1 truncate">{t.subject}</span>
                       {t.priority === "high" && <Badge tone="danger">High priority</Badge>}
                       {t.scope === "platform" && <Badge tone="brand"><ArrowUpRight className="w-3 h-3" /> With StarTrack</Badge>}
@@ -321,7 +321,7 @@ function TicketDetail({ id, canManage, onClose, onChanged }: { id: string | null
           )}
 
           <div className="pt-2 border-t border-line">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-2">Conversation</div>
+            <div className="text-[11px] font-medium text-t3 mb-2">Conversation</div>
             {t.comments.length === 0 ? (
               <div className="text-[12px] text-t4 py-3 text-center">No replies yet.</div>
             ) : (

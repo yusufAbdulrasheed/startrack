@@ -6,6 +6,7 @@ import { CustomerLedgerEntry, applyCreditChange } from "#modules/customers/custo
 import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
 import { hasCapability } from "#shared/businessTypes.js";
 import { money } from "#core/money.js";
+import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { audit } from "#core/audit.js";
 import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
 
@@ -34,13 +35,13 @@ customersRouter.get("/", requirePerm("customers", "sales"), async (req, res) => 
     filter.$or = [{ name: { $regex: q, $options: "i" } }, { phone: { $regex: q } }];
   }
   if (req.query.debtorsOnly === "1") filter.creditBalance = { $gt: 0 };
-  const customers = await Customer.find(filter).sort(req.query.debtorsOnly === "1" ? { creditBalance: -1 } : { lastSeen: -1 }).limit(200);
+  const customers = await Customer.find(scopedToBranch(req.ctx, filter)).sort(req.query.debtorsOnly === "1" ? { creditBalance: -1 } : { lastSeen: -1 }).limit(200);
   // The "credit" capability's headline number — how much is out there right
   // now, across every debtor, not just the page on screen.
   let totalOutstanding = 0;
   if (hasCapability(req.ctx.business.typeKey, "credit")) {
     const [agg] = await Customer.aggregate([
-      { $match: { businessId: req.ctx.businessId, creditBalance: { $gt: 0 } } },
+      { $match: scopedToBranch(req.ctx, { businessId: req.ctx.businessId, creditBalance: { $gt: 0 } }) },
       { $group: { _id: null, total: { $sum: "$creditBalance" } } },
     ]);
     totalOutstanding = money(agg?.total || 0);
@@ -53,6 +54,8 @@ const customerSchema = z.object({
   phone: z.string().default(""),
   whatsapp: z.string().default(""),
   notes: z.string().default(""),
+  // With several stores a new customer belongs to the active store unless shared.
+  shareWithAllStores: z.boolean().default(false),
 });
 
 // POST /api/customers
@@ -62,13 +65,14 @@ customersRouter.post("/", requirePerm("customers", "sales"), async (req, res) =>
   const d = parsed.data;
 
   if (d.phone) {
-    const dupe = await Customer.findOne({ businessId: req.ctx.businessId, phone: d.phone });
+    const dupe = await Customer.findOne(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, phone: d.phone }));
     if (dupe) return res.status(409).json({ error: "phone_taken", message: `${dupe.name} already has that phone number.` });
   }
 
   const customer = await Customer.create({
     accountId: req.ctx.accountId,
     businessId: req.ctx.businessId,
+    branchId: await ownerBranchForNew(req.ctx, { shared: d.shareWithAllStores }),
     ...d,
     whatsapp: d.whatsapp || d.phone,
   });
@@ -80,7 +84,7 @@ customersRouter.patch("/:id", requirePerm("customers"), async (req, res) => {
   const parsed = customerSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
 
-  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const customer = await Customer.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
   Object.assign(customer, parsed.data);
   await customer.save();
@@ -89,7 +93,7 @@ customersRouter.patch("/:id", requirePerm("customers"), async (req, res) => {
 
 // GET /api/customers/:id — profile + purchase history
 customersRouter.get("/:id", requirePerm("customers"), async (req, res) => {
-  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const customer = await Customer.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
   const sales = await Sale.find({ businessId: req.ctx.businessId, customerId: customer._id })
     .sort({ at: -1 })
@@ -111,7 +115,7 @@ customersRouter.get("/:id", requirePerm("customers"), async (req, res) => {
 // GET /api/customers/:id/ledger — the "credit" capability's statement:
 // every sale that added to the balance and every repayment that reduced it.
 customersRouter.get("/:id/ledger", requirePerm("customers"), async (req, res) => {
-  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const customer = await Customer.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
   const entries = await CustomerLedgerEntry.find({ businessId: req.ctx.businessId, customerId: customer._id })
     .sort({ at: -1 })
@@ -143,7 +147,7 @@ customersRouter.post("/:id/ledger/payments", requirePerm("customers", "sales"), 
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  const customer = await Customer.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  const customer = await Customer.findOne(scopedToBranch(req.ctx, { _id: req.params.id, businessId: req.ctx.businessId }));
   if (!customer) return res.status(404).json({ error: "not_found", message: "Customer not found." });
 
   const balance = await applyCreditChange(req.ctx, {

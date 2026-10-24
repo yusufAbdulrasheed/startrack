@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Bot, Sparkles, Check, X as XIcon, Image as ImageIcon } from "lucide-react";
+import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Sparkles, Check, X as XIcon, Image as ImageIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { PhotoFinder } from "@/components/products/PhotoFinder";
 import { StatCard } from "@/components/ui/StatCard";
+import { Panel } from "@/components/ui/Panel";
+import { AiMark, TypingDots } from "@/components/ai/AiBits";
+import { LockChip, requestUpgrade } from "@/components/plan/PlanUi";
 import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -50,10 +54,10 @@ function stockStatusOf(p: Product): { label: string; tone: "success" | "warning"
 }
 
 export function Products() {
-  const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability } = useSession();
+  const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability, hasFeature } = useSession();
   const term = typeMeta(activeBusiness?.typeKey).products;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const products = data?.products || [];
+  const products = useMemo(() => data?.products ?? [], [data]);
   const showCost = products.some((p) => p.cost !== undefined);
   // Presentation-only aggregate for the KPI tiles — derived from the same
   // list already on screen, no extra request.
@@ -73,6 +77,8 @@ export function Products() {
   const [cat, setCat] = useState("All");
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [importing, setImporting] = useState(false);
+  const [findingPhotos, setFindingPhotos] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [labeling, setLabeling] = useState(false);
 
@@ -101,11 +107,13 @@ export function Products() {
         subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
         actions={
           <>
-            <Button variant="secondary" onClick={() => setLabeling(true)} disabled={!products.some((p) => p.barcode)}><Barcode className="w-4 h-4" /> Labels</Button>
+            <Button variant="secondary" onClick={() => (hasFeature("barcodes") ? setLabeling(true) : requestUpgrade("barcodes"))} disabled={hasFeature("barcodes") && !products.some((p) => p.barcode)}><Barcode className="w-4 h-4" /> Labels <LockChip feature="barcodes" /></Button>
             <Button variant="secondary" onClick={() => setPrinting(true)} disabled={!products.length}><Printer className="w-4 h-4" /> Print</Button>
             {can("prices") && (
               <>
-                <Button variant="secondary" onClick={() => setImporting(true)}><Upload className="w-4 h-4" /> Import CSV</Button>
+                <Button variant="secondary" onClick={() => (hasFeature("productPhotos") ? setFindingPhotos(true) : requestUpgrade("productPhotos"))} disabled={hasFeature("productPhotos") && !products.some((p) => !p.imageUrl)}><ImageIcon className="w-4 h-4" /> Find photos <LockChip feature="productPhotos" /></Button>
+                <Button variant="secondary" onClick={() => (hasFeature("csvImport") ? setImporting(true) : requestUpgrade("csvImport"))}><Upload className="w-4 h-4" /> Import CSV <LockChip feature="csvImport" /></Button>
+                <Button variant="secondary" onClick={() => setClearing(true)} disabled={!products.length} className="hover:!text-danger hover:!border-danger/50 hover:!bg-danger-soft"><Trash2 className="w-4 h-4" /> Delete all</Button>
                 <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>
               </>
             )}
@@ -114,15 +122,15 @@ export function Products() {
       />
 
       {!loading && products.length > 0 && (
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
           <StatCard index={0} label="Total products" value={String(products.length)} icon={Package} />
-          <StatCard index={1} label="In stock" value={String(stockStats.inStock)} icon={PackageCheck} />
-          <StatCard index={2} label="Low stock" value={String(stockStats.low)} icon={AlertTriangle} />
-          <StatCard index={3} label="Out of stock" value={String(stockStats.out)} icon={PackageX} />
+          <StatCard tone="success" index={1} label="In stock" value={String(stockStats.inStock)} icon={PackageCheck} />
+          <StatCard tone="warning" index={2} label="Low stock" value={String(stockStats.low)} icon={AlertTriangle} />
+          <StatCard tone="danger" index={3} label="Out of stock" value={String(stockStats.out)} icon={PackageX} />
         </div>
       )}
 
-      {can("stock") && <RestockSuggestionsPanel />}
+      {can("stock") && hasFeature("ai") && <RestockSuggestionsPanel />}
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
@@ -181,7 +189,7 @@ export function Products() {
                         </div>
                       </TD>
                       <TD><Badge tone="neutral">{p.category}</Badge></TD>
-                      <TD className="font-mono font-bold tabular-nums">{fmtMoney(p.price, currency)}</TD>
+                      <TD className="font-mono font-semibold tabular-nums">{fmtMoney(p.price, currency)}</TD>
                       {showCost && (
                         <TD className="font-mono !text-t3 tabular-nums">{p.cost !== undefined ? fmtMoney(p.cost, currency) : "—"}</TD>
                       )}
@@ -190,7 +198,7 @@ export function Products() {
                           <Badge tone="brand">Made to order</Badge>
                         ) : (
                           <div className="flex items-center gap-2">
-                            <span className={cn("font-mono text-[13px] font-bold tabular-nums", low ? "text-danger" : "text-t1")}>
+                            <span className={cn("font-mono text-[13px] font-semibold tabular-nums", low ? "text-danger" : "text-t1")}>
                               {p.stock}{p.unit && p.unit !== "unit" && <span className="text-t4 font-sans font-normal"> {p.unit}</span>}
                             </span>
                             {status && <Badge tone={status.tone}>{status.label}</Badge>}
@@ -224,7 +232,7 @@ export function Products() {
         key={editing === "new" ? "new" : (editing?.id ?? "closed")}
         editing={editing}
         showCost={can("prices")}
-        showExpiry={hasModule("expiry")}
+        showExpiry={hasModule("expiry") && hasFeature("expiry")}
         mtoAllowed={hasModule("made_to_order")}
         serialsAllowed={hasCapability("serials")}
         productionAllowed={hasCapability("production")}
@@ -233,6 +241,8 @@ export function Products() {
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); reload(); }}
       />
+      <DeleteAllModal open={clearing} count={products.length} onClose={() => setClearing(false)} onDone={() => { setClearing(false); reload(); }} />
+      <PhotoFinder open={findingPhotos} onClose={() => setFindingPhotos(false)} onDone={() => reload()} />
       <ImportModal
         open={importing}
         onClose={() => setImporting(false)}
@@ -248,7 +258,7 @@ export function Products() {
         branchName={activeBranch?.name || ""}
         currency={currency}
         showCost={showCost}
-        showExpiry={hasModule("expiry")}
+        showExpiry={hasModule("expiry") && hasFeature("expiry")}
         term={term}
       />
     </div>
@@ -312,55 +322,72 @@ function RestockSuggestionsPanel() {
   const suggestions = data?.suggestions || [];
 
   return (
-    <Card className="overflow-hidden mb-6">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
-        <Bot className="w-4 h-4 text-primary" />
-        <div className="text-[14px] font-bold text-t1">AI Restock Suggestions</div>
-        <Button variant="secondary" size="sm" className="ml-auto" onClick={generate} disabled={generating || loading}>
-          <Sparkles className="w-3.5 h-3.5" /> {generating ? "Thinking…" : "Generate"}
+    <Panel
+      flush
+      className="mb-6"
+      icon={Sparkles}
+      title="Restock suggestions"
+      subtitle="The AI reviews low stock against recent sales — nothing changes until you approve"
+      action={
+        <Button variant="secondary" size="sm" onClick={generate} disabled={generating || loading}>
+          {generating ? <><TypingDots /> Thinking</> : <><Sparkles className="w-3.5 h-3.5" /> {suggestions.length ? "Refresh" : "Generate"}</>}
         </Button>
-      </div>
-      {error && <div className="px-5 pt-3"><ErrorBanner message={error} /></div>}
+      }
+    >
+      {error && <div className="px-5 py-3 border-b border-line"><ErrorBanner message={error} /></div>}
       {!loading && suggestions.length === 0 ? (
-        <div className="px-5 py-6 text-center text-[12px] text-t4">
-          No suggestions yet — click Generate to review low-stock items against recent sales velocity.
+        <div className="px-5 py-8 flex flex-col items-center text-center">
+          <AiMark size={40} className="opacity-90" />
+          <div className="mt-3 text-[13.5px] font-bold text-t1">No suggestions yet</div>
+          <div className="mt-1 text-[12.5px] text-t3 max-w-[46ch]">Press Generate and the AI will check which items are running low and how much to reorder.</div>
         </div>
       ) : (
         <div className="divide-y divide-line">
-          {suggestions.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 px-5 py-3 flex-wrap">
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-semibold text-t1 truncate">{s.productName}</div>
-                <div className="text-[11px] text-t3 mt-0.5">
-                  {s.currentStock} left · reorder at {s.reorderLevel} · suggests <span className="font-mono font-semibold text-t2">+{s.suggestedQty}</span>
+          {suggestions.map((s) => {
+            const pct = s.reorderLevel > 0 ? Math.min(100, Math.round((s.currentStock / s.reorderLevel) * 100)) : 0;
+            return (
+              <div key={s.id} className="px-5 py-4 flex items-center gap-4 flex-wrap">
+                <div className="min-w-0 flex-1 basis-64">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-[13.5px] font-bold text-t1 truncate">{s.productName}</span>
+                    <span className="shrink-0 px-2 py-[2px] rounded-full bg-primary-soft text-primary text-[11.5px] font-bold font-mono">+{s.suggestedQty}</span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="h-[6px] w-28 rounded-full bg-surface-3 overflow-hidden">
+                      <div className={cn("h-full rounded-full", s.currentStock <= 0 ? "bg-danger" : "bg-warning")} style={{ width: `${Math.max(4, pct)}%` }} />
+                    </div>
+                    <span className="text-[12px] text-t3">{s.currentStock} left · reorder at {s.reorderLevel}</span>
+                  </div>
+                  {s.reasoning && (
+                    <div className="mt-2.5 pl-3 border-l-2 border-primary/30 text-[12.5px] text-t2 leading-relaxed">{s.reasoning}</div>
+                  )}
                 </div>
-                {s.reasoning && <div className="text-[11px] text-t4 mt-0.5 italic">{s.reasoning}</div>}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => approve(s.id, "log_stock_in")}
+                    disabled={busyId === s.id}
+                    className="bg-primary text-white h-9 px-3.5 rounded-xl text-[12.5px] font-bold disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    <Check className="w-3.5 h-3.5" /> Add {s.suggestedQty} to stock
+                  </button>
+                  <button
+                    onClick={() => approve(s.id, "raise_reorder_level")}
+                    disabled={busyId === s.id}
+                    className="h-9 px-3 rounded-xl border border-line-2 bg-surface text-[12.5px] font-bold text-t2 hover:text-primary hover:border-primary disabled:opacity-60 transition-colors"
+                    title="Just raise the reorder level, don't add stock"
+                  >
+                    Reorder level only
+                  </button>
+                  <button onClick={() => dismiss(s.id)} disabled={busyId === s.id} aria-label="Dismiss" className="w-9 h-9 rounded-full text-t4 hover:text-danger hover:bg-danger-soft grid place-items-center disabled:opacity-60 transition-colors">
+                    <XIcon className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  onClick={() => approve(s.id, "log_stock_in")}
-                  disabled={busyId === s.id}
-                  className="h-8 px-3 rounded-ctl bg-primary text-white text-[12px] font-semibold hover:brightness-110 disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  <Check className="w-3.5 h-3.5" /> Add {s.suggestedQty} to stock
-                </button>
-                <button
-                  onClick={() => approve(s.id, "raise_reorder_level")}
-                  disabled={busyId === s.id}
-                  className="h-8 px-2.5 rounded-ctl border border-line-2 text-[11px] font-semibold text-t3 hover:text-primary hover:border-brand-400 disabled:opacity-60"
-                  title="Just raise the reorder level, don't add stock"
-                >
-                  Reorder level only
-                </button>
-                <button onClick={() => dismiss(s.id)} disabled={busyId === s.id} className="w-8 h-8 rounded-ctl text-t4 hover:text-danger hover:bg-danger-soft flex items-center justify-center disabled:opacity-60">
-                  <XIcon className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
-    </Card>
+    </Panel>
   );
 }
 
@@ -408,7 +435,7 @@ function BarcodeLabelsModal({ open, onClose, products, currency }: {
             className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-2 transition-colors">
             <span className={cn("w-4 h-4 rounded border flex items-center justify-center shrink-0",
               selected.has(p.id) ? "bg-primary border-primary text-white" : "border-line-2")}>
-              {selected.has(p.id) && <span className="text-[10px] font-bold">✓</span>}
+              {selected.has(p.id) && <span className="text-[10px] font-semibold">✓</span>}
             </span>
             <span className="min-w-0 flex-1 text-[13px] font-medium text-t1 truncate">{p.name}</span>
             <span className="font-mono text-[11px] text-t4 shrink-0">{p.barcode}</span>
@@ -656,9 +683,9 @@ function ImportModal({ open, onClose, onDone, categories }: {
 
           {/* Step 1 — the template does the explaining, so it leads. */}
           <div className="flex items-start gap-3 p-4 rounded-card bg-primary-softer border border-line">
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-primary text-white flex items-center justify-center font-bold text-[13px]">1</div>
+            <div className="w-9 h-9 shrink-0 rounded-xl bg-primary text-white flex items-center justify-center font-semibold text-[13px]">1</div>
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-bold text-t1">Start from the template</div>
+              <div className="text-[13px] font-semibold text-t1">Start from the template</div>
               <div className="text-[12px] text-t3 mt-0.5 leading-relaxed">
                 An Excel workbook set up for {activeBusiness?.name || "your business"} — your categories as a dropdown,
                 prices in {currency}, and a tab explaining every column.
@@ -671,9 +698,9 @@ function ImportModal({ open, onClose, onDone, categories }: {
 
           {/* Step 2 */}
           <div className="flex items-start gap-3 mt-3">
-            <div className="w-9 h-9 shrink-0 rounded-xl bg-surface-3 text-t3 flex items-center justify-center font-bold text-[13px]">2</div>
+            <div className="w-9 h-9 shrink-0 rounded-xl bg-surface-3 text-t3 flex items-center justify-center font-semibold text-[13px]">2</div>
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-bold text-t1">Fill it in and upload it back</div>
+              <div className="text-[13px] font-semibold text-t1">Fill it in and upload it back</div>
               <label
                 className={cn(
                   "mt-2 flex flex-col items-center justify-center gap-1.5 py-8 rounded-card border-2 border-dashed transition-colors",
@@ -779,6 +806,8 @@ function ProductModal({
     unitsPerPurchase: p?.unitsPerPurchase ?? 1,
     warrantyMonths: p?.warrantyMonths ?? 0,
   });
+  const { activeBranch, branchesForActive, hasFeature } = useSession();
+  const [shared, setShared] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -841,6 +870,7 @@ function ProductModal({
         } : {}),
         ...(showExpiry && !mto ? { expiry: form.expiry } : {}),
         ...(isNew && !mto ? { openingStock: Number(form.openingStock) || 0 } : {}),
+        ...(isNew ? { shareWithAllStores: shared } : {}),
         ...(serialsAllowed && !mto ? { tracksSerials, warrantyMonths: Number(form.warrantyMonths) || 0 } : {}),
       };
       const res = isNew
@@ -954,7 +984,9 @@ function ProductModal({
         <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={mto ? "e.g. Day & Night Window Blind" : "e.g. Golden Penny Semovita 2kg"} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category"><Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder={mto ? "Blinds" : "Grains"} /></Field>
-          {!mto && <Field label="Barcode" hint="Optional — scan into this box"><Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>}
+          {!mto && (hasFeature("barcodes")
+            ? <Field label="Barcode" hint="Optional — scan into this box"><Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>
+            : <Field label="Barcode" hint="Barcodes and labels are part of the Pro plan"><Input value="" disabled placeholder="Pro plan" onClick={() => requestUpgrade("barcodes")} /></Field>)}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label={mto ? "Price per m²" : "Selling price"} hint={mto ? "Order price = this × width × height (adjustable at sale)" : undefined}>
@@ -965,7 +997,7 @@ function ProductModal({
 
         {mto ? (
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">Components — your own recipe</div>
+            <div className="text-[11px] font-medium text-t3 mb-1.5">Components — your own recipe</div>
             <div className="text-[11px] text-t4 mb-2">Cost and stock deduction come from these. Quantities are calculated from each order's size.</div>
             <div className="space-y-2">
               {bom.map((line, i) => (
@@ -996,6 +1028,12 @@ function ProductModal({
           <>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Reorder level" hint="Low-stock alert threshold"><Input type="number" min="0" value={form.reorderLevel} onChange={(e) => set("reorderLevel", e.target.value)} /></Field>
+              {isNew && branchesForActive.length > 1 && (
+                <label className="col-span-full flex items-start gap-2 text-[12px] text-t2">
+                  <input type="checkbox" className="mt-0.5" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+                  <span>Sell at every branch. Left off, this item belongs to <b>{activeBranch?.name}</b> only.</span>
+                </label>
+              )}
               {isNew && <Field label="Opening stock" hint="Booked as a stock-in"><Input type="number" min="0" value={form.openingStock} onChange={(e) => set("openingStock", e.target.value)} /></Field>}
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -1029,7 +1067,7 @@ function ProductModal({
             )}
             {hasRecipe && (
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-1.5">Recipe — raw materials this consumes</div>
+                <div className="text-[11px] font-medium text-t3 mb-1.5">Recipe — raw materials this consumes</div>
                 <div className="text-[11px] text-t4 mb-2">A Production Run consumes these per unit produced, then credits this product's stock.</div>
                 <div className="space-y-2">
                   {bom.map((line, i) => (
@@ -1063,6 +1101,58 @@ function ProductModal({
         )}
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : isNew ? "Add product" : "Save changes"}</Button>
       </form>
+    </Modal>
+  );
+}
+
+
+/**
+ * Delete every product in one go. "Delete" here archives — the products leave the
+ * catalog, the till and the alerts, but past sales and reports keep their
+ * figures — and the person has to type DELETE so it can't happen by accident.
+ */
+function DeleteAllModal({ open, count, onClose, onDone }: { open: boolean; count: number; onClose: () => void; onDone: () => void }) {
+  const { activeBranch, refreshData } = useSession();
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) { setTyped(""); setError(""); }
+  }, [open]);
+
+  async function run() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/products/archive-all", { method: "POST", body: JSON.stringify({ confirm: true }) });
+      refreshData();
+      onDone();
+    } catch (e: any) {
+      setError(e?.message || "Couldn't delete the products.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Delete all ${count} products?`} subtitle={`This clears the catalog${activeBranch ? ` for ${activeBranch.name}` : ""}.`}>
+      <div className="space-y-4">
+        <div className="rounded-xl bg-danger-soft px-3.5 py-3 text-[12.5px] leading-relaxed text-t1">
+          Every product disappears from the catalog and the till, and its stock alerts are cleared. Past sales, receipts and reports keep their figures.
+          Products shared with your other stores go from those stores too.
+        </div>
+        <Field label="Type DELETE to confirm">
+          <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="DELETE" autoFocus />
+        </Field>
+        <ErrorBanner message={error} />
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" onClick={run} disabled={busy || typed.trim() !== "DELETE"}>
+            <Trash2 className="w-4 h-4" /> {busy ? "Deleting…" : `Delete ${count} products`}
+          </Button>
+        </div>
+      </div>
     </Modal>
   );
 }

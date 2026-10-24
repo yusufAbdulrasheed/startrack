@@ -49,17 +49,17 @@ export function Cohorts() {
           {cohorts.map((c) => (
             <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left bg-surface border border-line rounded-card p-4 hover:border-brand-400 hover:shadow-e1 transition-all">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[13px] font-bold text-t1">{c.name}</span>
+                <span className="text-[13px] font-semibold text-t1">{c.name}</span>
                 <Badge tone={c.status === "active" ? "success" : "neutral"}>{c.status}</Badge>
               </div>
               <div className="text-[11px] text-t3 mb-2">{c.species || "—"} · Day {c.ageInDays} · started {fmtDate(c.startDate)}</div>
               <div className="flex items-center gap-4">
                 <div>
-                  <div className="font-mono text-[16px] font-bold text-t1">{c.currentCount}</div>
+                  <div className="font-mono text-[16px] font-semibold text-t1">{c.currentCount}</div>
                   <div className="text-[10px] text-t4">in batch</div>
                 </div>
                 <div>
-                  <div className="font-mono text-[16px] font-bold text-danger">{c.mortalityCount}</div>
+                  <div className="font-mono text-[16px] font-semibold text-danger">{c.mortalityCount}</div>
                   <div className="text-[10px] text-t4">mortality</div>
                 </div>
               </div>
@@ -155,7 +155,7 @@ function CohortDetailModal({ cohortId, onClose, onChanged, canManage }: {
               { l: "FCR", v: data?.totals.feedConversionRatio ?? "—" },
             ].map((s) => (
               <div key={s.l} className="rounded-xl bg-surface-2 border border-line p-3 text-center">
-                <div className="text-[15px] font-bold font-mono text-t1">{s.v}</div>
+                <div className="text-[15px] font-semibold font-mono text-t1">{s.v}</div>
                 <div className="text-[10px] font-medium text-t3 mt-0.5">{s.l}</div>
               </div>
             ))}
@@ -227,7 +227,7 @@ function CohortDetailModal({ cohortId, onClose, onChanged, canManage }: {
           )}
 
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-2">History</div>
+            <div className="text-[11px] font-medium text-t3 mb-2">History</div>
             {!data?.events.length ? (
               <div className="text-[12px] text-t4 py-3 text-center">Nothing recorded yet.</div>
             ) : (

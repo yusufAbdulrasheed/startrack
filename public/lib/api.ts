@@ -27,10 +27,13 @@ export function setTenant(biz: string | null, branch: string | null) {
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(message: string, status: number, code?: string) {
+  /** The server's whole error body, e.g. which plan a refused feature needs. */
+  data?: Record<string, any>;
+  constructor(message: string, status: number, code?: string, data?: Record<string, any>) {
     super(message);
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -56,7 +59,49 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new ApiError(data.message || data.error || "Something went wrong", res.status, data.error);
+    // A plan boundary isn't a failure to hide in a corner: tell the whole app so
+    // it can offer the upgrade, whichever screen made the request.
+    if (res.status === 403 && (data.error === "plan_required" || data.error === "plan_limit")) {
+      window.dispatchEvent(new CustomEvent("st:plan", { detail: data }));
+    }
+    if (res.status === 402 && data.error === "subscription_lapsed") {
+      window.dispatchEvent(new CustomEvent("st:plan", { detail: { ...data, lapsed: true } }));
+    }
+    throw new ApiError(data.message || data.error || "Something went wrong", res.status, data.error, data);
   }
   return data as T;
+}
+
+/**
+ * Fetches a file (a PDF or spreadsheet report) with the same auth and tenant
+ * headers as every other call, then hands it to the browser as a download. A
+ * plain <a href> can't be used: the token travels in a header, not a cookie.
+ */
+export async function apiDownload(path: string, fallbackName = "download"): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(businessId ? { "x-business-id": businessId } : {}),
+        ...(branchId ? { "x-branch-id": branchId } : {}),
+      },
+    });
+  } catch {
+    throw new ApiError("Can't reach the server. Is the API running?", 0, "network");
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(data.message || data.error || "Couldn't download that file.", res.status, data.error);
+  }
+  const disposition = res.headers.get("content-disposition") || "";
+  const name = /filename="?([^";]+)"?/i.exec(disposition)?.[1] || fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

@@ -6,7 +6,8 @@ export type ToggleableModule = { key: string; label: string; hint: string };
 export type Capability =
   | "rooms" | "folio" | "kitchen" | "kitchenQueue" | "production" | "cohorts" | "jobs"
   | "serials" | "medication" | "variants" | "appointments" | "weighing" | "meters"
-  | "memberships" | "credit" | "lots" | "loyalty" | "coldChain";
+  | "memberships" | "credit" | "lots" | "loyalty" | "coldChain"
+  | "programs" | "projects";
 
 export type BusinessTypeTemplate = {
   label: string;

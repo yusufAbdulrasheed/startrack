@@ -46,7 +46,7 @@ export function Expenses() {
         <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!w-40" />
         {data && (
           <div className="ml-auto text-[13px] text-t2">
-            Total: <span className="font-mono font-bold text-t1">{fmtMoney(data.total, currency)}</span>
+            Total: <span className="font-mono font-semibold text-t1">{fmtMoney(data.total, currency)}</span>
           </div>
         )}
       </div>
@@ -76,7 +76,7 @@ export function Expenses() {
                     {e.notes && `${e.notes} · `}{e.paidBy && `paid by ${e.paidBy} · `}{e.actorName} · {fmtDateTime(e.at)}
                   </div>
                 </div>
-                <span className="font-mono text-[14px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(e.amount, currency)}</span>
+                <span className="font-mono text-[14px] font-semibold text-t1 tabular-nums shrink-0">{fmtMoney(e.amount, currency)}</span>
                 <button onClick={() => remove(e)} className="p-1.5 rounded-lg text-t4 hover:text-danger hover:bg-danger-soft transition-colors shrink-0">
                   <Trash2 className="w-4 h-4" />
                 </button>

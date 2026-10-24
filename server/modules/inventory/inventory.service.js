@@ -12,6 +12,40 @@ export class InsufficientStockError extends Error {
 }
 
 /**
+ * Opening stock for products that were created a moment ago — in bulk.
+ *
+ * Writes exactly what applyMovement would for each one (a stock level and an
+ * "IN" ledger row whose balance is that level), in two batched inserts rather
+ * than two round trips per product. It is only safe because the products are
+ * brand new: no level exists yet to race against or to add onto, and the
+ * unique {branchId, productId} index would reject a clash anyway. Anything
+ * touching existing stock must still go through applyMovement.
+ */
+export async function openStockInBulk(ctx, { branchId, items, reason }) {
+  const rows = items.filter((i) => i.qty > 0);
+  if (!rows.length) return 0;
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    await Inventory.insertMany(
+      chunk.map((r) => ({ accountId: ctx.accountId, businessId: ctx.businessId, branchId, productId: r.productId, stock: r.qty })),
+      { ordered: false }
+    );
+    await StockMovement.insertMany(
+      chunk.map((r) => ({
+        accountId: ctx.accountId, businessId: ctx.businessId, branchId,
+        productId: r.productId, productName: r.productName,
+        type: "IN", qty: r.qty, balanceAfter: r.qty,
+        refType: "manual", reason,
+        actorId: ctx.userId, actorName: ctx.actorName,
+      })),
+      { ordered: false }
+    );
+  }
+  return rows.length;
+}
+
+/**
  * THE only door through which stock changes. Applies a signed quantity to the
  * branch's cached level (guarding against overselling atomically) and appends
  * the corresponding ledger movement with the balance after.

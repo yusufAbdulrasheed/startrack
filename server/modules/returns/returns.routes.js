@@ -48,6 +48,9 @@ returnsRouter.post("/", requirePerm("returns"), requireBranch, async (req, res) 
   const sale = await Sale.findOne({ _id: d.saleId, businessId: req.ctx.businessId });
   if (!sale) return res.status(404).json({ error: "not_found", message: "Sale not found. Check the receipt number." });
   if (sale.status === "voided") return res.status(409).json({ error: "voided", message: "That sale was voided — nothing to return." });
+  if (sale.service?.kind) {
+    return res.status(409).json({ error: "service_payment", message: "That's a service payment, not goods — reverse it from the screen it belongs to." });
+  }
 
   // The share of every net naira the customer actually paid (discount spread).
   const paidFactor = sale.subtotal > 0 ? (sale.subtotal - sale.discount) / sale.subtotal : 1;

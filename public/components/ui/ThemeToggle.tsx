@@ -10,7 +10,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       onClick={() => setDark(toggleTheme() === "dark")}
       title={dark ? "Switch to light mode" : "Switch to dark mode"}
       className={cn(
-        "w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t3 hover:bg-surface-2 hover:text-t1 transition-colors",
+        "w-10 h-10 rounded-full grid place-items-center text-t2 hover:bg-surface-3 hover:text-t1 transition-colors",
         className
       )}
     >

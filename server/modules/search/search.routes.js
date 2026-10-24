@@ -5,6 +5,7 @@ import { Sale } from "#modules/sales/sale.model.js";
 import { Expense } from "#modules/expenses/expense.model.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { User } from "#modules/auth/user.model.js";
+import { scopedToBranch } from "#core/branchScope.js";
 
 export const searchRouter = Router();
 
@@ -33,7 +34,7 @@ searchRouter.get("/", async (req, res) => {
 
   if (can("stock")) {
     tasks.push(
-      Product.find({ businessId, status: "active", $or: [{ name: rx }, { barcode: rx }, { sku: rx }] })
+      Product.find(scopedToBranch(req.ctx, { businessId, status: "active", $or: [{ name: rx }, { barcode: rx }, { sku: rx }] }))
         .select("name category price")
         .limit(5)
         .then((rows) =>
@@ -48,7 +49,7 @@ searchRouter.get("/", async (req, res) => {
 
   if (can("customers")) {
     tasks.push(
-      Customer.find({ businessId, $or: [{ name: rx }, { phone: rx }] })
+      Customer.find(scopedToBranch(req.ctx, { businessId, $or: [{ name: rx }, { phone: rx }] }))
         .select("name phone")
         .limit(5)
         .then((rows) =>

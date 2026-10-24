@@ -46,10 +46,10 @@ export function Attendance() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* My clock */}
         <Card className="p-6 text-center self-start">
-          <div className={`w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3 ${clockedIn ? "bg-success-soft text-success" : "bg-surface-3 text-t3"}`}>
+          <div className={`w-14 h-14 mx-auto rounded-xl flex items-center justify-center mb-3 ${clockedIn ? "bg-success-soft text-success" : "bg-surface-3 text-t3"}`}>
             <Clock className="w-7 h-7" />
           </div>
-          <div className="text-[15px] font-bold text-t1">
+          <div className="text-[15px] font-semibold text-t1">
             {clockedIn ? "You're on shift" : my?.clockOut ? "Shift complete" : "Off shift"}
           </div>
           <div className="text-[12px] text-t3 mt-1">
@@ -75,7 +75,7 @@ export function Attendance() {
         {canSeeBranch && (
           <Card className="lg:col-span-2 overflow-hidden self-start">
             <div className="p-4 pb-2 flex items-center gap-3">
-              <span className="text-[14px] font-bold text-t1">{activeBranch?.name} — day view</span>
+              <span className="text-[14px] font-semibold text-t1">{activeBranch?.name} — day view</span>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="!w-40 !h-8 ml-auto" />
             </div>
             {branch.loading ? (
@@ -86,7 +86,7 @@ export function Attendance() {
               <div className="divide-y divide-line">
                 {paged.rows.map((r) => (
                   <div key={r.id} className="flex items-center gap-3 px-4 py-2.5">
-                    <div className="w-8 h-8 rounded-full bg-primary-soft text-primary font-bold text-[12px] flex items-center justify-center shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-primary-soft text-primary font-semibold text-[12px] flex items-center justify-center shrink-0">
                       {r.staffName[0]?.toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1 text-[13px] font-semibold text-t1 truncate">{r.staffName}</div>
@@ -95,7 +95,7 @@ export function Attendance() {
                     </div>
                     <div className="w-16 text-right">
                       {r.clockOut ? (
-                        <span className="font-mono text-[12px] font-bold text-t1">{r.hours.toFixed(1)}h</span>
+                        <span className="font-mono text-[12px] font-semibold text-t1">{r.hours.toFixed(1)}h</span>
                       ) : (
                         <Badge tone="success">on shift</Badge>
                       )}

@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import {
-  Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, ArrowUpRight, ArrowDownRight, Package,
+  Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, Package,
   Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
-  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, type LucideIcon, Bot,
+  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, Compass, Lock,
 } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
-import { StatCard } from "@/components/ui/StatCard";
+import { Panel } from "@/components/ui/Panel";
+import { AiText, TypingDots } from "@/components/ai/AiBits";
+import { StatCard, DeltaChip } from "@/components/ui/StatCard";
 import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { EmptyState, Spinner } from "@/components/ui/EmptyState";
 import { ProductTour, tourSeen, markTourSeen } from "@/components/tour/ProductTour";
@@ -21,6 +23,7 @@ import { typeMeta } from "@/lib/businessTypes";
 import { buildDashboardTour } from "@/lib/tourSteps";
 import { SalesHistoryView } from "@/pages/Sales";
 import { fmtMoney, fmtTime, fmtDate, fmtDateTime, todayStr } from "@/lib/format";
+import { LockedPage } from "@/components/plan/PlanUi";
 import { cn } from "@/lib/utils";
 
 const DASHBOARD_TOUR_KEY = "dashboard-v1";
@@ -46,15 +49,21 @@ function ChartTooltip({ active, payload, label, currency }: any) {
   return (
     <div className="rounded-lg bg-surface border border-line-2 shadow-e2 px-3 py-2">
       <div className="text-[11px] font-semibold text-t3 mb-0.5">{label}</div>
-      <div className="text-[14px] font-bold font-mono text-t1">{fmtMoney(payload[0].value, currency)}</div>
+      <div className="text-[14px] font-semibold font-mono text-t1">{fmtMoney(payload[0].value, currency)}</div>
     </div>
   );
 }
 
 type Tab = "overview" | "sales" | "expenses" | "inventory" | "movement" | "customers" | "staff" | "expiry" | "archive";
 
+// The tabs a plan can lock. Overview, Sales and Expenses are on every plan.
+const TAB_FEATURE: Partial<Record<string, string>> = {
+  inventory: "advancedDashboard", movement: "advancedDashboard", customers: "advancedDashboard",
+  staff: "advancedDashboard", expiry: "expiry", archive: "advancedDashboard",
+};
+
 export function Dashboard() {
-  const { session, activeBusiness, activeBranch, currency, hasModule } = useSession();
+  const { session, activeBusiness, activeBranch, currency, hasModule, hasFeature } = useSession();
   const [tab, setTab] = useState<Tab>("overview");
   const { data: m, loading, error, reload } = useApi<Metrics>("/metrics/dashboard", [activeBranch?.id]);
 
@@ -98,19 +107,19 @@ export function Dashboard() {
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
         <div>
-          <h1 className="font-display text-[22px] font-extrabold tracking-tight text-t1">{greeting}, {firstName} 👋</h1>
+          <h1 className="text-[22px] leading-7 font-semibold text-t1">{greeting}, {firstName}</h1>
           <p className="text-[13px] text-t3 mt-1">
             Here's how {activeBusiness?.name || "your business"}{activeBranch ? ` · ${activeBranch.name}` : ""} is doing today.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" size="md" onClick={() => setTourOpen(true)}><Sparkles className="w-4 h-4" /> Take a tour</Button>
+          <Button variant="secondary" size="md" onClick={() => setTourOpen(true)}><Compass className="w-4 h-4" /> Take a tour</Button>
           <Button variant="secondary" size="md" onClick={reload}><RefreshCw className="w-4 h-4" /> Refresh</Button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 rounded-ctl bg-surface border border-line w-fit max-w-full overflow-x-auto mb-6" data-tour="dashboard-tabs">
+      <div className="flex items-center gap-1 border-b border-line max-w-full overflow-x-auto mb-6" data-tour="dashboard-tabs">
         {([
           { k: "overview", label: "Overview", icon: Wallet },
           { k: "sales", label: "Sales", icon: Receipt },
@@ -126,87 +135,62 @@ export function Dashboard() {
             key={k}
             onClick={() => setTab(k)}
             className={cn(
-              "flex items-center gap-1.5 px-4 h-9 rounded-ctl text-[13px] font-semibold transition-colors whitespace-nowrap",
-              tab === k ? "bg-primary text-on-primary" : "text-t3 hover:bg-surface-2 hover:text-t1"
+              "flex items-center gap-1.5 px-3 h-10 -mb-px border-b-2 text-[13px] font-medium transition-colors whitespace-nowrap",
+              tab === k ? "border-primary text-t1" : "border-transparent text-t3 hover:text-t1"
             )}
           >
-            <Icon className="w-4 h-4" /> {label}
+            <Icon className="w-4 h-4 text-t4" strokeWidth={1.75} /> {label}
+            {TAB_FEATURE[k] && !hasFeature(TAB_FEATURE[k]!) && <Lock className="w-3 h-3 text-t4" />}
           </button>
         ))}
       </div>
 
-      {tab === "sales" && <SalesTab currency={currency} branchKey={activeBranch?.id} />}
-      {tab === "expenses" && <ExpensesTab currency={currency} branchKey={activeBranch?.id} />}
-      {tab === "inventory" && <InventoryTab currency={currency} branchKey={activeBranch?.id} />}
-      {tab === "movement" && <MovementTab branchKey={activeBranch?.id} />}
-      {tab === "customers" && <CustomersTab currency={currency} branchKey={activeBranch?.id} />}
-      {tab === "staff" && <StaffTab currency={currency} branchKey={activeBranch?.id} />}
-      {tab === "expiry" && <ExpiryTab branchKey={activeBranch?.id} />}
-      {tab === "archive" && <SalesHistoryView />}
+      {TAB_FEATURE[tab] && !hasFeature(TAB_FEATURE[tab]!) ? <LockedPage feature={TAB_FEATURE[tab]!} /> : (
+        <>
+          {tab === "sales" && <SalesTab currency={currency} branchKey={activeBranch?.id} />}
+          {tab === "expenses" && <ExpensesTab currency={currency} branchKey={activeBranch?.id} />}
+          {tab === "inventory" && <InventoryTab currency={currency} branchKey={activeBranch?.id} />}
+          {tab === "movement" && <MovementTab branchKey={activeBranch?.id} />}
+          {tab === "customers" && <CustomersTab currency={currency} branchKey={activeBranch?.id} />}
+          {tab === "staff" && <StaffTab currency={currency} branchKey={activeBranch?.id} />}
+          {tab === "expiry" && <ExpiryTab branchKey={activeBranch?.id} />}
+          {tab === "archive" && <SalesHistoryView />}
+        </>
+      )}
       {tab !== "overview" ? null : (
       <>
-      {/* Headline figures + how the money came in — the design's top band. */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-4" data-tour="dashboard-stats">
-        <div className={cn("xl:col-span-2 grid gap-4", showProfit ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-2")}>
-          <FigureCard label="Total Revenue" value={fmtMoney(m.today.revenue, currency)} icon={Wallet}
-            delta={m.today.deltas.revenue} spark={m.series7d.map((s) => s.revenue)} />
+      {/* Headline band: one hero for revenue, a tile grid for the rest, and
+          how the money arrived as a slim strip underneath. */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 mb-5" data-tour="dashboard-stats">
+        <RevenueHero
+          value={fmtMoney(m.today.revenue, currency)}
+          delta={m.today.deltas.revenue}
+          series={series}
+          currency={currency}
+          className="xl:col-span-7"
+        />
+        <div className="xl:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
           {showProfit && (
-            <FigureCard label="Net Profit" value={fmtMoney(m.today.profit!, currency)} icon={TrendingUp} delta={m.today.deltas.profit ?? 0} />
+            <StatCard tone={m.today.profit! < 0 ? "danger" : "success"} label="Net profit" value={fmtMoney(m.today.profit!, currency)}
+              icon={TrendingUp} change={m.today.deltas.profit ?? 0} hint="after expenses" />
           )}
-          <FigureCard label="Transactions" value={String(m.today.txns)} icon={ShoppingCart} delta={m.today.deltas.txns} suffix="Today" />
+          <StatCard tone="neutral" label="Transactions" value={String(m.today.txns)} icon={ShoppingCart} change={m.today.deltas.txns} hint="today" />
+          <StatCard tone="warning" label="Average sale" value={fmtMoney(m.today.txns > 0 ? m.today.revenue / m.today.txns : 0, currency)} icon={Receipt} hint="per transaction" />
+          <StatCard label="Last 7 days" value={fmtMoney(m.week.revenue, currency)} icon={CalendarClock} change={m.week.deltaPct} hint="vs the week before" />
         </div>
-        <PaymentSplitCard split={m.paymentSplit} currency={currency} />
+        <PaymentStrip split={m.paymentSplit} currency={currency} className="xl:col-span-12" />
       </div>
 
       {/* Detail on the left, things wanting attention on the right. */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 space-y-4">
-          <Card className="p-5">
-            <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-              <div>
-                <div className="text-[14px] font-bold text-t1">Revenue</div>
-                <div className="text-[12px] text-t3">Daily, last 7 days</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1 p-1 rounded-lg bg-surface-2">
-                  <span className="px-2.5 h-6 rounded-md text-[11px] font-semibold bg-primary text-on-primary flex items-center">7D</span>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono font-bold text-[15px] text-t1">{fmtMoney(m.week.revenue, currency)}</div>
-                  <div className={cn("text-[11px] font-semibold", m.week.deltaPct >= 0 ? "text-success" : "text-danger")}>
-                    {m.week.deltaPct >= 0 ? "+" : ""}{m.week.deltaPct}% vs previous
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="h-[180px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: -8 }}>
-                  <defs>
-                    <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.22} />
-                      <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
-                  <XAxis dataKey="d" tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 11 }} />
-                  <YAxis tickLine={false} axisLine={false} width={52} tick={{ fill: "var(--chart-axis)", fontSize: 11 }}
-                    tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
-                  <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: "var(--chart-1)", strokeWidth: 1, strokeDasharray: "4 4" }} />
-                  <Area type="monotone" dataKey="v" stroke="var(--chart-1)" strokeWidth={2.5} fill="url(#rev)" dot={false}
-                    activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--color-surface)" }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
           <TopMovingProducts products={m.topProducts} currency={currency} onViewAll={() => setTab("inventory")} />
+          <LiveFeed sales={m.recentSales} currency={currency} />
         </div>
 
         <div className="space-y-4">
-          <AiInsightsCard />
+          {hasFeature("ai") && <AiInsightsCard />}
           <AlertsPanel lowStock={m.lowStock} />
-          <LiveFeed sales={m.recentSales} currency={currency} />
         </div>
       </div>
       </>
@@ -218,65 +202,77 @@ export function Dashboard() {
 
 
 // ── Overview components ──────────────────────────────────────
-// Bento tile, matching StatCard: label + icon chip up top, the figure large
-// and mono, a quiet colored trend line underneath.
-function FigureCard({ label, value, delta, suffix, spark, icon: Icon }: {
-  label: string; value: string; delta: number; suffix?: string; spark?: number[]; icon: LucideIcon;
+
+// The day's revenue, large, on the brand gradient with the week drawn
+// underneath it. This is the one number the owner opens the dashboard for.
+function RevenueHero({ value, delta, series, currency, className }: {
+  value: string; delta: number; series: { d: string; v: number }[]; currency: string; className?: string;
 }) {
-  const up = delta >= 0;
   return (
-    <Card className="p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-t3 truncate">{label}</div>
-        <div className="w-9 h-9 shrink-0 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-          <Icon className="w-[18px] h-[18px]" />
+    <div
+      className={cn("relative overflow-hidden rounded-[22px] text-white flex flex-col", className)}
+      style={{ background: "linear-gradient(115deg, #1d1f9e 0%, #3538f0 48%, #7b3cf5 100%)", boxShadow: "0 24px 48px -22px rgba(53, 56, 240, 0.65)" }}
+    >
+      <div className="relative px-7 pt-6 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-white/75">Revenue today</div>
+          <div className="mt-2 font-mono font-bold text-[44px] leading-none tracking-[-0.03em] truncate">{value}</div>
+          <div className="mt-3 flex items-center gap-2 text-[12.5px] text-white/75">
+            <DeltaChip value={delta} onDark />
+            <span>{delta === 0 ? "same as yesterday" : "vs yesterday"}</span>
+          </div>
         </div>
+        <span className="grid place-items-center w-11 h-11 rounded-2xl bg-white/15 shrink-0">
+          <Wallet className="w-5 h-5" strokeWidth={1.8} />
+        </span>
       </div>
-      <div className="mt-3 font-mono font-extrabold text-[22px] leading-none text-t1 tabular-nums truncate">{value}</div>
-      {suffix ? (
-        <div className="mt-1.5 text-[12px] font-semibold text-t3">{suffix}</div>
-      ) : delta !== 0 ? (
-        <div className={cn("mt-1.5 inline-flex items-center gap-0.5 text-[12px] font-semibold", up ? "text-success" : "text-danger")}>
-          {up ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-          {up ? "+" : ""}{delta}%
-        </div>
-      ) : null}
-      {spark && spark.length > 1 && (
-        <div className="mt-2.5 flex items-end gap-[3px] h-7">
-          {spark.map((v, i) => {
-            const max = Math.max(...spark, 1);
-            return <span key={i} className="flex-1 rounded-sm bg-primary-soft" style={{ height: `${Math.max(8, (v / max) * 100)}%` }} />;
-          })}
-        </div>
-      )}
-    </Card>
+      <div className="relative mt-4 h-[120px] flex-1 min-h-[120px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series} margin={{ top: 8, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="hero-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fff" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="#fff" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="d" tickLine={false} axisLine={false} tick={{ fill: "rgba(255,255,255,0.65)", fontSize: 11 }} interval={0} padding={{ left: 28, right: 28 }} />
+            <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: "rgba(255,255,255,0.4)", strokeDasharray: "4 4" }} />
+            <Area type="monotone" dataKey="v" stroke="#fff" strokeWidth={2.5} fill="url(#hero-fill)" dot={false}
+              activeDot={{ r: 4, strokeWidth: 2, stroke: "#3538f0", fill: "#fff" }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
 
-// How today's money arrived. Proportional bars rather than a donut: at two or
-// three methods a donut is harder to read than the numbers printed beside it.
-function PaymentSplitCard({ split, currency }: { split: Record<string, number>; currency: string }) {
+// How today's money arrived, as one segmented bar with its legend beside it.
+function PaymentStrip({ split, currency, className }: { split: Record<string, number>; currency: string; className?: string }) {
   const entries = Object.entries(split).filter(([, v]) => v > 0);
-  const total = entries.reduce((s, [, v]) => s + v, 0);
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
   return (
-    <Card className="p-4">
-      <div className="text-[10px] font-bold uppercase tracking-[0.09em] text-t3 mb-3">Payment Split</div>
+    <Card className={cn("px-6 py-5 flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8", className)}>
+      <div className="shrink-0">
+        <div className="text-[15px] font-bold text-t1">How customers paid</div>
+        <div className="text-[12.5px] text-t3">Today, by payment method</div>
+      </div>
       {total === 0 ? (
-        <div className="text-[12px] text-t4 py-6 text-center">No sales yet today.</div>
+        <div className="text-[12.5px] text-t3 lg:ml-auto">No sales yet today.</div>
       ) : (
         <>
-          <div className="flex h-2 rounded-full overflow-hidden mb-3.5 bg-surface-3">
+          <div className="flex h-3 rounded-full overflow-hidden bg-surface-3 flex-1 min-w-[160px] gap-[3px]">
             {entries.map(([k, v]) => (
-              <span key={k} style={{ width: `${(v / total) * 100}%`, background: PAY_COLORS[k] }} />
+              <span key={k} className="h-full first:rounded-l-full last:rounded-r-full" style={{ width: `${(v / total) * 100}%`, background: PAY_COLORS[k] }} />
             ))}
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 shrink-0">
             {entries.map(([k, v]) => (
               <div key={k} className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PAY_COLORS[k] }} />
-                <span className="text-[12px] text-t2 flex-1">{PAY_LABELS[k] ?? k}</span>
-                <span className="text-[12px] font-mono font-semibold text-t1 tabular-nums">{Math.round((v / total) * 100)}%</span>
-                <span className="text-[11px] font-mono text-t3 tabular-nums w-20 text-right">{fmtMoney(v, currency)}</span>
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PAY_COLORS[k] }} />
+                <div className="leading-tight">
+                  <div className="text-[12.5px] font-semibold text-t1">{PAY_LABELS[k] ?? k} <span className="text-t3 font-medium">{Math.round((v / total) * 100)}%</span></div>
+                  <div className="text-[11.5px] font-mono text-t3">{fmtMoney(v, currency)}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -285,6 +281,28 @@ function PaymentSplitCard({ split, currency }: { split: Record<string, number>; 
     </Card>
   );
 }
+
+// A numbered badge for ranked lists. The podium places get warm metals.
+function Rank({ n }: { n: number }) {
+  const podium = ["linear-gradient(135deg,#cc9933,#ecbb55)", "linear-gradient(135deg,#8a90ad,#bcc1d6)", "linear-gradient(135deg,#a8683a,#d49a6a)"];
+  return n <= 3 ? (
+    <span className="grid place-items-center w-6 h-6 rounded-full text-white text-[11px] font-bold shrink-0" style={{ background: podium[n - 1] }}>{n}</span>
+  ) : (
+    <span className="grid place-items-center w-6 h-6 rounded-full bg-surface-3 text-t3 text-[11px] font-bold shrink-0">{n}</span>
+  );
+}
+
+// A small round monogram for a person.
+function Monogram({ name, size = 8 }: { name: string; size?: 7 | 8 | 9 }) {
+  const dim = size === 7 ? "w-7 h-7 text-[11px]" : size === 9 ? "w-9 h-9 text-[13px]" : "w-8 h-8 text-[12px]";
+  return (
+    <span className={cn("grid place-items-center rounded-full bg-primary-soft text-primary font-bold shrink-0", dim)}>
+      {name[0]?.toUpperCase()}
+    </span>
+  );
+}
+
+const EMPTY = "py-8 text-center text-[12.5px] text-t3";
 
 // The design's "Top Moving Products" table. The last column shows each
 // product's share of the best seller, which is a real comparison, rather than
@@ -296,33 +314,37 @@ function TopMovingProducts({ products, currency, onViewAll }: {
 }) {
   const max = products[0]?.revenue || 1;
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-3.5 border-b border-line">
-        <div className="text-[14px] font-bold text-t1">Top Moving Products</div>
-        <button onClick={onViewAll} className="text-[12px] font-semibold text-primary hover:underline">View All</button>
-      </div>
+    <Panel
+      flush
+      icon={Package}
+      title="Top moving products"
+      subtitle="Best sellers by revenue, last 7 days"
+      action={<button onClick={onViewAll} className="text-[12.5px] font-bold text-primary hover:underline">View all</button>}
+    >
       {products.length === 0 ? (
-        <div className="px-5 py-10 text-center text-[12px] text-t4">Sales data builds this list.</div>
+        <div className={EMPTY}>Sales data builds this list.</div>
       ) : (
         <div className="overflow-x-auto">
           <Table className="min-w-[520px]">
             <thead>
               <tr>
                 <TH>Product</TH>
-                <TH className="text-right">Qty Sold</TH>
+                <TH className="text-right">Qty sold</TH>
                 <TH className="text-right">Revenue</TH>
                 <TH>Share</TH>
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => (
+              {products.map((p, i) => (
                 <TR key={p.id}>
-                  <TD className="font-medium max-w-[220px] truncate">{p.name}</TD>
-                  <TD className="text-right font-mono text-t2 tabular-nums">{p.sold}</TD>
-                  <TD className="text-right font-mono font-semibold tabular-nums">{fmtMoney(p.revenue, currency)}</TD>
-                  <TD className="w-[110px]">
-                    <span className="block h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.max(4, (p.revenue / max) * 100)}%` }} />
+                  <TD className="max-w-[240px]">
+                    <span className="flex items-center gap-3 font-semibold truncate"><Rank n={i + 1} />{p.name}</span>
+                  </TD>
+                  <TD className="text-right font-mono text-t2">{p.sold}</TD>
+                  <TD className="text-right font-mono font-bold">{fmtMoney(p.revenue, currency)}</TD>
+                  <TD className="w-[130px]">
+                    <span className="block h-[6px] rounded-full bg-surface-3 overflow-hidden">
+                      <span className="block h-full rounded-full" style={{ width: `${Math.max(5, (p.revenue / max) * 100)}%`, background: "var(--st-gradient-primary)" }} />
                     </span>
                   </TD>
                 </TR>
@@ -331,12 +353,10 @@ function TopMovingProducts({ products, currency, onViewAll }: {
           </Table>
         </div>
       )}
-    </Card>
+    </Panel>
   );
 }
 
-// Severity is carried by the chip AND the left stripe, so the urgent rows
-// read before any of the words do.
 // On-demand, not auto-fired on load — an AI request costs something, so a
 // visit to the dashboard shouldn't spend one just by landing here.
 function AiInsightsCard() {
@@ -357,46 +377,48 @@ function AiInsightsCard() {
   }
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
-        <Bot className="w-4 h-4 text-primary" />
-        <div className="text-[14px] font-bold text-t1">AI Insights</div>
-      </div>
-      <div className="px-5 py-4">
-        {state === "idle" && (
-          <button onClick={generate} className="w-full flex items-center justify-center gap-1.5 h-9 rounded-ctl border border-dashed border-line-2 text-[12px] font-semibold text-t3 hover:text-primary hover:border-brand-400 transition-colors">
-            <Sparkles className="w-3.5 h-3.5" /> Generate today's summary
-          </button>
-        )}
-        {state === "loading" && <div className="text-[12px] text-t4 text-center py-2">Thinking…</div>}
-        {state === "off" && <div className="text-[12px] text-t4 text-center py-2">AI isn't set up on this server yet.</div>}
-        {state === "error" && (
-          <div className="text-[12px] text-t4 text-center py-2">
-            Couldn't generate an insight right now.{" "}
-            <button onClick={generate} className="text-primary font-semibold hover:underline">Try again</button>
+    <Panel icon={Sparkles} title="AI insights" subtitle="A plain-English read on today">
+      {state === "idle" && (
+        <button onClick={generate} className="bg-primary text-white w-full flex items-center justify-center gap-1.5 h-10 rounded-xl text-[13px] font-bold">
+          <Sparkles className="w-4 h-4" /> Generate today's summary
+        </button>
+      )}
+      {state === "loading" && <div className="flex items-center justify-center gap-2 py-3 text-[12.5px] text-t3"><TypingDots /> Reading today's numbers</div>}
+      {state === "off" && <div className="text-[12.5px] text-t3 text-center py-2">AI isn't set up on this server yet.</div>}
+      {state === "error" && (
+        <div className="text-[12.5px] text-t3 text-center py-2">
+          Couldn't generate an insight right now.{" "}
+          <button onClick={generate} className="text-primary font-bold hover:underline">Try again</button>
+        </div>
+      )}
+      {state === "done" && (
+        <>
+          <div className="rounded-2xl bg-primary-softer border border-primary/15 px-4 py-3.5">
+            <AiText text={narrative} />
           </div>
-        )}
-        {state === "done" && (
-          <>
-            <p className="text-[12.5px] text-t2 leading-relaxed whitespace-pre-line">{narrative}</p>
-            <button onClick={generate} className="mt-3 text-[11px] font-semibold text-primary hover:underline">Regenerate</button>
-          </>
-        )}
-      </div>
-    </Card>
+          <button onClick={generate} className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-bold text-primary hover:underline">
+            <RotateCcw className="w-3.5 h-3.5" /> Regenerate
+          </button>
+        </>
+      )}
+    </Panel>
   );
 }
 
+// Severity is carried by the chip AND the left stripe, so the urgent rows
+// read before any of the words do.
 function AlertsPanel({ lowStock }: { lowStock: { id: string; name: string; stock: number; reorderLevel: number }[] }) {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
-        <AlertTriangle className="w-4 h-4 text-warning" />
-        <div className="text-[14px] font-bold text-t1">Alerts</div>
-        {lowStock.length > 0 && <span className="ml-auto"><Badge tone="warning">{lowStock.length}</Badge></span>}
-      </div>
+    <Panel
+      flush
+      icon={AlertTriangle}
+      tone="warning"
+      title="Stock alerts"
+      subtitle={lowStock.length ? "Running low at this branch" : "Nothing needs reordering"}
+      action={lowStock.length > 0 ? <Badge tone="warning">{lowStock.length}</Badge> : undefined}
+    >
       {lowStock.length === 0 ? (
-        <div className="px-5 py-8 text-center text-[12px] text-t4 flex items-center justify-center gap-1.5">
+        <div className={cn(EMPTY, "flex items-center justify-center gap-1.5")}>
           <Package className="w-3.5 h-3.5" /> All stocked up.
         </div>
       ) : (
@@ -404,23 +426,18 @@ function AlertsPanel({ lowStock }: { lowStock: { id: string; name: string; stock
           {lowStock.map((s) => {
             const out = s.stock <= 0;
             return (
-              <div key={s.id} className={cn("flex items-start gap-3 px-5 py-3 border-l-[3px]", out ? "border-l-danger" : "border-l-warning")}>
+              <div key={s.id} className={cn("flex items-center gap-3 px-5 py-3 border-l-[3px]", out ? "border-l-danger" : "border-l-warning")}>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold text-t1 truncate">{s.name}</div>
-                  <div className="text-[11px] text-t3 mt-0.5">{s.stock} left · reorder at {s.reorderLevel}</div>
+                  <div className="text-[11.5px] text-t3 mt-0.5">{s.stock} left · reorder at {s.reorderLevel}</div>
                 </div>
-                <span className={cn(
-                  "shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded",
-                  out ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning"
-                )}>
-                  {out ? "Critical" : "Warning"}
-                </span>
+                <Badge tone={out ? "danger" : "warning"}>{out ? "Out" : "Low"}</Badge>
               </div>
             );
           })}
         </div>
       )}
-    </Card>
+    </Panel>
   );
 }
 
@@ -430,34 +447,36 @@ function LiveFeed({ sales, currency }: {
   currency: string;
 }) {
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b border-line">
-        <div className="text-[14px] font-bold text-t1">Live Feed</div>
-        <span className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold text-success">
+    <Panel
+      flush
+      icon={Receipt}
+      title="Live feed"
+      subtitle="Newest sales first"
+      action={
+        <span className="flex items-center gap-1.5 text-[12px] font-bold text-success">
           <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> Live
         </span>
-      </div>
+      }
+    >
       {sales.length === 0 ? (
-        <div className="px-5 py-8 text-center text-[12px] text-t4">Sales appear here as they happen.</div>
+        <div className={EMPTY}>Sales appear here as they happen.</div>
       ) : (
         <div className="divide-y divide-line">
           {sales.slice(0, 6).map((s) => (
-            <div key={s.id} className="flex items-center gap-3 px-5 py-2.5">
+            <div key={s.id} className="flex items-center gap-3 px-5 py-3">
+              <Monogram name={s.staffName || "?"} />
               <div className="min-w-0 flex-1">
-                <div className="text-[12.5px] font-semibold text-t1 font-mono">{s.saleNo}</div>
-                <div className="text-[11px] text-t3 truncate">{fmtTime(s.at)} · {s.staffName}</div>
+                <div className="text-[13px] font-semibold text-t1 font-mono">{s.saleNo}</div>
+                <div className="text-[11.5px] text-t3 truncate">{fmtTime(s.at)} · {s.staffName}</div>
               </div>
-              <span className={cn(
-                "shrink-0 font-mono font-bold text-[13px] tabular-nums",
-                s.status === "voided" ? "text-t4 line-through" : "text-t1"
-              )}>
+              <span className={cn("shrink-0 font-mono font-bold text-[13px]", s.status === "voided" ? "text-t4 line-through" : "text-t1")}>
                 {fmtMoney(s.total, currency)}
               </span>
             </div>
           ))}
         </div>
       )}
-    </Card>
+    </Panel>
   );
 }
 
@@ -471,22 +490,26 @@ type SalesReport = {
   byMethod: { method: string; amount: number }[];
 };
 
+// Labelled bars, widest first. Used wherever a total is split into parts.
 function BarList({ rows, currency }: { rows: { label: string; sub: string; value: number }[]; currency: string }) {
   const max = Math.max(...rows.map((r) => r.value), 1);
   return (
-    <div className="space-y-3">
+    <ul className="space-y-4">
       {rows.map((r) => (
-        <div key={r.label}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[12px] font-medium text-t2 truncate">{r.label}</span>
-            <span className="text-[11px] font-mono text-t3 shrink-0 ml-2">{r.sub} · {fmtMoney(r.value, currency)}</span>
+        <li key={r.label}>
+          <div className="flex items-baseline justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-t1 truncate">{r.label}</div>
+              {r.sub && <div className="text-[11.5px] text-t3">{r.sub}</div>}
+            </div>
+            <div className="font-mono text-[13px] font-bold text-t1 shrink-0">{fmtMoney(r.value, currency)}</div>
           </div>
-          <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${(r.value / max) * 100}%` }} />
+          <div className="mt-2 h-[6px] rounded-full bg-surface-3 overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${Math.max(4, (r.value / max) * 100)}%`, background: "var(--st-gradient-primary)" }} />
           </div>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -499,64 +522,63 @@ function SalesTab({ currency, branchKey }: { currency: string; branchKey?: strin
   const showProfit = r.totals.profit !== undefined;
 
   return (
-    <>
-      <div className={cn("grid grid-cols-2 gap-4 mb-6", showProfit ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
-        <StatCard index={0} label={`Revenue · ${r.days} days`} value={fmtMoney(r.totals.revenue, currency)} icon={Wallet} spark={r.series.map((s) => s.revenue)} />
-        <StatCard index={1} label="Transactions" value={String(r.totals.txns)} icon={ShoppingCart} />
-        <StatCard index={2} label="Average sale" value={fmtMoney(r.totals.avgSale, currency)} icon={Receipt} />
-        {showProfit && <StatCard index={3} label="Profit (after expenses)" value={fmtMoney(r.totals.profit!, currency)} icon={TrendingUp} />}
+    <div className="space-y-5">
+      <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-5", showProfit ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
+        <StatCard label={`Revenue · ${r.days} days`} value={fmtMoney(r.totals.revenue, currency)} icon={Wallet} spark={r.series.map((s) => s.revenue)} />
+        <StatCard tone="neutral" label="Transactions" value={String(r.totals.txns)} icon={ShoppingCart} hint={`over ${r.days} days`} />
+        <StatCard tone="warning" label="Average sale" value={fmtMoney(r.totals.avgSale, currency)} icon={Receipt} hint="per transaction" />
+        {showProfit && (
+          <StatCard tone={r.totals.profit! < 0 ? "danger" : "success"} label="Profit after expenses" value={fmtMoney(r.totals.profit!, currency)} icon={TrendingUp} hint={r.totals.profit! < 0 ? "a loss for the period" : "kept after costs"} />
+        )}
       </div>
 
-      <Card className="p-5 mb-6">
-        <div className="text-[14px] font-bold text-t1">Revenue trend</div>
-        <div className="text-[12px] text-t3 mb-4">Last {r.days} days</div>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: -8 }}>
-              <defs>
-                <linearGradient id="rev30" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.22} />
-                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
-              <XAxis dataKey="d" tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 10 }} interval="preserveStartEnd" />
-              <YAxis tickLine={false} axisLine={false} width={52} tick={{ fill: "var(--chart-axis)", fontSize: 11 }}
-                tickFormatter={(v) => (v >= 1000 ? `${currency}${Math.round(v / 1000)}k` : `${currency}${v}`)} />
-              <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: "var(--chart-1)", strokeWidth: 1, strokeDasharray: "4 4" }} />
-              <Area type="monotone" dataKey="v" stroke="var(--chart-1)" strokeWidth={2.5} fill="url(#rev30)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">By staff</div>
-          {r.byStaff.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">No sales in this window.</div>
-          ) : (
-            <BarList currency={currency} rows={r.byStaff.map((s) => ({ label: s.name, sub: `${s.sales} sales`, value: s.revenue }))} />
-          )}
-        </Card>
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">By category</div>
-          {r.byCategory.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">No sales in this window.</div>
-          ) : (
-            <BarList currency={currency} rows={r.byCategory.map((c) => ({ label: c.category, sub: `${c.sold} sold`, value: c.revenue }))} />
-          )}
-        </Card>
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">By payment method</div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <Panel className="xl:col-span-2" icon={TrendingUp} title="Revenue trend" subtitle={`Daily, last ${r.days} days`}>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: -8 }}>
+                <defs>
+                  <linearGradient id="rev30" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.22} />
+                    <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+                <XAxis dataKey="d" tickLine={false} axisLine={false} tick={{ fill: "var(--chart-axis)", fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tickLine={false} axisLine={false} width={52} tick={{ fill: "var(--chart-axis)", fontSize: 11 }}
+                  tickFormatter={(v) => (v >= 1000 ? `${currency}${Math.round(v / 1000)}k` : `${currency}${v}`)} />
+                <Tooltip content={<ChartTooltip currency={currency} />} cursor={{ stroke: "var(--chart-1)", strokeWidth: 1, strokeDasharray: "4 4" }} />
+                <Area type="monotone" dataKey="v" stroke="var(--chart-1)" strokeWidth={2.5} fill="url(#rev30)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+        <Panel icon={Wallet} title="How they paid" subtitle="By payment method">
           {r.byMethod.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">No payments in this window.</div>
+            <div className={EMPTY}>No payments in this window.</div>
           ) : (
             <BarList currency={currency} rows={r.byMethod.map((m) => ({ label: PAY_LABELS[m.method] || m.method, sub: "", value: m.amount }))} />
           )}
-        </Card>
+        </Panel>
       </div>
-    </>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Panel icon={UserCog} title="By staff" subtitle="Who rang up the sales">
+          {r.byStaff.length === 0 ? (
+            <div className={EMPTY}>No sales in this window.</div>
+          ) : (
+            <BarList currency={currency} rows={r.byStaff.map((s) => ({ label: s.name, sub: `${s.sales} sales`, value: s.revenue }))} />
+          )}
+        </Panel>
+        <Panel icon={Boxes} title="By category" subtitle="What sold">
+          {r.byCategory.length === 0 ? (
+            <div className={EMPTY}>No sales in this window.</div>
+          ) : (
+            <BarList currency={currency} rows={r.byCategory.map((c) => ({ label: c.category, sub: `${c.sold} sold`, value: c.revenue }))} />
+          )}
+        </Panel>
+      </div>
+    </div>
   );
 }
 
@@ -577,59 +599,42 @@ function ExpensesTab({ currency, branchKey }: { currency: string; branchKey?: st
   const biggest = typeRows[0];
 
   return (
-    <>
-      <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
-        <StatCard index={0} label="Spent this month" value={fmtMoney(r.total, currency)} icon={ReceiptText} />
-        <StatCard index={1} label="Entries" value={String(r.expenses.length)} icon={Receipt} />
-        <StatCard index={2} label={biggest ? `Biggest: ${biggest[0]}` : "Biggest category"} value={biggest ? fmtMoney(biggest[1], currency) : "—"} icon={TrendingUp} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+        <StatCard tone="danger" label="Spent this month" value={fmtMoney(r.total, currency)} icon={ReceiptText} />
+        <StatCard tone="neutral" label="Entries" value={String(r.expenses.length)} icon={Receipt} hint="recorded this month" />
+        <StatCard tone="warning" label={biggest ? `Biggest: ${biggest[0]}` : "Biggest category"} value={biggest ? fmtMoney(biggest[1], currency) : "—"} icon={TrendingUp} />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">By type · this month</div>
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+        <Panel className="xl:col-span-2" icon={ReceiptText} tone="danger" title="By type" subtitle="This month">
           {typeRows.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">No expenses recorded this month.</div>
+            <div className={EMPTY}>No expenses recorded this month.</div>
           ) : (
-            <div className="space-y-3">
-              {typeRows.map(([type, amount]) => {
-                const max = typeRows[0][1] || 1;
-                return (
-                  <div key={type}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[12px] font-medium text-t2">{type}</span>
-                      <span className="text-[11px] font-mono font-semibold text-t1">{fmtMoney(amount, currency)}</span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${(amount / max) * 100}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <BarList currency={currency} rows={typeRows.map(([type, amount]) => ({ label: type, sub: "", value: amount }))} />
           )}
-        </Card>
-        <Card className="overflow-hidden">
-          <div className="p-4 pb-2 text-[14px] font-bold text-t1">Recent entries</div>
+        </Panel>
+        <Panel className="xl:col-span-3" flush icon={Receipt} title="Recent entries" subtitle="Newest first">
           {r.expenses.length === 0 ? (
-            <div className="text-[12px] text-t4 py-8 text-center">Record expenses on the Expenses page.</div>
+            <div className={EMPTY}>Record expenses on the Expenses page.</div>
           ) : (
             <div className="divide-y divide-line">
               {r.expenses.slice(0, 8).map((e) => (
-                <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-danger-soft text-danger flex items-center justify-center shrink-0">
+                <div key={e.id} className="flex items-center gap-3 px-5 py-3">
+                  <span className="grid place-items-center w-9 h-9 rounded-xl bg-danger-soft text-danger shrink-0">
                     <ReceiptText className="w-4 h-4" />
-                  </div>
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-t1">{e.type}</div>
-                    <div className="text-[11px] text-t3 truncate">{e.actorName} · {fmtDate(e.at)}</div>
+                    <div className="text-[11.5px] text-t3 truncate">{e.actorName} · {fmtDate(e.at)}</div>
                   </div>
-                  <span className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(e.amount, currency)}</span>
+                  <span className="font-mono text-[13px] font-bold text-t1 shrink-0">{fmtMoney(e.amount, currency)}</span>
                 </div>
               ))}
             </div>
           )}
-        </Card>
+        </Panel>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -667,22 +672,28 @@ function MovementTab({ branchKey }: { branchKey?: string }) {
   ];
 
   return (
-    <Card className="overflow-hidden">
-      <div className="p-4 pb-2 flex items-center gap-3 flex-wrap">
-        <div>
-          <div className="text-[14px] font-bold text-t1">Inventory movement</div>
-          <div className="text-[12px] text-t3">Every unit in and out — the ledger, newest first</div>
-        </div>
-        <div className="flex gap-1.5 ml-auto flex-wrap">
+    <Panel
+      flush
+      icon={ArrowLeftRight}
+      title="Inventory movement"
+      subtitle="Every unit in and out — the ledger, newest first"
+      action={
+        <div className="flex gap-1 p-1 rounded-xl bg-surface-3 flex-wrap">
           {FILTERS.map((f) => (
-            <button key={f.key} onClick={() => setType(f.key)}
-              className={cn("px-2.5 h-7 rounded-full text-[11px] font-semibold border transition-colors",
-                type === f.key ? "bg-primary-soft border-brand-400 text-primary" : "bg-surface-2 border-line-2 text-t3 hover:text-t1")}>
+            <button
+              key={f.key}
+              onClick={() => setType(f.key)}
+              className={cn(
+                "px-3 h-7 rounded-lg text-[12px] font-bold transition-colors",
+                type === f.key ? "bg-surface text-primary shadow-e1" : "text-t3 hover:text-t1"
+              )}
+            >
               {f.label}
             </button>
           ))}
         </div>
-      </div>
+      }
+    >
       {loading ? (
         <Spinner />
       ) : !data?.movements.length ? (
@@ -693,31 +704,30 @@ function MovementTab({ branchKey }: { branchKey?: string }) {
             const meta = MOVE_META[m.type] || MOVE_META.ADJUST;
             const Icon = meta.icon;
             return (
-              <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
-                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                  m.qty > 0 ? "bg-success-soft text-success" : "bg-surface-3 text-t3")}>
+              <div key={m.id} className="flex items-center gap-3 px-5 py-3">
+                <span className={cn("grid place-items-center w-9 h-9 rounded-xl shrink-0", m.qty > 0 ? "bg-success-soft text-success" : "bg-surface-3 text-t3")}>
                   <Icon className="w-4 h-4" />
-                </div>
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold text-t1 truncate">{m.productName}</div>
-                  <div className="text-[11px] text-t3 truncate">
-                    <Badge tone={meta.tone} className="mr-1.5">{meta.label}</Badge>
-                    {m.reason && `${m.reason} · `}{m.actorName} · {fmtDateTime(m.at)}
+                  <div className="text-[11.5px] text-t3 truncate flex items-center gap-1.5">
+                    <Badge tone={meta.tone}>{meta.label}</Badge>
+                    <span className="truncate">{m.reason && `${m.reason} · `}{m.actorName} · {fmtDateTime(m.at)}</span>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className={cn("font-mono text-[13px] font-bold tabular-nums", m.qty > 0 ? "text-success" : "text-t1")}>
+                  <div className={cn("font-mono text-[14px] font-bold", m.qty > 0 ? "text-success" : "text-t1")}>
                     {m.qty > 0 ? "+" : ""}{m.qty}
                   </div>
-                  <div className="text-[10px] text-t4 font-mono">bal {m.balanceAfter}</div>
+                  <div className="text-[11px] text-t3 font-mono">balance {m.balanceAfter}</div>
                 </div>
               </div>
             );
           })}
         </div>
       )}
-    <Pager {...paged} onPage={paged.setPage} noun="movements" />
-    </Card>
+      <Pager {...paged} onPage={paged.setPage} noun="movements" />
+    </Panel>
   );
 }
 
@@ -733,37 +743,33 @@ function ExpiryTab({ branchKey }: { branchKey?: string }) {
   const soon = r.expiringSoon.filter((e) => !e.expired);
 
   return (
-    <>
-      <div className="grid grid-cols-2 gap-4 mb-6 xl:grid-cols-3">
-        <StatCard index={0} label="Already expired (still in stock)" value={String(expired.length)} icon={AlertTriangle} />
-        <StatCard index={1} label="Expiring within 30 days" value={String(soon.length)} icon={CalendarClock} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+        <StatCard tone="danger" label="Already expired" value={String(expired.length)} icon={AlertTriangle} hint="still in stock" />
+        <StatCard tone="warning" label="Expiring within 30 days" value={String(soon.length)} icon={CalendarClock} hint="sell or move these first" />
       </div>
-      <Card className="overflow-hidden">
-        <div className="p-4 pb-2 text-[14px] font-bold text-t1">Expiry watchlist</div>
+      <Panel flush icon={CalendarClock} tone="warning" title="Expiry watchlist" subtitle="Soonest first">
         {r.expiringSoon.length === 0 ? (
           <EmptyState icon={CalendarClock} title="Nothing on the watchlist" body="Products with an expiry date within 30 days (and any already expired with stock left) appear here. Set expiry dates when adding or editing products." />
         ) : (
           <div className="divide-y divide-line">
             {paged.rows.map((e) => (
-              <div key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
-                  e.expired ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning")}>
+              <div key={e.id} className="flex items-center gap-3 px-5 py-3">
+                <span className={cn("grid place-items-center w-9 h-9 rounded-xl shrink-0", e.expired ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning")}>
                   <CalendarClock className="w-4 h-4" />
-                </div>
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] font-semibold text-t1 truncate">{e.name}</div>
-                  <div className="text-[11px] text-t3">{e.stock} in stock</div>
+                  <div className="text-[11.5px] text-t3">{e.stock} in stock</div>
                 </div>
-                <Badge tone={e.expired ? "danger" : "warning"}>
-                  {e.expired ? "EXPIRED" : `expires ${fmtDate(e.expiry)}`}
-                </Badge>
+                <Badge tone={e.expired ? "danger" : "warning"}>{e.expired ? "Expired" : `Expires ${fmtDate(e.expiry)}`}</Badge>
               </div>
             ))}
           </div>
         )}
-      <Pager {...paged} onPage={paged.setPage} noun="items" />
-      </Card>
-    </>
+        <Pager {...paged} onPage={paged.setPage} noun="items" />
+      </Panel>
+    </div>
   );
 }
 
@@ -779,57 +785,53 @@ function CustomersTab({ currency, branchKey }: { currency: string; branchKey?: s
   if (loading || !r) return <Spinner />;
 
   return (
-    <>
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <StatCard index={0} label="Customers on file" value={String(r.totals.customers)} icon={Users} />
-        <StatCard index={1} label="New · last 30 days" value={String(r.totals.newLast30)} icon={Users} />
-        <StatCard index={2} label="Active · last 30 days" value={String(r.totals.activeLast30)} icon={ShoppingCart} />
-        <StatCard index={3} label="Come back to buy again" value={`${r.totals.repeatRate}%`} icon={TrendingUp} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+        <StatCard label="Customers on file" value={String(r.totals.customers)} icon={Users} />
+        <StatCard tone="success" label="New · last 30 days" value={String(r.totals.newLast30)} icon={Users} hint="first-time customers" />
+        <StatCard tone="neutral" label="Active · last 30 days" value={String(r.totals.activeLast30)} icon={ShoppingCart} hint="bought recently" />
+        <StatCard tone="warning" label="Come back to buy again" value={`${r.totals.repeatRate}%`} icon={TrendingUp} hint="repeat rate" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">Top spenders</div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Panel flush icon={TrendingUp} tone="warning" title="Top spenders" subtitle="Highest lifetime spend">
           {r.topSpenders.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">Attach customers on the POS to build this list.</div>
+            <div className={EMPTY}>Attach customers on the POS to build this list.</div>
           ) : (
             <div className="divide-y divide-line">
               {r.topSpenders.map((c, i) => (
-                <div key={c.id} className="flex items-center gap-3 py-2.5">
-                  <span className="w-5 h-5 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+                  <Rank n={i + 1} />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-t1 truncate">{c.name}</div>
-                    <div className="text-[11px] text-t3">{c.phone || "no phone"} · {c.visits} visit{c.visits === 1 ? "" : "s"}</div>
+                    <div className="text-[11.5px] text-t3">{c.phone || "no phone"} · {c.visits} visit{c.visits === 1 ? "" : "s"}</div>
                   </div>
-                  <span className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
+                  <span className="font-mono text-[13px] font-bold text-t1 shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
                 </div>
               ))}
             </div>
           )}
-        </Card>
-        <Card className="p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">Newest customers</div>
+        </Panel>
+        <Panel flush icon={Users} tone="success" title="Newest customers" subtitle="Most recently added">
           {r.newest.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">New customers appear here as they're added.</div>
+            <div className={EMPTY}>New customers appear here as they're added.</div>
           ) : (
             <div className="divide-y divide-line">
               {r.newest.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 py-2.5">
-                  <div className="w-8 h-8 rounded-full bg-primary-soft text-primary font-bold text-[12px] flex items-center justify-center shrink-0">
-                    {c.name[0]?.toUpperCase()}
-                  </div>
+                <div key={c.id} className="flex items-center gap-3 px-5 py-3">
+                  <Monogram name={c.name} />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-semibold text-t1 truncate">{c.name}</div>
-                    <div className="text-[11px] text-t3">first seen {new Date(c.firstSeen).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</div>
+                    <div className="text-[11.5px] text-t3">first seen {new Date(c.firstSeen).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</div>
                   </div>
-                  <span className="font-mono text-[12px] text-t2 tabular-nums shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
+                  <span className="font-mono text-[12.5px] text-t2 shrink-0">{fmtMoney(c.totalSpend, currency)}</span>
                 </div>
               ))}
             </div>
           )}
-        </Card>
+        </Panel>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -844,53 +846,60 @@ function StaffTab({ currency, branchKey }: { currency: string; branchKey?: strin
   const paged = usePaged(r?.staff || []);
   if (loading || !r) return <Spinner />;
 
+  const totalRevenue = r.staff.reduce((s, x) => s + x.revenue, 0);
+  const totalSales = r.staff.reduce((s, x) => s + x.sales, 0);
+  const totalHours = r.staff.reduce((s, x) => s + x.hours, 0);
+  const totalVoids = r.staff.reduce((s, x) => s + x.voids, 0);
+
   return (
-    <Card className="overflow-hidden">
-      <div className="p-5 pb-3">
-        <div className="text-[14px] font-bold text-t1">Staff performance · last {r.days} days</div>
-        <div className="text-[12px] text-t3">Sales, discounts given, voids and hours — per person</div>
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+        <StatCard label="Team with activity" value={String(r.staff.length)} icon={UserCog} hint={`last ${r.days} days`} />
+        <StatCard tone="success" label="Revenue rung up" value={fmtMoney(totalRevenue, currency)} icon={Wallet} hint={`${totalSales} sales`} />
+        <StatCard tone="neutral" label="Hours worked" value={totalHours ? `${totalHours.toFixed(1)}h` : "—"} icon={CalendarClock} hint="clocked in" />
+        <StatCard tone={totalVoids ? "danger" : "neutral"} label="Voided sales" value={String(totalVoids)} icon={Undo2} hint={totalVoids ? "worth a look" : "none — clean record"} />
       </div>
-      {r.staff.length === 0 ? (
-        <EmptyState icon={UserCog} title="No staff activity yet" body="Sales and clock-ins over the last 30 days appear here per person." />
-      ) : (
-        <div className="overflow-x-auto">
-          <Table className="min-w-[640px]">
-            <thead>
-              <tr>
-                <TH>Staff</TH>
-                <TH className="text-right">Sales</TH>
-                <TH className="text-right">Revenue</TH>
-                <TH className="text-right">Avg sale</TH>
-                <TH className="text-right">Discounts</TH>
-                <TH className="text-right">Voids</TH>
-                <TH className="text-right">Hours</TH>
-              </tr>
-            </thead>
-            <tbody>
-              {paged.rows.map((s) => (
-                <TR key={s.name}>
-                  <TD>
-                    <span className="inline-flex items-center gap-2 font-semibold">
-                      <span className="w-6 h-6 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center">{s.name[0]}</span>
-                      {s.name}
-                    </span>
-                  </TD>
-                  <TD className="text-right font-mono tabular-nums">{s.sales}</TD>
-                  <TD className="text-right font-mono font-bold tabular-nums">{fmtMoney(s.revenue, currency)}</TD>
-                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.avgSale ? fmtMoney(s.avgSale, currency) : "—"}</TD>
-                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.discounts ? fmtMoney(s.discounts, currency) : "—"}</TD>
-                  <TD className="text-right">
-                    {s.voids > 0 ? <Badge tone="danger">{s.voids}</Badge> : <span className="text-[12px] text-t4">0</span>}
-                  </TD>
-                  <TD className="text-right font-mono text-[12px] text-t2 tabular-nums">{s.hours ? `${s.hours.toFixed(1)}h` : "—"}</TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        </div>
-      )}
-    <Pager {...paged} onPage={paged.setPage} noun="staff" />
-    </Card>
+
+      <Panel flush icon={UserCog} title={`Staff performance · last ${r.days} days`} subtitle="Sales, discounts given, voids and hours — per person">
+        {r.staff.length === 0 ? (
+          <EmptyState icon={UserCog} title="No staff activity yet" body="Sales and clock-ins over the last 30 days appear here per person." />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[640px]">
+              <thead>
+                <tr>
+                  <TH>Staff</TH>
+                  <TH className="text-right">Sales</TH>
+                  <TH className="text-right">Revenue</TH>
+                  <TH className="text-right">Avg sale</TH>
+                  <TH className="text-right">Discounts</TH>
+                  <TH className="text-right">Voids</TH>
+                  <TH className="text-right">Hours</TH>
+                </tr>
+              </thead>
+              <tbody>
+                {paged.rows.map((s) => (
+                  <TR key={s.name}>
+                    <TD>
+                      <span className="inline-flex items-center gap-3 font-semibold"><Monogram name={s.name} size={7} />{s.name}</span>
+                    </TD>
+                    <TD className="text-right font-mono">{s.sales}</TD>
+                    <TD className="text-right font-mono font-bold">{fmtMoney(s.revenue, currency)}</TD>
+                    <TD className="text-right font-mono text-[12.5px] text-t2">{s.avgSale ? fmtMoney(s.avgSale, currency) : "—"}</TD>
+                    <TD className="text-right font-mono text-[12.5px] text-t2">{s.discounts ? fmtMoney(s.discounts, currency) : "—"}</TD>
+                    <TD className="text-right">
+                      {s.voids > 0 ? <Badge tone="danger">{s.voids}</Badge> : <span className="text-[12.5px] text-t4">0</span>}
+                    </TD>
+                    <TD className="text-right font-mono text-[12.5px] text-t2">{s.hours ? `${s.hours.toFixed(1)}h` : "—"}</TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          </div>
+        )}
+        <Pager {...paged} onPage={paged.setPage} noun="staff" />
+      </Panel>
+    </div>
   );
 }
 
@@ -913,114 +922,113 @@ function InventoryTab({ currency, branchKey }: { currency: string; branchKey?: s
   const showExpiry = hasModule("expiry");
 
   return (
-    <>
-      <div className={cn("grid grid-cols-2 gap-4 mb-6", showCost ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
-        <StatCard index={0} label="Products in catalog" value={String(r.skus)} icon={Boxes} />
-        <StatCard index={1} label="Units on shelf" value={r.units.toLocaleString()} icon={Package} />
-        <StatCard index={2} label="Stock value (retail)" value={fmtMoney(r.retailValue, currency)} icon={Wallet} />
-        {showCost && <StatCard index={3} label="Profit sitting on the shelf" value={fmtMoney(r.potentialProfit!, currency)} icon={TrendingUp} />}
+    <div className="space-y-5">
+      <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-5", showCost ? "xl:grid-cols-4" : "xl:grid-cols-3")}>
+        <StatCard label="Products in catalog" value={String(r.skus)} icon={Boxes} />
+        <StatCard tone="neutral" label="Units on shelf" value={r.units.toLocaleString()} icon={Package} hint={`${r.turnover}× turnover`} />
+        <StatCard tone="warning" label="Stock value (retail)" value={fmtMoney(r.retailValue, currency)} icon={Wallet} />
+        {showCost && <StatCard tone="success" label="Profit sitting on the shelf" value={fmtMoney(r.potentialProfit!, currency)} icon={TrendingUp} hint="if it all sells" />}
       </div>
 
       {/* In & Out — the flow through the shelf, last 30 days */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        <Card className="p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-[14px] font-bold text-t1">In & Out · last 30 days</div>
-            <span className="text-[11px] font-mono font-semibold text-t3" title="Units moved out over the window ÷ units on the shelf now">
-              {r.turnover}× turnover
-            </span>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-success-soft">
-              <ArrowDownToLine className="w-5 h-5 text-success shrink-0" />
-              <div>
-                <div className="font-mono text-[20px] font-bold text-success leading-none tabular-nums">{r.flow30d.unitsIn.toLocaleString()}</div>
-                <div className="text-[11px] font-medium text-t3 mt-1">units came in (stock-ins, returns, transfers in)</div>
-              </div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <Panel icon={ArrowLeftRight} title="In & out" subtitle="Last 30 days">
+          <div className="grid grid-cols-2 xl:grid-cols-1 gap-3">
+            <div className="rounded-2xl bg-success-soft px-4 py-4">
+              <ArrowDownToLine className="w-[18px] h-[18px] text-success" />
+              <div className="mt-3 font-mono text-[26px] font-bold text-success leading-none">{r.flow30d.unitsIn.toLocaleString()}</div>
+              <div className="text-[12px] font-semibold text-t2 mt-1.5">units came in</div>
+              <div className="text-[11.5px] text-t3">stock-ins, returns, transfers in</div>
             </div>
-            <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-surface-2 border border-line">
-              <ArrowUpFromLine className="w-5 h-5 text-t2 shrink-0" />
-              <div>
-                <div className="font-mono text-[20px] font-bold text-t1 leading-none tabular-nums">{r.flow30d.unitsOut.toLocaleString()}</div>
-                <div className="text-[11px] font-medium text-t3 mt-1">units went out (sales, transfers out)</div>
-              </div>
+            <div className="rounded-2xl bg-surface-3 px-4 py-4">
+              <ArrowUpFromLine className="w-[18px] h-[18px] text-t2" />
+              <div className="mt-3 font-mono text-[26px] font-bold text-t1 leading-none">{r.flow30d.unitsOut.toLocaleString()}</div>
+              <div className="text-[12px] font-semibold text-t2 mt-1.5">units went out</div>
+              <div className="text-[11.5px] text-t3">sales, transfers out</div>
             </div>
           </div>
-        </Card>
-        <Card className="lg:col-span-2 p-5">
-          <div className="text-[14px] font-bold text-t1 mb-4">Fastest movers · units out, last 30 days</div>
+        </Panel>
+        <Panel className="xl:col-span-2" icon={TrendingUp} title="Fastest movers" subtitle="Units out, last 30 days">
           {r.topMovers.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">Movement builds this list as you sell and restock.</div>
+            <div className={EMPTY}>Movement builds this list as you sell and restock.</div>
           ) : (
-            <div className="space-y-3">
-              {r.topMovers.slice(0, 6).map((m) => {
+            <ul className="space-y-4">
+              {r.topMovers.slice(0, 6).map((m, i) => {
                 const max = r.topMovers[0].unitsOut || 1;
                 return (
-                  <div key={m.id}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[12px] font-medium text-t2 truncate">{m.name}</span>
-                      <span className="text-[11px] font-mono text-t3 shrink-0 ml-2">
-                        <span className="text-success">+{m.unitsIn}</span> in · <span className="text-t1 font-semibold">−{m.unitsOut}</span> out
+                  <li key={m.id}>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex items-center gap-3 min-w-0 text-[13px] font-semibold text-t1 truncate"><Rank n={i + 1} />{m.name}</span>
+                      <span className="text-[12px] font-mono text-t3 shrink-0">
+                        <span className="text-success font-bold">+{m.unitsIn}</span> in · <span className="text-t1 font-bold">−{m.unitsOut}</span> out
                       </span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${(m.unitsOut / max) * 100}%` }} />
+                    <div className="mt-2 ml-9 h-[6px] rounded-full bg-surface-3 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(4, (m.unitsOut / max) * 100)}%`, background: "var(--st-gradient-primary)" }} />
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
-        </Card>
+        </Panel>
       </div>
 
-      <div className={cn("grid grid-cols-1 gap-4", showExpiry && "lg:grid-cols-2")}>
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <AlertTriangle className="w-4 h-4 text-warning" />
-            <div className="text-[14px] font-bold text-t1">Needs reordering</div>
-            {r.lowStock.length > 0 && <Badge tone="warning" className="ml-auto">{r.lowStock.length}</Badge>}
-          </div>
+      <div className={cn("grid grid-cols-1 gap-5", showExpiry && "lg:grid-cols-2")}>
+        <Panel
+          flush
+          icon={AlertTriangle}
+          tone="warning"
+          title="Needs reordering"
+          subtitle="At or below the reorder level"
+          action={r.lowStock.length > 0 ? <Badge tone="warning">{r.lowStock.length}</Badge> : undefined}
+        >
           {r.lowStock.length === 0 ? (
-            <div className="text-[12px] text-t4 py-4 text-center">Everything is above its reorder level.</div>
+            <div className={EMPTY}>Everything is above its reorder level.</div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="divide-y divide-line">
               {r.lowStock.map((s) => (
-                <div key={s.id} className="flex items-center justify-between">
-                  <span className="text-[13px] font-medium text-t1 truncate">{s.name}</span>
-                  <span className={cn("text-[12px] font-mono font-semibold shrink-0 ml-2", s.stock === 0 ? "text-danger" : "text-warning")}>
-                    {s.stock} left · reorder at {s.reorderLevel}
-                  </span>
+                <div key={s.id} className="flex items-center gap-3 px-5 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-t1 truncate">{s.name}</div>
+                    <div className="text-[11.5px] text-t3">reorder at {s.reorderLevel}</div>
+                  </div>
+                  <Badge tone={s.stock === 0 ? "danger" : "warning"}>{s.stock === 0 ? "Out of stock" : `${s.stock} left`}</Badge>
                 </div>
               ))}
             </div>
           )}
-        </Card>
+        </Panel>
 
         {showExpiry && (
-          <Card className="p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <CalendarClock className="w-4 h-4 text-danger" />
-              <div className="text-[14px] font-bold text-t1">Expiring within 30 days</div>
-              {r.expiringSoon.length > 0 && <Badge tone="danger" className="ml-auto">{r.expiringSoon.length}</Badge>}
-            </div>
+          <Panel
+            flush
+            icon={CalendarClock}
+            tone="danger"
+            title="Expiring within 30 days"
+            subtitle="Sell or move these first"
+            action={r.expiringSoon.length > 0 ? <Badge tone="danger">{r.expiringSoon.length}</Badge> : undefined}
+          >
             {r.expiringSoon.length === 0 ? (
-              <div className="text-[12px] text-t4 py-4 text-center">Nothing close to expiry. Set expiry dates on products to track this.</div>
+              <div className={EMPTY}>Nothing close to expiry. Set expiry dates on products to track this.</div>
             ) : (
-              <div className="space-y-2.5">
+              <div className="divide-y divide-line">
                 {r.expiringSoon.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between">
-                    <span className="text-[13px] font-medium text-t1 truncate">{s.name}</span>
-                    <span className={cn("text-[12px] font-mono font-semibold shrink-0 ml-2", s.expired ? "text-danger" : "text-warning")}>
-                      {s.expired ? "EXPIRED" : new Date(s.expiry).toLocaleDateString("en-NG", { day: "numeric", month: "short" })} · {s.stock} in stock
-                    </span>
+                  <div key={s.id} className="flex items-center gap-3 px-5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-semibold text-t1 truncate">{s.name}</div>
+                      <div className="text-[11.5px] text-t3">{s.stock} in stock</div>
+                    </div>
+                    <Badge tone={s.expired ? "danger" : "warning"}>
+                      {s.expired ? "Expired" : new Date(s.expiry).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}
+                    </Badge>
                   </div>
                 ))}
               </div>
             )}
-          </Card>
+          </Panel>
         )}
       </div>
-    </>
+    </div>
   );
 }

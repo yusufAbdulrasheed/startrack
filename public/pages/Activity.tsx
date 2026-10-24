@@ -38,7 +38,7 @@ export function Activity() {
       <div className="flex items-center gap-3 mb-4 text-[13px] text-t2">
         <span>{sales.length} sale{sales.length === 1 ? "" : "s"}</span>
         <span className="text-t4">·</span>
-        <span>Total <span className="font-mono font-bold text-t1">{fmtMoney(total, currency)}</span></span>
+        <span>Total <span className="font-mono font-semibold text-t1">{fmtMoney(total, currency)}</span></span>
       </div>
 
       {loading ? (
@@ -54,15 +54,15 @@ export function Activity() {
               <div key={s.id} className={cn("flex items-center gap-3 px-4 py-3", s.status === "voided" && "opacity-45")}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[12px] font-bold text-primary">{s.saleNo}</span>
+                    <span className="font-mono text-[12px] font-semibold text-primary">{s.saleNo}</span>
                     {s.status === "voided" && <Badge tone="danger">voided</Badge>}
                     <span className="text-[11px] text-t4">{fmtTime(s.at)}</span>
                   </div>
                   <div className="text-[12px] text-t3 truncate">{s.items.map((i) => `${i.name} ×${i.qty}`).join(", ")}</div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="font-mono text-[13px] font-bold text-t1 tabular-nums">{fmtMoney(s.total, currency)}</div>
-                  <div className="text-[10px] uppercase text-t4">{s.payments.map((p) => p.method).join(" + ")}</div>
+                  <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">{fmtMoney(s.total, currency)}</div>
+                  <div className="text-[11.5px] text-t4">{s.payments.map((p) => p.method).join(" + ")}</div>
                 </div>
                 {can("void_sales") && s.status === "completed" && (
                   <Button size="sm" variant="secondary" onClick={() => setVoiding(s)}><Ban className="w-3.5 h-3.5" /> Void</Button>

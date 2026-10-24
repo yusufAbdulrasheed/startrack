@@ -1,587 +1,498 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  ArrowRight, Boxes, Menu, ScanLine, Users, X,
-  Wallet, Receipt, UserCog, History,
-  Store, RefreshCw, Sparkles, Search,
-  Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg,
+  AlertTriangle, ArrowRight, BedDouble, Blinds, Boxes, Briefcase, Check, ChevronDown, Droplets, Egg, FileSpreadsheet, GraduationCap, Globe,
+  Menu, MessageCircle, QrCode, Receipt, ScanLine, Scissors, ShieldCheck, Smartphone, Sparkles, Store, TrendingUp, UtensilsCrossed, WifiOff, X,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { Modal } from "@/components/ui/Modal";
-import { Spinner } from "@/components/ui/EmptyState";
-import { api } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { DemoButton } from "@/components/landing/DemoPicker";
+import { PLANS, PLAN_ORDER, TRIAL_DAYS } from "#shared/plans.js";
+import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-/* Landing uses its own solid button style on purpose — no gradients on buttons. */
-const btnSolid =
-  "inline-flex items-center justify-center gap-2 font-semibold rounded-ctl bg-brand-700 text-white hover:bg-brand-600 active:scale-[0.98] transition-all disabled:opacity-50";
+const GRADIENT = "linear-gradient(135deg, #3538f0, #5a3bf4 60%, #7b3cf5)";
 
-type DemoShop = {
-  key: string; label: string; group: string; depth: "full" | "catalog"; pending: string;
-  blurb: string; business: string; highlight: string; products: number;
-};
+/* ── Buttons ─────────────────────────────────────────────────────── */
+const primaryBtn = "inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold text-white transition-transform hover:-translate-y-0.5";
+const primaryShadow = { background: GRADIENT, boxShadow: "0 16px 32px -14px rgba(53,56,240,0.8)" };
+const ghostOnDark = "inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold text-white border border-white/25 bg-white/5 hover:bg-white/10 transition-colors";
 
-const SHOP_ICON: Record<string, any> = {
-  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
-  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg,
-};
+/* ── Nav ─────────────────────────────────────────────────────────── */
+const LINKS = [["Features", "#features"], ["AI", "#ai"], ["Industries", "#industries"], ["Pricing", "#pricing"], ["FAQ", "#faq"]] as const;
 
-/**
- * Choosing the trade before the sandbox is built. A pharmacist landing in a
- * supermarket learns nothing about whether StarTrack suits them — the demo is
- * only persuasive if it speaks their vocabulary from the first screen.
- *
- * Shops whose trade-specific workflow is still being built say so on the card
- * rather than letting someone find out by looking for a feature that isn't
- * there yet.
- */
-function DemoPicker({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { demoLogin } = useSession();
-  const navigate = useNavigate();
-  const [shops, setShops] = useState<DemoShop[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [starting, setStarting] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [q, setQ] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    setError("");
-    setQ("");
-    api<{ shops: DemoShop[] }>("/auth/demo/shops")
-      .then((r) => setShops(r.shops))
-      .catch(() => setError("Couldn't load the demo shops. Try again in a moment."))
-      .finally(() => setLoading(false));
-  }, [open]);
-
-  async function start(key: string) {
-    setStarting(key);
-    setError("");
-    try {
-      await demoLogin(key);
-      navigate("/app/dashboard");
-    } catch (err: any) {
-      setError(err.message || "Could not start the demo");
-      setStarting(null);
-    }
-  }
-
-  const term = q.trim().toLowerCase();
-  const matches = term
-    ? shops.filter((s) =>
-        [s.label, s.business, s.blurb, s.group].some((f) => f.toLowerCase().includes(term))
-      )
-    : shops;
-
-  // Keep the server's grouping, but only for groups that still have matches.
-  const groups = matches.reduce<Record<string, DemoShop[]>>((acc, s) => {
-    (acc[s.group] ||= []).push(s);
-    return acc;
-  }, {});
-
+function Logo({ dark }: { dark?: boolean }) {
   return (
-    <Modal
-      open={open}
-      onClose={starting ? () => {} : onClose}
-      title="Which shop would you like to try?"
-      subtitle="Each one is stocked with a week of real trading. Sell, void, approve a return — it resets in 24 hours."
-      wide
-    >
-      {error && <div className="mb-3 px-3 py-2.5 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
-
-      {!loading && shops.length > 6 && (
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder={`Search ${shops.length} trades — blinds, poultry, hotel…`}
-            className="w-full h-10 pl-9 pr-3 rounded-ctl bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500"
-          />
-        </div>
-      )}
-
-      {loading ? (
-        <div className="py-10 flex justify-center"><Spinner /></div>
-      ) : matches.length === 0 ? (
-        <div className="py-10 text-center text-[13px] text-t3">No trade matches “{q}”.</div>
-      ) : (
-        <div className="-mx-1 px-1 space-y-5">
-          {Object.entries(groups).map(([group, list]) => (
-            <div key={group}>
-              <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-t4 mb-2">{group}</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {list.map((s) => {
-                  const Icon = SHOP_ICON[s.key] || Store;
-                  const busy = starting === s.key;
-                  return (
-                    <button
-                      key={s.key}
-                      onClick={() => start(s.key)}
-                      disabled={!!starting}
-                      className={cn(
-                        "group text-left rounded-card border p-3.5 transition-all disabled:opacity-50",
-                        busy ? "border-brand-400 bg-primary-softer" : "border-line bg-surface hover:border-brand-400 hover:shadow-e1"
-                      )}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <span className="w-9 h-9 shrink-0 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-                          <Icon className="w-[18px] h-[18px]" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[13.5px] font-bold text-t1 truncate">{s.label}</span>
-                            {s.depth === "catalog" && (
-                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-warning-soft text-warning">
-                                Catalog
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11.5px] text-t3 truncate">{s.business}</div>
-                        </div>
-                        {busy && <RefreshCw className="w-4 h-4 text-primary animate-spin shrink-0" />}
-                      </div>
-                      <p className="mt-2 text-[12px] text-t2 leading-snug">{s.blurb}</p>
-                      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-t3">
-                        <Sparkles className="w-3 h-3 text-primary shrink-0" />
-                        <span className="truncate">{s.highlight}</span>
-                      </div>
-                      {s.pending && (
-                        <p className="mt-2 pt-2 border-t border-line text-[10.5px] text-t4 leading-snug">{s.pending}</p>
-                      )}
-                      <div className="mt-1.5 text-[10.5px] text-t4">{s.products} products ready to sell</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <p className="mt-4 text-[11px] text-t4 text-center">
-        No sign-up, no card. Everything you do stays in your own sandbox and disappears after 24 hours.
-      </p>
-    </Modal>
-  );
-}
-
-// Opens the shop picker — the visitor chooses the trade, then the sandbox
-// is built for it.
-function DemoButton({ big = false, children }: { big?: boolean; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button className={cn(btnSolid, big ? "h-[52px] px-7 text-[15px]" : "h-9 px-4 text-[13px]")} onClick={() => setOpen(true)}>
-        {children}
-      </button>
-      <DemoPicker open={open} onClose={() => setOpen(false)} />
-    </>
-  );
-}
-
-
-/* ── The dashboard, tab by tab, as a slideshow ─────────────── */
-
-const SLIDES = [
-  { key: "overview", label: "Overview", icon: Wallet },
-  { key: "sales", label: "Sales", icon: Receipt },
-  { key: "inventory", label: "Inventory", icon: Boxes },
-  { key: "customers", label: "Customers", icon: Users },
-  { key: "staff", label: "Staff", icon: UserCog },
-  { key: "archive", label: "Archive", icon: History },
-];
-
-function Tile({ v, l, tone }: { v: string; l: string; tone?: "success" | "warning" }) {
-  return (
-    <div className="bg-surface border border-line rounded-xl p-3 text-left min-w-0">
-      <div className={cn("text-[16px] font-bold font-mono truncate", tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-t1")}>{v}</div>
-      <div className="text-[10px] text-t3 mt-0.5 truncate">{l}</div>
-    </div>
-  );
-}
-
-function BarRow({ label, sub, pct }: { label: string; sub: string; pct: number }) {
-  return (
-    <div>
-      <div className="flex justify-between mb-1">
-        <span className="text-[11px] font-medium text-t2 truncate">{label}</span>
-        <span className="text-[10px] font-mono text-t3 shrink-0 ml-2">{sub}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
-        <div className="h-full rounded-full bg-brand-600" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function SlideOverview() {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Tile v="₦248,500" l="Today's revenue" />
-        <Tile v="37" l="Sales" />
-        <Tile v="₦61,300" l="Profit" tone="success" />
-        <Tile v="4" l="Low stock" tone="warning" />
-      </div>
-      <div className="bg-surface border border-line rounded-xl p-3 h-36 flex items-end gap-1.5">
-        {[38, 62, 48, 75, 58, 88, 70, 82, 66, 94, 78, 90].map((h, i) => (
-          <div key={i} className="flex-1 rounded-t bg-brand-600/85" style={{ height: `${h}%` }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SlideSales() {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      <div className="space-y-2">
-        <Tile v="₦4.1m" l="Revenue · 30 days" />
-        <Tile v="₦6,890" l="Average sale" />
-      </div>
-      <div className="bg-surface border border-line rounded-xl p-3 space-y-2.5">
-        <div className="text-[11px] font-bold text-t1">By staff</div>
-        <BarRow label="Amaka" sub="212 sales" pct={95} />
-        <BarRow label="Chidi" sub="167 sales" pct={72} />
-        <BarRow label="Ngozi" sub="121 sales" pct={51} />
-      </div>
-    </div>
-  );
-}
-
-function SlideInventory() {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        <Tile v="128" l="Products" />
-        <Tile v="₦2.3m" l="Stock value" />
-        <Tile v="+640 / −587" l="In & out · 30d" />
-      </div>
-      <div className="bg-surface border border-line rounded-xl p-3 space-y-2">
-        {[["Kings Oil 5L", "3 left", true], ["Dangote Sugar 1kg", "5 left", true], ["Peak Milk 400g", "26 in stock", false]].map(([n, s, warn], i) => (
-          <div key={i} className="flex justify-between items-center">
-            <span className="text-[12px] font-medium text-t1">{n}</span>
-            <span className={cn("text-[11px] font-mono font-semibold", warn ? "text-warning" : "text-t3")}>{s}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SlideCustomers() {
-  return (
-    <div className="bg-surface border border-line rounded-xl p-3 space-y-2.5">
-      {[["Mama Nkechi", "14 visits", "₦186,400"], ["Alhaji Musa", "9 visits", "₦122,750"], ["Blessing Okoro", "6 visits", "₦74,300"]].map(([n, v, s], i) => (
-        <div key={i} className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-full bg-primary-soft text-primary text-[11px] font-bold flex items-center justify-center shrink-0">{String(n)[0]}</span>
-          <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-semibold text-t1 truncate">{n}</div>
-            <div className="text-[10px] text-t3">{v}</div>
-          </div>
-          <span className="font-mono text-[12px] font-bold text-t1">{s}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SlideStaff() {
-  return (
-    <div className="bg-surface border border-line rounded-xl p-3 space-y-2.5">
-      <div className="grid grid-cols-3 sm:grid-cols-4 text-[10px] font-bold uppercase tracking-wide text-t4 pb-1 border-b border-line">
-        <span>Staff</span><span className="text-right">Sales</span><span className="text-right">Revenue</span><span className="hidden sm:block text-right">Hours</span>
-      </div>
-      {[["Amaka", "212", "₦1.6m", "182h"], ["Chidi", "167", "₦1.2m", "170h"], ["Ngozi", "121", "₦840k", "154h"]].map((r, i) => (
-        <div key={i} className="grid grid-cols-3 sm:grid-cols-4 text-[12px]">
-          <span className="font-semibold text-t1">{r[0]}</span>
-          <span className="text-right font-mono text-t2">{r[1]}</span>
-          <span className="text-right font-mono font-bold text-t1">{r[2]}</span>
-          <span className="hidden sm:block text-right font-mono text-t3">{r[3]}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SlideArchive() {
-  return (
-    <div className="bg-surface border border-line rounded-xl p-3 space-y-2">
-      {[["R-00412", "Semovita ×2, Milo", "₦7,300", false], ["R-00411", "Kings Oil 5L", "₦7,500", false], ["R-00410", "Indomie carton ×2", "₦7,000", true]].map(([no, items, amt, voided], i) => (
-        <div key={i} className={cn("flex items-center gap-2", voided && "opacity-45")}>
-          <span className="font-mono text-[11px] font-bold text-primary shrink-0">{no}</span>
-          <span className="text-[11px] text-t3 truncate flex-1">{items}</span>
-          {voided ? <span className="text-[9px] font-bold uppercase text-danger shrink-0">void</span> : null}
-          <span className="font-mono text-[12px] font-bold text-t1 shrink-0">{amt}</span>
-        </div>
-      ))}
-      <div className="flex justify-between pt-1.5 border-t border-line text-[11px]">
-        <span className="text-t3">This month</span>
-        <span className="font-mono font-bold text-t1">947 sales · ₦4.1m</span>
-      </div>
-    </div>
-  );
-}
-
-const SLIDE_BODY: Record<string, () => React.ReactElement> = {
-  overview: SlideOverview, sales: SlideSales, inventory: SlideInventory,
-  customers: SlideCustomers, staff: SlideStaff, archive: SlideArchive,
-};
-
-function DashboardShow() {
-  const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
-
-  useEffect(() => {
-    if (paused) return;
-    const t = setInterval(() => setActive((a) => (a + 1) % SLIDES.length), 3200);
-    return () => clearInterval(t);
-  }, [paused]);
-
-  const Body = SLIDE_BODY[SLIDES[active].key];
-
-  return (
-    <div
-      className="mx-auto max-w-3xl rounded-2xl border border-line-2 bg-canvas shadow-e2 overflow-hidden"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      {/* tab strip — the real dashboard's tabs */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2 bg-surface border-b border-line overflow-x-auto">
-        {SLIDES.map((s, i) => (
-          <button
-            key={s.key}
-            onClick={() => setActive(i)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-8 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors",
-              i === active ? "bg-primary-soft text-primary" : "text-t3 hover:text-t1"
-            )}
-          >
-            <s.icon className="w-3.5 h-3.5" /> {s.label}
-          </button>
-        ))}
-      </div>
-      <div key={active} className="p-4 animate-fade-in min-h-[220px]">
-        <Body />
-      </div>
-      {/* progress dots */}
-      <div className="flex justify-center gap-1.5 pb-3 bg-canvas">
-        {SLIDES.map((_, i) => (
-          <button key={i} onClick={() => setActive(i)}
-            className={cn("h-1.5 rounded-full transition-all", i === active ? "w-6 bg-brand-600" : "w-1.5 bg-surface-3 border border-line-2")} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ── Page ──────────────────────────────────────────────────── */
-
-// The "Modular Power" trio — mapped straight onto real, shipped modules
-// (POS/checkout, the stock_movements ledger, PIN + roster/attendance) so the
-// pitch never outruns what the product actually does.
-const MODULES = [
-  { icon: ScanLine, title: "Unified POS", body: "Sync sales, inventory and payments in real time — cash, card and transfer, all reconciled automatically across every branch." },
-  { icon: Boxes, title: "Smart Inventory", body: "Every unit in and out is logged automatically, with low-stock and expiry alerts before a shelf ever runs empty." },
-  { icon: UserCog, title: "Staff Efficiency", body: "PIN logins, shift rosters and clock-in tracking keep the whole team accountable — no paperwork, no guesswork." },
-];
-
-// Sourced from the actual business-type templates (server/shared/businessTypes.js) —
-// same taglines the product uses at sign-up, not separately invented marketing copy.
-// The full list of six, matching what registration actually offers today.
-const INDUSTRIES = [
-  { icon: UtensilsCrossed, title: "Restaurant", body: "From order to kitchen — recipes that deduct real ingredients, not just items." },
-  { icon: Blinds, title: "Window Blinds & Curtains", body: "Priced per square metre, cut from rail and fabric you already hold in stock." },
-  { icon: Smartphone, title: "Electronics", body: "Serial-number-grade care — every unit tracked from stock-in to warranty and repair." },
-  { icon: BedDouble, title: "Hospitality", body: "Rooms, folios and a kitchen that bills to the room — built for the front desk." },
-  { icon: Droplets, title: "Water Factory", body: "Raw materials in, pure water out — production runs measure the yield in between." },
-  { icon: Egg, title: "Poultry Farm", body: "Feed in, eggs and birds out — batches tracked through feed, mortality and harvest." },
-];
-
-function DeviceMockup() {
-  return (
-    <div className="mx-auto w-full max-w-md lg:max-w-none">
-      <div className="rounded-2xl bg-ink p-2.5 shadow-e2">
-        <div className="rounded-[10px] overflow-hidden bg-canvas">
-          <DashboardShow />
-        </div>
-      </div>
-      <div className="flex flex-col items-center">
-        <div className="w-3 h-7 bg-ink" />
-        <div className="w-28 h-2.5 rounded-full bg-ink" />
-      </div>
-    </div>
+    <Link to="/" className="flex items-center gap-2.5" aria-label="StarTrack">
+      <span className="grid place-items-center w-9 h-9 rounded-xl text-white" style={{ background: GRADIENT, boxShadow: "0 10px 20px -10px rgba(53,56,240,0.9)" }}>
+        <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 17l5-6 4 3 7-9" /><path d="M16 5h4v4" /></svg>
+      </span>
+      <span className={cn("font-extrabold text-[19px] tracking-[-0.02em]", dark ? "text-white" : "text-t1")}>StarTrack</span>
+    </Link>
   );
 }
 
 function Nav() {
   const [open, setOpen] = useState(false);
-  const links = (
-    <>
-      <a href="#modules" onClick={() => setOpen(false)} className="hover:text-t1 transition-colors">Features</a>
-      <a href="#industries" onClick={() => setOpen(false)} className="hover:text-t1 transition-colors">Industries</a>
-    </>
-  );
   return (
-    <header className="sticky top-0 z-50 backdrop-blur-xl bg-surface/80 border-b border-line">
-      <div className="max-w-6xl mx-auto px-5 h-16 flex items-center gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-brand-700 flex items-center justify-center">
-            <svg viewBox="0 0 20 20" fill="none" className="w-5 h-5">
-              <path d="M2 5h16M2 10h10M2 15h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-              <circle cx="16" cy="15" r="3" fill="white" opacity=".9" />
-            </svg>
-          </div>
-          <span className="font-display font-extrabold text-[17px] text-t1 tracking-tight">StarTrack</span>
-        </div>
-        <nav className="hidden md:flex items-center gap-7 mx-auto text-[13px] font-medium text-t2">{links}</nav>
-        <div className="ml-auto md:ml-0 flex items-center gap-2">
-          <ThemeToggle />
-          <Link to="/login" className="hidden sm:inline-flex h-9 px-4 items-center text-[13px] font-semibold text-t2 hover:text-t1 transition-colors">
-            Sign in
-          </Link>
-          <Link to="/register" className={cn(btnSolid, "h-9 px-4 text-[13px]")}>
-            Get Started
-          </Link>
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="md:hidden w-9 h-9 rounded-lg border border-line flex items-center justify-center text-t2"
-            aria-label={open ? "Close menu" : "Open menu"}
-          >
-            {open ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-          </button>
+    <header className="absolute inset-x-0 top-0 z-30">
+      <div className="max-w-[1180px] mx-auto px-5 h-[76px] flex items-center gap-8">
+        <Logo dark />
+        <nav className="hidden lg:flex items-center gap-1 ml-4">
+          {LINKS.map(([l, h]) => <a key={l} href={h} className="px-3.5 py-2 rounded-full text-[14px] font-semibold text-white/75 hover:text-white hover:bg-white/10 transition-colors">{l}</a>)}
+        </nav>
+        <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle className="hidden sm:grid !text-white/80 hover:!text-white" />
+          <Link to="/login" className="hidden sm:inline-flex h-10 px-4 items-center text-[14px] font-semibold text-white/85 hover:text-white">Sign in</Link>
+          <Link to="/register" className="hidden sm:inline-flex items-center h-10 px-5 rounded-full text-[14px] font-bold text-[#0a1045] bg-white hover:bg-white/90 transition-colors">Start free trial</Link>
+          <button onClick={() => setOpen((o) => !o)} aria-label="Menu" className="lg:hidden grid place-items-center w-10 h-10 rounded-full bg-white/10 text-white">{open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}</button>
         </div>
       </div>
       {open && (
-        <nav className="md:hidden border-t border-line px-5 py-3 flex flex-col gap-3 text-[13px] font-medium text-t2 bg-surface">
-          {links}
-          <Link to="/login" onClick={() => setOpen(false)} className="text-t2 hover:text-t1">Sign in</Link>
-        </nav>
+        <div className="lg:hidden mx-4 rounded-3xl bg-[#0f1550]/95 backdrop-blur border border-white/10 p-4 space-y-1">
+          {LINKS.map(([l, h]) => <a key={l} href={h} onClick={() => setOpen(false)} className="block px-4 py-3 rounded-2xl text-[15px] font-semibold text-white/85 hover:bg-white/10">{l}</a>)}
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <Link to="/login" className="h-11 grid place-items-center rounded-full border border-white/20 text-white font-semibold text-[14px]">Sign in</Link>
+            <Link to="/register" className="h-11 grid place-items-center rounded-full bg-white text-[#0a1045] font-bold text-[14px]">Start free trial</Link>
+          </div>
+        </div>
       )}
     </header>
   );
 }
 
-export function Landing() {
+/* ── Hero mockup, drawn in CSS so it's always crisp ─────────────── */
+function MiniChart() {
+  const pts = [18, 26, 22, 34, 30, 44, 38, 52, 47, 60, 56, 72];
+  const w = 300, h = 90;
+  const xs = pts.map((_, i) => (i / (pts.length - 1)) * w);
+  const ys = pts.map((p) => h - (p / 80) * h);
+  const line = xs.map((x, i) => `${i ? "L" : "M"}${x.toFixed(1)} ${ys[i].toFixed(1)}`).join(" ");
   return (
-    <div className="min-h-full bg-canvas overflow-x-hidden">
-      <Nav />
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[90px]" preserveAspectRatio="none" aria-hidden>
+      <defs><linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#fff" stopOpacity=".45" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></linearGradient></defs>
+      <path d={`${line} L${w} ${h} L0 ${h} Z`} fill="url(#lg1)" />
+      <path d={line} fill="none" stroke="#fff" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
 
-      {/* Hero */}
-      <section className="max-w-6xl mx-auto px-5 pt-16 md:pt-20 pb-20 grid grid-cols-1 lg:grid-cols-2 gap-14 items-center">
-        <div className="text-center lg:text-left">
-          <h1 className="font-display font-extrabold tracking-tight text-t1 text-[clamp(2.4rem,6vw,3.6rem)] leading-[1.08]">
-            One Platform.<br />Every Trade.<br />
-            <span className="bg-gradient-to-r from-primary to-success bg-clip-text text-transparent">Infinite Growth.</span>
-          </h1>
-          <p className="mt-6 max-w-lg mx-auto lg:mx-0 text-[16px] leading-relaxed text-t2">
-            The all-in-one business operations platform for restaurants, hotels, workshops and specialty trades —
-            one unified, modular system that grows with you.
-          </p>
-          <div className="mt-8 flex items-center justify-center lg:justify-start gap-3 flex-wrap">
-            <Link to="/register" className={cn(btnSolid, "h-[52px] px-7 text-[15px]")}>
-              Get Started for Free
-            </Link>
-            <DemoButton big>Watch Demo</DemoButton>
+function HeroMockup() {
+  const rows = [["Jollof Rice", 86, "₦215,000"], ["Chapman 500ml", 64, "₦115,200"], ["Puff Puff ×10", 41, "₦49,200"]] as const;
+  return (
+    <div className="relative mx-auto w-full max-w-[560px]">
+      <div className="absolute -inset-10 rounded-full blur-3xl opacity-60" style={{ background: "radial-gradient(closest-side, rgba(123,60,245,0.55), transparent)" }} />
+      {/* Window */}
+      <div className="relative rounded-[26px] bg-white border border-white/60 overflow-hidden" style={{ boxShadow: "0 50px 90px -30px rgba(3,6,40,0.85), 0 0 0 1px rgba(255,255,255,0.4)" }}>
+        <div className="flex items-center gap-1.5 px-4 h-9 bg-[#f1f2fb] border-b border-[#e6e8f4]"><i className="w-2.5 h-2.5 rounded-full bg-[#ff6b6b]" /><i className="w-2.5 h-2.5 rounded-full bg-[#ffc14d]" /><i className="w-2.5 h-2.5 rounded-full bg-[#3ccf91]" /><span className="ml-3 text-[10.5px] font-semibold text-[#8a8fb0]">startrack.app / dashboard</span></div>
+        <div className="flex">
+          <div className="hidden sm:flex w-14 flex-col items-center gap-3.5 py-4 bg-[#0f1550]">
+            {[Store, ScanLine, Boxes, Receipt, Sparkles].map((I, i) => <span key={i} className={cn("grid place-items-center w-8 h-8 rounded-xl", i === 0 ? "bg-white/15 text-white" : "text-white/50")}><I className="w-4 h-4" /></span>)}
           </div>
-          <div className="mt-4 flex items-center justify-center lg:justify-start gap-1.5 text-[13px] text-t3">
-            <Sparkles className="w-3.5 h-3.5 text-primary shrink-0" />
-            No sign-up needed for the demo · Free while we pilot
-          </div>
-        </div>
-        <DeviceMockup />
-      </section>
-
-      {/* Modular power */}
-      <section id="modules" className="bg-surface border-y border-line">
-        <div className="max-w-6xl mx-auto px-5 py-20">
-          <div className="text-center max-w-2xl mx-auto">
-            <h2 className="font-display font-extrabold text-t1 text-[clamp(1.9rem,4.5vw,2.6rem)] tracking-tight">
-              Modular Power for Any Operation
-            </h2>
-            <p className="mt-3 text-[15px] text-t2">
-              Purpose-built tools that seamlessly integrate to give you complete control.
-            </p>
-          </div>
-          <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {MODULES.map((f) => (
-              <div key={f.title} className="bg-canvas border border-line rounded-card p-6 transition-colors hover:border-brand-300">
-                <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-                  <f.icon className="w-[22px] h-[22px]" />
+          <div className="flex-1 p-4 sm:p-5 bg-[#f7f8fd] min-w-0">
+            <div className="text-[11px] font-semibold text-[#8a8fb0]">Good afternoon, Ada</div>
+            <div className="rounded-2xl text-white overflow-hidden mt-2" style={{ background: "linear-gradient(115deg,#1d1f9e,#3538f0 50%,#7b3cf5)" }}>
+              <div className="px-4 pt-3.5 flex items-start justify-between">
+                <div><div className="text-[10.5px] font-semibold text-white/75">Revenue today</div><div className="mt-1 font-mono font-extrabold text-[26px] leading-none tracking-[-0.03em]">₦1,284,500</div></div>
+                <span className="px-2 py-1 rounded-full bg-white/20 text-[10.5px] font-bold flex items-center gap-1"><TrendingUp className="w-3 h-3" /> +18%</span>
+              </div>
+              <MiniChart />
+            </div>
+            <div className="grid grid-cols-3 gap-2.5 mt-3">
+              {[["Sales", "86"], ["Profit", "₦412k"], ["Low stock", "4"]].map(([l, v], i) => (
+                <div key={l} className="rounded-xl bg-white border border-[#e6e8f4] px-3 py-2.5"><div className="text-[10px] font-semibold text-[#8a8fb0]">{l}</div><div className={cn("font-mono font-extrabold text-[15px] mt-0.5", i === 2 ? "text-[#cc9933]" : "text-[#101436]")}>{v}</div></div>
+              ))}
+            </div>
+            <div className="mt-3 rounded-xl bg-white border border-[#e6e8f4] p-3 space-y-2.5">
+              <div className="text-[11px] font-bold text-[#101436]">Top selling</div>
+              {rows.map(([n, p, v]) => (
+                <div key={n} className="flex items-center gap-2.5">
+                  <span className="w-1/3 text-[11px] font-semibold text-[#3a3f66] truncate">{n}</span>
+                  <span className="flex-1 h-1.5 rounded-full bg-[#eceefb] overflow-hidden"><i className="block h-full rounded-full" style={{ width: `${p}%`, background: GRADIENT }} /></span>
+                  <span className="text-[10.5px] font-mono font-bold text-[#101436] w-[64px] text-right">{v}</span>
                 </div>
-                <h3 className="mt-4 font-bold text-[15px] text-t1">{f.title}</h3>
-                <p className="mt-2 text-[13px] leading-relaxed text-t3">{f.body}</p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-      </section>
+      </div>
 
-      {/* Industries */}
-      <section id="industries" className="max-w-6xl mx-auto px-5 py-20">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="font-display font-extrabold text-t1 text-[clamp(1.9rem,4.5vw,2.6rem)] tracking-tight">
-              Tailored for Your Industry
-            </h2>
-            <p className="mt-3 text-[15px] text-t2">
-              Purpose-built modules ready to fit your specific business needs.
-            </p>
-          </div>
-          <Link to="/register" className="text-[13px] font-semibold text-primary hover:text-primary-hover transition-colors whitespace-nowrap">
-            See what fits your trade →
-          </Link>
+      {/* Floating proof points */}
+      <div className="absolute -left-3 sm:-left-14 -bottom-6 w-[210px] rounded-2xl bg-white p-3 border border-[#e6e8f4] animate-[st-float_6s_ease-in-out_infinite]" style={{ boxShadow: "0 24px 48px -20px rgba(3,6,40,0.6)" }}>
+        <div className="flex items-start gap-2.5">
+          <span className="grid place-items-center w-8 h-8 rounded-xl text-white shrink-0" style={{ background: GRADIENT }}><Sparkles className="w-4 h-4" /></span>
+          <div className="min-w-0"><div className="text-[11.5px] font-bold text-[#101436]">AI read menu.xlsx</div><div className="text-[10.5px] text-[#6b7094] leading-snug">42 items ready · 3 duplicates skipped</div></div>
         </div>
-        <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {INDUSTRIES.map((f) => (
-            <div key={f.title} className="bg-surface border border-line rounded-card p-6 transition-colors hover:border-brand-300">
-              <div className="w-11 h-11 rounded-xl bg-primary-soft text-primary flex items-center justify-center">
-                <f.icon className="w-[22px] h-[22px]" />
+        <div className="mt-2 flex items-center gap-1.5 text-[10.5px] font-bold text-[#0f9f6e]"><Check className="w-3 h-3" /> Review &amp; approve</div>
+      </div>
+      <div className="absolute -right-2 sm:-right-9 bottom-14 w-[190px] rounded-2xl bg-white p-3 border border-[#e6e8f4] animate-[st-float_7s_ease-in-out_infinite_1.2s]" style={{ boxShadow: "0 24px 48px -20px rgba(3,6,40,0.6)" }}>
+        <div className="flex items-center gap-2"><span className="grid place-items-center w-8 h-8 rounded-xl bg-[#e8f8f1] text-[#0f9f6e]"><MessageCircle className="w-4 h-4" /></span><div><div className="text-[11.5px] font-bold text-[#101436]">Receipt sent</div><div className="text-[10.5px] text-[#6b7094]">₦7,500 · WhatsApp</div></div></div>
+      </div>
+      <div className="absolute -right-2 sm:-right-6 -top-5 rounded-2xl bg-white px-3 py-2.5 border border-[#e6e8f4] flex items-center gap-2 animate-[st-float_8s_ease-in-out_infinite_.6s]" style={{ boxShadow: "0 24px 48px -20px rgba(3,6,40,0.6)" }}>
+        <span className="grid place-items-center w-7 h-7 rounded-lg bg-[#fff3e2] text-[#cc9933]"><AlertTriangle className="w-3.5 h-3.5" /></span>
+        <div><div className="text-[11px] font-bold text-[#101436]">Low stock</div><div className="text-[10px] text-[#6b7094]">Indomie · 3 left</div></div>
+      </div>
+    </div>
+  );
+}
+
+function Hero() {
+  return (
+    <section className="relative overflow-hidden text-white" style={{ background: "radial-gradient(1100px 600px at 80% -10%, #3a2fd6 0%, transparent 60%), radial-gradient(900px 500px at -10% 40%, #1d2bb8 0%, transparent 55%), #070b33" }}>
+      <div className="absolute inset-0 opacity-[0.18]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)", backgroundSize: "26px 26px", maskImage: "linear-gradient(180deg, #000 0%, transparent 75%)" }} />
+      <Nav />
+      <div className="relative max-w-[1180px] mx-auto px-5 pt-[132px] pb-28 grid lg:grid-cols-[1.02fr_1fr] gap-16 items-center">
+        <div>
+          <a href="#ai" className="inline-flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full bg-white/10 border border-white/15 text-[13px] font-semibold text-white/90 hover:bg-white/15 transition-colors">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold" style={{ background: GRADIENT }}>New</span> AI that reads your spreadsheets <ArrowRight className="w-3.5 h-3.5" />
+          </a>
+          <h1 className="mt-6 text-[44px] sm:text-[62px] lg:text-[68px] font-extrabold leading-[1.02] tracking-[-0.04em]">
+            Run your whole business from <span style={{ background: "linear-gradient(100deg,#9ba0ff,#d6a8ff)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>one place.</span>
+          </h1>
+          <p className="mt-6 text-[18px] sm:text-[20px] leading-relaxed text-white/75 max-w-[540px]">
+            Sales, stock, staff and customers for shops, restaurants, farms, salons and more. Simple enough for day one, powerful enough for ten branches.
+          </p>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Link to="/register" className={primaryBtn} style={primaryShadow}>Start your {TRIAL_DAYS}-day trial <ArrowRight className="w-4 h-4" /></Link>
+            <DemoButton className={ghostOnDark}>Try the live demo</DemoButton>
+          </div>
+          <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13.5px] text-white/65">
+            {[`${TRIAL_DAYS} days free, no card`, "Priced in naira", "Works with spotty internet"].map((t) => <span key={t} className="inline-flex items-center gap-1.5"><Check className="w-4 h-4 text-[#7ee0b5]" strokeWidth={2.6} /> {t}</span>)}
+          </div>
+        </div>
+        <HeroMockup />
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-20" style={{ background: "linear-gradient(180deg, transparent, var(--st-canvas))" }} />
+    </section>
+  );
+}
+
+/* ── Trust strip ─────────────────────────────────────────────────── */
+function Strip() {
+  const items = [
+    [WifiOff, "Keeps selling offline", "The till syncs when the network is back"],
+    [MessageCircle, "WhatsApp receipts", "Send a receipt in one tap"],
+    [ShieldCheck, "Your data, your control", "Roles, PINs and a full audit trail"],
+    [Globe, "Built for Nigeria", "Naira, VAT and the way you trade"],
+  ] as const;
+  return (
+    <section className="relative -mt-2 px-5">
+      <div className="max-w-[1180px] mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-px rounded-3xl overflow-hidden border border-line bg-line shadow-e2">
+        {items.map(([I, t, s]) => (
+          <div key={t} className="bg-surface px-6 py-5 flex gap-3.5 items-start">
+            <span className="grid place-items-center w-10 h-10 rounded-xl bg-primary-soft text-primary shrink-0"><I className="w-5 h-5" /></span>
+            <div><div className="text-[14.5px] font-bold text-t1">{t}</div><div className="text-[12.5px] text-t3 leading-snug mt-0.5">{s}</div></div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ── Section scaffolding ─────────────────────────────────────────── */
+function Heading({ eyebrow, title, sub, center = true }: { eyebrow: string; title: string; sub?: string; center?: boolean }) {
+  return (
+    <div className={cn("max-w-[680px]", center && "mx-auto text-center")}>
+      <div className="inline-flex items-center gap-2 text-[12.5px] font-bold uppercase tracking-[0.16em] text-primary"><i className="w-6 h-[2px] rounded-full bg-primary" /> {eyebrow}</div>
+      <h2 className="mt-4 text-[34px] sm:text-[46px] font-extrabold tracking-[-0.03em] leading-[1.06] text-t1">{title}</h2>
+      {sub && <p className="mt-4 text-[17px] leading-relaxed text-t3">{sub}</p>}
+    </div>
+  );
+}
+
+/* ── Features bento ──────────────────────────────────────────────── */
+function Features() {
+  const card = "relative overflow-hidden rounded-[28px] border border-line bg-surface p-7 shadow-e1 transition-all hover:-translate-y-1 hover:shadow-e3";
+  const chip = (I: any, tone = "bg-primary-soft text-primary") => <span className={cn("grid place-items-center w-11 h-11 rounded-2xl", tone)}><I className="w-5 h-5" strokeWidth={1.9} /></span>;
+  return (
+    <section id="features" className="px-5 py-24 lg:py-32">
+      <div className="max-w-[1180px] mx-auto">
+        <Heading eyebrow="Everything you need" title="One system. Every part of the shop." sub="Start with a till and a stock list. Add the rest when you're ready, and only pay for what you use." />
+        <div className="mt-14 grid md:grid-cols-6 gap-5">
+          <div className={cn(card, "md:col-span-4")}>
+            {chip(ScanLine)}
+            <h3 className="mt-5 text-[22px] font-extrabold tracking-[-0.02em] text-t1">A till that never makes customers wait</h3>
+            <p className="mt-2 text-[15px] text-t3 leading-relaxed max-w-[460px]">Cash, POS and transfer in one screen. Split payments, discounts, VAT and change handled for you, with a receipt ready to print or WhatsApp.</p>
+            <div className="mt-6 flex flex-wrap gap-2">{["Split payments", "Discounts", "VAT", "Returns", "Held sales", "Barcode scan"].map((t) => <span key={t} className="px-3 py-1.5 rounded-full bg-surface-3 text-[12.5px] font-semibold text-t2">{t}</span>)}</div>
+          </div>
+          <div className={cn(card, "md:col-span-2 text-white border-transparent")} style={{ background: "linear-gradient(150deg,#1d1f9e,#3538f0 55%,#7b3cf5)" }}>
+            {chip(Sparkles, "bg-white/15 text-white")}
+            <h3 className="mt-5 text-[22px] font-extrabold tracking-[-0.02em]">AI that does the typing</h3>
+            <p className="mt-2 text-[15px] text-white/80 leading-relaxed">Ask about your sales, draft actions, or upload a spreadsheet and watch your catalogue appear.</p>
+          </div>
+          <div className={cn(card, "md:col-span-2")}>
+            {chip(Boxes, "bg-success-soft text-success")}
+            <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.02em] text-t1">Stock that stays honest</h3>
+            <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">Every unit in and out is logged. Low-stock and expiry alerts arrive before a shelf runs empty.</p>
+          </div>
+          <div className={cn(card, "md:col-span-2")}>
+            {chip(Store, "bg-warning-soft text-warning")}
+            <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.02em] text-t1">Many branches, one view</h3>
+            <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">Separate stock and staff per branch, plus a single dashboard comparing profit and loss across them all.</p>
+          </div>
+          <div className={cn(card, "md:col-span-2")}>
+            {chip(FileSpreadsheet, "bg-danger-soft text-danger")}
+            <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.02em] text-t1">Reports you can hand over</h3>
+            <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">Beautiful PDF and Excel reports for sales, stock, customers and staff, ready for your accountant.</p>
+          </div>
+          <div className={cn(card, "md:col-span-3")}>
+            {chip(QrCode)}
+            <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.02em] text-t1">Loyalty cards customers actually use</h3>
+            <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">A QR card in their phone. Scan at the till and the discount applies itself.</p>
+          </div>
+          <div className={cn(card, "md:col-span-3")}>
+            {chip(Globe, "bg-success-soft text-success")}
+            <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.02em] text-t1">Your own business page</h3>
+            <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">A branded landing page with your products, hours and WhatsApp button, shareable by link or QR code.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── AI ──────────────────────────────────────────────────────────── */
+function AiSection() {
+  return (
+    <section id="ai" className="px-5 py-24 lg:py-32 bg-surface-2 border-y border-line">
+      <div className="max-w-[1180px] mx-auto grid lg:grid-cols-2 gap-14 items-center">
+        <div className="order-2 lg:order-1">
+          <div className="rounded-[28px] bg-surface border border-line shadow-e3 p-5 sm:p-6 max-w-[520px] mx-auto">
+            <div className="flex items-center gap-2.5 pb-4 border-b border-line">
+              <span className="grid place-items-center w-9 h-9 rounded-xl text-white" style={{ background: GRADIENT }}><Sparkles className="w-4 h-4" /></span>
+              <div><div className="text-[14px] font-bold text-t1">StarTrack AI</div><div className="text-[11.5px] text-success font-semibold">● Online</div></div>
+            </div>
+            <div className="py-5 space-y-4 text-[13.5px]">
+              <div className="flex justify-end"><div className="max-w-[80%] rounded-2xl rounded-br-md px-4 py-3 text-white" style={{ background: GRADIENT }}><span className="inline-flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> menu.xlsx</span><div className="mt-1 opacity-90">Add these to my catalogue</div></div></div>
+              <div className="max-w-[88%] rounded-2xl rounded-bl-md px-4 py-3 bg-surface-3 text-t1 leading-relaxed">I read <b>Sheet “Menu”</b> and found <b>42 dishes</b>. 3 are already in your catalogue, so I'll skip them. Here's what I'll add:</div>
+              <div className="rounded-2xl border border-line overflow-hidden">
+                <div className="grid grid-cols-3 text-center divide-x divide-line bg-surface-2">
+                  {[["39", "to add", "text-success"], ["3", "already there", "text-t2"], ["1", "needs a look", "text-warning"]].map(([n, l, c]) => <div key={l} className="py-3"><div className={cn("text-[20px] font-extrabold font-mono", c)}>{n}</div><div className="text-[11px] text-t3 font-semibold">{l}</div></div>)}
+                </div>
+                {[["Jollof Rice", "₦2,500"], ["Suya Platter", "₦4,500"], ["Pepper Soup", "₦5,200"]].map(([n, p]) => <div key={n} className="flex justify-between px-4 py-2 text-[12.5px] border-t border-line"><span className="text-t2 font-semibold">{n}</span><span className="font-mono text-t1">{p}</span></div>)}
               </div>
-              <h3 className="mt-4 font-bold text-[15px] text-t1">{f.title}</h3>
-              <p className="mt-2 text-[13px] leading-relaxed text-t3">{f.body}</p>
+              <div className="flex gap-2"><span className="h-10 px-5 rounded-full text-white font-bold inline-flex items-center gap-2" style={{ background: GRADIENT }}><Check className="w-4 h-4" /> Add 39 items</span><span className="h-10 px-5 rounded-full border border-line-2 text-t2 font-bold inline-flex items-center">Discard</span></div>
+            </div>
+          </div>
+        </div>
+        <div className="order-1 lg:order-2">
+          <Heading center={false} eyebrow="AI assistant" title="Show it a spreadsheet. Skip the data entry." sub="Upload your product list in any layout. StarTrack reads it, matches your columns, skips duplicates and shows you exactly what it will add before anything changes." />
+          <ul className="mt-8 space-y-4">
+            {[
+              ["Ask in plain English", "“Who owes me money?” “What sold best this week?” Answers come from your real numbers."],
+              ["Nothing happens without you", "The AI drafts, you approve. Every change is a preview first."],
+              ["Reports on request", "“Download last month's sales as Excel.” Done, formatted and ready to share."],
+            ].map(([t, s]) => (
+              <li key={t} className="flex gap-3.5">
+                <span className="grid place-items-center w-7 h-7 rounded-full bg-success-soft text-success shrink-0 mt-0.5"><Check className="w-4 h-4" strokeWidth={2.6} /></span>
+                <div><div className="text-[16px] font-bold text-t1">{t}</div><div className="text-[14.5px] text-t3 leading-relaxed">{s}</div></div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-9 flex flex-wrap gap-3">
+            <Link to="/register?plan=pro" className={primaryBtn} style={primaryShadow}>Try AI with Pro <ArrowRight className="w-4 h-4" /></Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Industries ──────────────────────────────────────────────────── */
+const INDUSTRIES = [
+  { icon: Store, title: "Supermarkets & shops", body: "Barcodes, expiry dates and reorder alerts." },
+  { icon: UtensilsCrossed, title: "Restaurants", body: "Orders to the kitchen, recipes that deduct ingredients." },
+  { icon: Blinds, title: "Blinds & curtains", body: "Priced per square metre from stock you hold." },
+  { icon: Smartphone, title: "Electronics", body: "Serial numbers, warranty and repairs per unit." },
+  { icon: BedDouble, title: "Hotels", body: "Rooms, folios and a kitchen that bills to the room." },
+  { icon: Droplets, title: "Water factories", body: "Raw materials in, pure water out, yield measured." },
+  { icon: Egg, title: "Poultry farms", body: "Feed, mortality and harvest tracked per batch." },
+  { icon: GraduationCap, title: "Training academies", body: "Courses, intakes, fees in instalments, attendance." },
+  { icon: Scissors, title: "Salons & spas", body: "Appointments by stylist with deposits and balances." },
+  { icon: Briefcase, title: "Agencies", body: "Projects, milestones and billing as you deliver." },
+];
+
+function Industries() {
+  return (
+    <section id="industries" className="px-5 py-24 lg:py-32">
+      <div className="max-w-[1180px] mx-auto">
+        <Heading eyebrow="Built for how you trade" title="Not a generic till. Your trade, understood." sub="StarTrack adapts its screens, units and rules to the kind of business you run." />
+        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {INDUSTRIES.map(({ icon: I, title, body }) => (
+            <div key={title} className="group rounded-3xl border border-line bg-surface p-5 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-e2">
+              <span className="grid place-items-center w-11 h-11 rounded-2xl bg-primary-soft text-primary transition-colors group-hover:text-white group-hover:bg-primary"><I className="w-5 h-5" strokeWidth={1.8} /></span>
+              <h3 className="mt-4 text-[15.5px] font-extrabold text-t1 leading-tight">{title}</h3>
+              <p className="mt-1.5 text-[13px] text-t3 leading-snug">{body}</p>
             </div>
           ))}
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
 
-      {/* CTA */}
-      <section className="max-w-6xl mx-auto px-5 pb-20">
-        <div className="rounded-3xl bg-ink p-12 md:p-16 text-center">
-          <h2 className="font-display font-extrabold text-white text-[clamp(2rem,4.5vw,2.8rem)] tracking-tight">
-            Ready to transform your business operations?
-          </h2>
-          <p className="mt-3 text-white/70 text-[15px] max-w-lg mx-auto">
-            Open a free sandbox and see it running with your own kind of business — no sign-up, no card.
-          </p>
-          <div className="mt-8 flex justify-center gap-3 flex-wrap">
-            <Link to="/register" className="inline-flex items-center justify-center gap-2 h-[52px] px-7 rounded-ctl bg-white text-ink font-semibold text-[15px] hover:bg-white/90 transition-colors">
-              Register Now — Free Trial
-            </Link>
-            <DemoButton big>
-              <>Try the demo <ArrowRight className="w-4 h-4" /></>
-            </DemoButton>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-line bg-surface">
-        <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-brand-700 flex items-center justify-center">
-              <svg viewBox="0 0 20 20" fill="none" className="w-4 h-4">
-                <path d="M2 5h16M2 10h10M2 15h12" stroke="white" strokeWidth="2" strokeLinecap="round" />
-              </svg>
+/* ── How it works ────────────────────────────────────────────────── */
+function Steps() {
+  const steps = [
+    ["1", "Create your account", "Pick your trade and we set up the right screens, units and rules. It takes a couple of minutes."],
+    ["2", "Add your products", "Type them in, import a CSV, or upload any spreadsheet and let the AI do it."],
+    ["3", "Start selling", "Open the till, ring up a sale, send the receipt. Your dashboard fills itself."],
+  ];
+  return (
+    <section className="px-5 py-24 bg-surface-2 border-y border-line">
+      <div className="max-w-[1180px] mx-auto">
+        <Heading eyebrow="How it works" title="Up and running today." />
+        <div className="mt-14 grid md:grid-cols-3 gap-6 relative">
+          {steps.map(([n, t, s]) => (
+            <div key={n} className="relative rounded-[28px] bg-surface border border-line p-7 shadow-e1">
+              <span className="grid place-items-center w-12 h-12 rounded-2xl text-white text-[20px] font-extrabold" style={{ background: GRADIENT, boxShadow: "0 14px 26px -12px rgba(53,56,240,0.8)" }}>{n}</span>
+              <h3 className="mt-5 text-[20px] font-extrabold tracking-[-0.01em] text-t1">{t}</h3>
+              <p className="mt-2 text-[14.5px] text-t3 leading-relaxed">{s}</p>
             </div>
-            <span className="font-display font-bold text-t1">StarTrack</span>
-          </div>
-          <div className="text-[12px] text-t3">© {new Date().getFullYear()} StarTrack. All rights reserved.</div>
+          ))}
         </div>
-      </footer>
+      </div>
+    </section>
+  );
+}
+
+/* ── Pricing, straight from the plan definitions the app enforces ── */
+function Pricing() {
+  return (
+    <section id="pricing" className="px-5 py-24 lg:py-32">
+      <div className="max-w-[1180px] mx-auto">
+        <Heading eyebrow="Pricing" title="Simple plans. Start with a free trial." sub={`Every plan starts with ${TRIAL_DAYS} days free. Pay monthly in naira, and nothing renews by itself.`} />
+        <div className="mt-16 grid md:grid-cols-3 gap-6 items-stretch">
+          {PLAN_ORDER.map((k) => {
+            const p = PLANS[k];
+            const hot = k === "pro";
+            return (
+              <div key={k} className={cn("relative rounded-[30px] p-8 flex flex-col", hot ? "text-white border-transparent shadow-e3 md:-my-4" : "bg-surface border border-line shadow-e1")}
+                style={hot ? { background: "linear-gradient(160deg,#1d1f9e,#3538f0 50%,#7b3cf5)", boxShadow: "0 40px 70px -30px rgba(53,56,240,0.7)" } : undefined}>
+                {hot && <span className="absolute -top-3.5 left-8 px-3.5 py-1.5 rounded-full text-[11.5px] font-bold bg-white text-[#3538f0] shadow-e2">Most popular</span>}
+                <h3 className={cn("text-[22px] font-extrabold", !hot && "text-t1")}>{p.name}</h3>
+                <p className={cn("mt-1 text-[14px]", hot ? "text-white/75" : "text-t3")}>{p.tagline}</p>
+                <div className="mt-6 flex items-baseline gap-1.5">
+                  <span className={cn("text-[46px] font-extrabold tracking-[-0.04em] leading-none", !hot && "text-t1")}>{fmtMoney(p.price, "₦")}</span>
+                  <span className={cn("text-[14px]", hot ? "text-white/70" : "text-t3")}>/ month</span>
+                </div>
+                <Link to={`/register?plan=${k}`}
+                  className={cn("mt-7 h-12 rounded-full inline-flex items-center justify-center gap-2 text-[15px] font-bold transition-transform hover:-translate-y-0.5", hot ? "bg-white text-[#3538f0]" : k === "business" ? "text-white bg-[#101436]" : "border border-line-2 text-t1 hover:border-primary hover:text-primary")}>
+                  Try {p.name} free <ArrowRight className="w-4 h-4" />
+                </Link>
+                <ul className="mt-8 space-y-3">
+                  {p.highlights.map((h) => (
+                    <li key={h} className={cn("flex items-start gap-2.5 text-[14px]", hot ? "text-white/90" : "text-t2")}>
+                      <Check className={cn("w-[18px] h-[18px] mt-0.5 shrink-0", hot ? "text-[#9be9c6]" : "text-success")} strokeWidth={2.6} /> {h}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-10 text-center text-[13.5px] text-t3">Pay securely by card, bank transfer or USSD. Prices in Nigerian naira.</p>
+      </div>
+    </section>
+  );
+}
+
+/* ── FAQ ─────────────────────────────────────────────────────────── */
+const FAQS = [
+  ["Is there a free trial?", `Yes. Every plan starts with ${TRIAL_DAYS} days free, no card needed. After that you pick a plan and pay monthly. If you don't, the account goes read-only: you can still view everything, but changes are paused until you renew.`],
+  ["What do I get on Pro?", "Everything in Freemium, plus the AI assistant, PDF and Excel reports, barcodes and labels, loyalty cards, branch transfers, expiry tracking, suppliers, stock counts, returns, and a customisable receipt. Up to 3 branches and 10 staff."],
+  ["What's different on Business?", "No limits on branches, staff or products, multiple businesses with an all-stores dashboard, designed receipt templates with an AI writer, your own public landing page, and the audit log."],
+  ["What happens if I downgrade?", "Nothing is deleted. Your data stays, and features from the higher plan lock until you upgrade again. If you're over a limit, you simply can't add more until you're back under it."],
+  ["How does payment work?", "You pay monthly through Paystack by card, bank transfer or USSD. Plans don't renew automatically, so there are no surprise charges. Pay again when you're ready to continue."],
+  ["Does it work when the internet drops?", "The till keeps recording sales and syncs them when you're back online."],
+  ["Can I try it before signing up?", "Yes. Open the live demo, pick your kind of business, and you'll land in a stocked sandbox with a week of sample sales. No sign-up needed."],
+] as const;
+
+function Faq() {
+  const [open, setOpen] = useState<number | null>(0);
+  return (
+    <section id="faq" className="px-5 py-24 bg-surface-2 border-t border-line">
+      <div className="max-w-[820px] mx-auto">
+        <Heading eyebrow="FAQ" title="Questions, answered." />
+        <div className="mt-12 space-y-3">
+          {FAQS.map(([q, a], i) => (
+            <div key={q} className={cn("rounded-2xl bg-surface border transition-colors", open === i ? "border-primary/50 shadow-e2" : "border-line")}>
+              <button onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i} className="w-full flex items-center justify-between gap-4 px-6 py-5 text-left">
+                <span className="text-[16.5px] font-bold text-t1">{q}</span>
+                <ChevronDown className={cn("w-5 h-5 text-primary shrink-0 transition-transform", open === i && "rotate-180")} />
+              </button>
+              {open === i && <p className="px-6 pb-6 -mt-1 text-[15px] text-t3 leading-relaxed">{a}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Final call + footer ─────────────────────────────────────────── */
+function Closing() {
+  return (
+    <section className="px-5 py-24">
+      <div className="max-w-[1180px] mx-auto relative overflow-hidden rounded-[40px] text-center text-white px-6 py-20" style={{ background: "radial-gradient(800px 400px at 80% 0%, #4a3be8 0%, transparent 60%), #0a1045" }}>
+        <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.4) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
+        <div className="relative max-w-[640px] mx-auto">
+          <h2 className="text-[36px] sm:text-[52px] font-extrabold tracking-[-0.035em] leading-[1.05]">Give your business the system it deserves.</h2>
+          <p className="mt-5 text-[18px] text-white/75">Start your {TRIAL_DAYS}-day free trial in minutes. No card needed.</p>
+          <div className="mt-9 flex flex-wrap justify-center gap-3">
+            <Link to="/register" className="inline-flex items-center gap-2 h-13 px-8 py-3.5 rounded-full text-[15.5px] font-bold bg-white text-[#0a1045] hover:-translate-y-0.5 transition-transform">Start free trial <ArrowRight className="w-4 h-4" /></Link>
+            <DemoButton className={ghostOnDark}>Try the live demo</DemoButton>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="px-5 pb-12">
+      <div className="max-w-[1180px] mx-auto grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr] pt-4">
+        <div>
+          <Logo />
+          <p className="mt-4 text-[14px] text-t3 leading-relaxed max-w-[320px]">The operating system for small and growing businesses.</p>
+        </div>
+        {[
+          ["Product", [["Features", "#features"], ["AI assistant", "#ai"], ["Pricing", "#pricing"], ["Industries", "#industries"]]],
+          ["Get started", [["Create account", "/register"], ["Sign in", "/login"], ["FAQ", "#faq"]]],
+        ].map(([title, links]) => (
+          <div key={title as string}>
+            <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-t4 mb-4">{title as string}</div>
+            <ul className="space-y-2.5 text-[14.5px]">
+              {(links as string[][]).map(([l, h]) => <li key={l}>{h.startsWith("#") ? <a href={h} className="text-t2 hover:text-primary">{l}</a> : <Link to={h} className="text-t2 hover:text-primary">{l}</Link>}</li>)}
+            </ul>
+          </div>
+        ))}
+        <div>
+          <div className="text-[12px] font-bold uppercase tracking-[0.14em] text-t4 mb-4">Try it</div>
+          <DemoButton className="text-[14.5px] text-t2 hover:text-primary font-medium">Live demo</DemoButton>
+        </div>
+      </div>
+      <div className="max-w-[1180px] mx-auto mt-12 pt-6 border-t border-line text-[13px] text-t4 flex flex-wrap justify-between gap-3">
+        <span>© {new Date().getFullYear()} StarTrack. All rights reserved.</span>
+        <span>Made for businesses that mean business.</span>
+      </div>
+    </footer>
+  );
+}
+
+export function Landing() {
+  return (
+    <div className="bg-canvas text-t1 overflow-x-hidden" style={{ scrollBehavior: "smooth" }}>
+      <Hero />
+      <Strip />
+      <Features />
+      <AiSection />
+      <Industries />
+      <Steps />
+      <Pricing />
+      <Faq />
+      <Closing />
+      <Footer />
     </div>
   );
 }

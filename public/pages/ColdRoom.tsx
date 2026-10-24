@@ -68,24 +68,26 @@ export function ColdRoom() {
       />
 
       {summaryData && (
-        <div className={cn("grid grid-cols-2 gap-4 mb-6", hasCapability("credit") ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
+        <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6", hasCapability("credit") ? "xl:grid-cols-5" : "xl:grid-cols-4")}>
           <StatCard index={0} label="Stock value" value={fmtMoney(summaryData.stockValue, currency)} icon={Coins} />
-          <StatCard index={1} label="Sealed cartons" value={String(summaryData.sealedCartons)} icon={Boxes} />
-          <StatCard index={2} label="Loose kg on hand" value={`${summaryData.looseKg}kg`} icon={Scale} />
+          <StatCard tone="neutral" index={1} label="Sealed cartons" value={String(summaryData.sealedCartons)} icon={Boxes} />
+          <StatCard tone="neutral" index={2} label="Loose kg on hand" value={`${summaryData.looseKg}kg`} icon={Scale} />
           <StatCard
+            tone="warning"
             index={3}
             label="Shrinkage (30d)"
             value={`${summaryData.avgShrinkagePercent}%`}
             icon={AlertTriangle}
-            delta={summaryData.breakdownCount ? `${summaryData.breakdownCount} breakdown${summaryData.breakdownCount === 1 ? "" : "s"}` : undefined}
+            hint={summaryData.breakdownCount ? `${summaryData.breakdownCount} breakdown${summaryData.breakdownCount === 1 ? "" : "s"}` : undefined}
           />
           {hasCapability("credit") && (
             <StatCard
+              tone="danger"
               index={4}
               label="Owed by customers"
               value={fmtMoney(summaryData.totalOutstanding, currency)}
               icon={Users}
-              delta={summaryData.debtorCount ? `${summaryData.debtorCount} debtor${summaryData.debtorCount === 1 ? "" : "s"}` : undefined}
+              hint={summaryData.debtorCount ? `${summaryData.debtorCount} debtor${summaryData.debtorCount === 1 ? "" : "s"}` : undefined}
             />
           )}
         </div>
@@ -122,7 +124,7 @@ export function ColdRoom() {
                     <TD className="font-mono tabular-nums">{r.sealedCartons || "—"}</TD>
                     <TD className="font-mono tabular-nums">{r.looseKg ? `${r.looseKg}kg` : "—"}</TD>
                     <TD className="font-mono tabular-nums">{r.loosePieces || "—"}</TD>
-                    <TD className="font-mono font-bold tabular-nums">{fmtMoney(r.stockValue, currency)}</TD>
+                    <TD className="font-mono font-semibold tabular-nums">{fmtMoney(r.stockValue, currency)}</TD>
                     <TD className="!text-t3">
                       {r.oldestBatchDate ? fmtDate(r.oldestBatchDate) : <Badge tone="neutral">No stock</Badge>}
                     </TD>
@@ -249,7 +251,7 @@ function ProductModal({
             { l: "Stock value", v: fmtMoney(row.stockValue, currency) },
           ].map((s) => (
             <div key={s.l} className="rounded-xl bg-surface-2 border border-line p-3 text-center">
-              <div className="text-[14px] font-bold font-mono text-t1 truncate">{s.v}</div>
+              <div className="text-[14px] font-semibold font-mono text-t1 truncate">{s.v}</div>
               <div className="text-[10px] font-medium text-t3 mt-0.5">{s.l}</div>
             </div>
           ))}
@@ -288,7 +290,7 @@ function ProductModal({
         )}
 
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wide text-t3 mb-2">Open batches — oldest first</div>
+          <div className="text-[11px] font-medium text-t3 mb-2">Open batches — oldest first</div>
           {!batches.length ? (
             <div className="text-[12px] text-t4 py-4 text-center">No open batches. Record a purchase to bring stock in.</div>
           ) : (

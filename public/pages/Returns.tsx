@@ -41,7 +41,7 @@ export function Returns() {
           <Card className="overflow-hidden">
             <div className="p-4 pb-2 flex items-center gap-2">
               <Clock className="w-4 h-4 text-warning" />
-              <span className="text-[14px] font-bold text-t1">Awaiting decision</span>
+              <span className="text-[14px] font-semibold text-t1">Awaiting decision</span>
               {pending.length > 0 && <Badge tone="warning">{pending.length}</Badge>}
             </div>
             {loading ? (
@@ -60,7 +60,7 @@ export function Returns() {
 
           {decided.length > 0 && (
             <Card className="overflow-hidden">
-              <div className="p-4 pb-2 text-[14px] font-bold text-t1">History</div>
+              <div className="p-4 pb-2 text-[14px] font-semibold text-t1">History</div>
               <div className="divide-y divide-line">
                 {decidedPaged.rows.map((r) => (
                   <ReturnRow key={r.id} r={r} currency={currency} canDecide={false} onDecided={reload} />
@@ -99,7 +99,7 @@ function ReturnRow({ r, currency, canDecide, onDecided }: { r: Ret; currency: st
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-[12px] font-bold text-primary">{r.saleNo}</span>
+            <span className="font-mono text-[12px] font-semibold text-primary">{r.saleNo}</span>
             <Badge tone={r.status === "approved" ? "success" : r.status === "rejected" ? "danger" : "warning"}>{r.status}</Badge>
             <span className="text-[11px] text-t4">{fmtDateTime(r.createdAt)}</span>
           </div>
@@ -111,8 +111,8 @@ function ReturnRow({ r, currency, canDecide, onDecided }: { r: Ret; currency: st
           {error && <div className="text-[11px] text-danger font-semibold mt-1">{error}</div>}
         </div>
         <div className="text-right shrink-0">
-          <div className="font-mono text-[14px] font-bold text-t1 tabular-nums">{fmtMoney(r.refund.amount, currency)}</div>
-          <div className="text-[10px] uppercase text-t4">{r.refund.method} refund</div>
+          <div className="font-mono text-[14px] font-semibold text-t1 tabular-nums">{fmtMoney(r.refund.amount, currency)}</div>
+          <div className="text-[11.5px] text-t4">{r.refund.method} refund</div>
           {r.status === "pending" && canDecide && (
             <div className="flex gap-1.5 mt-2">
               <Button size="sm" variant="success" disabled={busy} onClick={() => decide("approve")}><Check className="w-3.5 h-3.5" /> Approve</Button>
@@ -171,7 +171,7 @@ function SubmitReturn({ onSubmitted, currency }: { onSubmitted: () => void; curr
 
   return (
     <Card className="p-5 self-start">
-      <div className="text-[14px] font-bold text-t1 mb-3">Submit a return</div>
+      <div className="text-[14px] font-semibold text-t1 mb-3">Submit a return</div>
       <ErrorBanner message={error} />
       {done && <div className="px-3 py-2.5 rounded-ctl bg-success-soft text-success text-[12px] font-semibold mb-3">{done}</div>}
 
@@ -183,7 +183,7 @@ function SubmitReturn({ onSubmitted, currency }: { onSubmitted: () => void; curr
       {sale && (
         <form onSubmit={submit} className="mt-4 space-y-3">
           <div className="text-[12px] text-t3">
-            <span className="font-mono font-bold text-primary">{sale.saleNo}</span> · {fmtDateTime(sale.at)} · by {sale.staffName} · {fmtMoney(sale.total, currency)}
+            <span className="font-mono font-semibold text-primary">{sale.saleNo}</span> · {fmtDateTime(sale.at)} · by {sale.staffName} · {fmtMoney(sale.total, currency)}
           </div>
           <div className="space-y-2">
             {sale.items.map((i) => {

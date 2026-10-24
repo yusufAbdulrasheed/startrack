@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 
+// Flat surface, hairline border. `interactive` only darkens the border on
+// hover — nothing lifts or casts a shadow.
 export function Card({
   className,
   children,
@@ -9,8 +11,8 @@ export function Card({
   return (
     <div
       className={cn(
-        "bg-surface border border-line rounded-card shadow-e1",
-        interactive && "transition-all duration-200 hover:shadow-e2 hover:-translate-y-0.5",
+        "bg-surface shadow-e1 border border-line rounded-card",
+        interactive && "transition-[box-shadow,transform] duration-200 hover:shadow-lg2 hover:-translate-y-0.5",
         className
       )}
       {...props}
@@ -34,12 +36,12 @@ export function Badge({
     success: "bg-success-soft text-success",
     warning: "bg-warning-soft text-warning",
     danger: "bg-danger-soft text-danger",
-    neutral: "bg-surface-3 text-t3",
+    neutral: "bg-surface-3 text-t2",
   };
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap",
+        "inline-flex items-center gap-1 px-2.5 py-[2px] rounded-full text-[11.5px] font-semibold whitespace-nowrap leading-[18px]",
         tones[tone],
         className
       )}

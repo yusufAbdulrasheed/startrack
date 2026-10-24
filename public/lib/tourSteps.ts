@@ -10,7 +10,7 @@ export function buildDashboardTour(t: { pos: string; products: string }): TourSt
   return [
     {
       target: "center",
-      title: "Welcome to StarTrack 👋",
+      title: "Welcome to StarTrack",
       body: "A two-minute look at where everything lives. Skip anytime — you can take this again from the button next to Refresh.",
     },
     {
@@ -79,7 +79,7 @@ export function buildStaffHomeTour(): TourStep[] {
   return [
     {
       target: "center",
-      title: "Welcome to StarTrack 👋",
+      title: "Welcome to StarTrack",
       body: "A quick look at your own home screen. Skip anytime, or take this again later from the button up top.",
     },
     {

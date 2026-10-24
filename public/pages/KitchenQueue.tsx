@@ -46,7 +46,7 @@ export function KitchenQueue() {
               <div key={col.key}>
                 <div className="flex items-center gap-2 mb-2 px-1">
                   <Icon className="w-4 h-4 text-primary" />
-                  <span className="text-[13px] font-bold text-t1">{col.label}</span>
+                  <span className="text-[13px] font-semibold text-t1">{col.label}</span>
                   <span className="text-[11px] text-t4 ml-auto">{rows.length}</span>
                 </div>
                 <div className="space-y-2">
@@ -62,8 +62,8 @@ export function KitchenQueue() {
                         )}
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-[13px] font-bold text-t1">{t.name}</span>
-                          <span className="font-mono text-[12px] font-bold text-primary">×{t.qty}</span>
+                          <span className="text-[13px] font-semibold text-t1">{t.name}</span>
+                          <span className="font-mono text-[12px] font-semibold text-primary">×{t.qty}</span>
                         </div>
                         <div className="text-[11px] text-t4">{t.saleNo} · {fmtTime(t.at)}</div>
                         <div className="mt-1.5 text-[11px] font-semibold text-primary">Tap to mark {col.next}</div>

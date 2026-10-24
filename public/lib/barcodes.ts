@@ -66,8 +66,8 @@ export function printBarcodeLabels(items: LabelItem[], opts: { size: LabelSize; 
   @media print{.nop{display:none!important}@page{size:A4;margin:6mm}body{padding:0}.bc-label{page-break-inside:avoid;break-inside:avoid}}
 </style></head><body>
   <div class="nop">
-    <button class="pb" onclick="window.print()">🖨️ Print / Save as PDF</button>
-    <button class="cb" onclick="window.close()">✕ Close</button>
+    <button class="pb" onclick="window.print()">Print / Save as PDF</button>
+    <button class="cb" onclick="window.close()">Close</button>
   </div>
   <div class="grid">${labels.join("")}</div>
   <script>window.onload=function(){setTimeout(function(){window.print()},600)}<\/script>

@@ -23,7 +23,7 @@ type Run = {
 export function Production() {
   const { activeBranch } = useSession();
   const { data: prodData } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const products = prodData?.products || [];
+  const products = useMemo(() => prodData?.products ?? [], [prodData]);
   const recipeProducts = useMemo(() => products.filter((p) => p.archetype !== "made_to_order" && p.bom?.length), [products]);
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
 
@@ -42,7 +42,7 @@ export function Production() {
         <Card className="lg:col-span-3 overflow-hidden self-start">
           <div className="p-4 pb-2 flex items-center gap-2">
             <Factory className="w-4 h-4 text-primary" />
-            <span className="text-[14px] font-bold text-t1">Run history</span>
+            <span className="text-[14px] font-semibold text-t1">Run history</span>
           </div>
           {loading ? (
             <Spinner />
@@ -65,14 +65,14 @@ export function Production() {
                   <tbody>
                     {paged.rows.map((r) => (
                       <TR key={r.id}>
-                        <TD className="font-mono !text-primary font-bold">{r.runNo}</TD>
+                        <TD className="font-mono !text-primary font-semibold">{r.runNo}</TD>
                         <TD>
                           <div className="font-semibold">{r.productName}</div>
                           <div className="text-[11px] text-t3">{r.components.map((c) => `${c.name} ×${c.qty}`).join(", ")}</div>
                         </TD>
                         <TD className="text-right font-mono">{r.producedUnits}</TD>
                         <TD className="text-right font-mono !text-t3">{r.leakage}</TD>
-                        <TD className="text-right font-mono font-bold">+{r.creditedQty}</TD>
+                        <TD className="text-right font-mono font-semibold">+{r.creditedQty}</TD>
                         <TD className="!text-t3">{fmtDateTime(r.at)} · {r.staffName}</TD>
                       </TR>
                     ))}

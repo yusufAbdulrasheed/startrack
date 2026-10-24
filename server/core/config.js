@@ -69,6 +69,22 @@ export const config = {
     apiKey: process.env.CLOUDINARY_API_KEY || "",
     apiSecret: process.env.CLOUDINARY_API_SECRET || "",
   },
+  // Subscription payments (https://paystack.com). Absent = the Upgrade button
+  // explains that online payment isn't set up; plans can still be set by hand
+  // from the platform screen.
+  paystack: { secretKey: process.env.PAYSTACK_SECRET_KEY || "" },
+  // The public address of this app, used for payment return links. Falls back
+  // to the address the request came from.
+  appUrl: (process.env.APP_URL || "").trim(),
+  // The plan a brand-new account starts on. "free" in production; tests and
+  // local demos can set DEFAULT_PLAN=business to have everything switched on.
+  defaultPlan: ["free", "pro", "business"].includes(process.env.DEFAULT_PLAN) ? process.env.DEFAULT_PLAN : "free",
+  // Optional stock-photo sources for "find photos" (server/modules/products/
+  // photoSearch.js). Without either, it falls back to Wikimedia Commons.
+  photos: {
+    pexelsKey: process.env.PEXELS_API_KEY || "",
+    pixabayKey: process.env.PIXABAY_API_KEY || "",
+  },
   // How often the background sweep looks for expiring stock and unattended
   // returns. Every 6 hours by default; 0 turns the sweep off entirely.
   alertSweepHours: process.env.ALERT_SWEEP_HOURS === undefined ? 6 : Number(process.env.ALERT_SWEEP_HOURS),

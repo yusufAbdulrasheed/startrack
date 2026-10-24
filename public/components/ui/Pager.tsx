@@ -50,7 +50,7 @@ export function Pager({ page, pages, total, from, to, onPage, noun = "results", 
     else if (numbers[numbers.length - 1] !== "gap") numbers.push("gap");
   }
 
-  const arrow = "w-8 h-8 rounded-ctl border border-line-2 bg-surface flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 disabled:opacity-40 disabled:hover:text-t3 disabled:hover:border-line-2 transition-colors";
+  const arrow = "w-8 h-8 rounded-ctl border border-line-2 bg-surface flex items-center justify-center text-t3 hover:text-t1 hover:bg-surface-3 disabled:opacity-40 disabled:hover:text-t3 disabled:hover:bg-surface transition-colors";
 
   return (
     <div className={cn("flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-t border-line", className)}>
@@ -71,10 +71,10 @@ export function Pager({ page, pages, total, from, to, onPage, noun = "results", 
               onClick={() => onPage(n)}
               aria-current={n === page ? "page" : undefined}
               className={cn(
-                "min-w-8 h-8 px-2 rounded-ctl text-[12px] font-semibold tabular-nums transition-colors",
+                "min-w-8 h-8 px-2 rounded-ctl text-[12px] font-medium tabular-nums transition-colors",
                 n === page
-                  ? "bg-primary text-white"
-                  : "border border-line-2 bg-surface text-t2 hover:text-primary hover:border-brand-400"
+                  ? "bg-primary text-on-primary"
+                  : "border border-line-2 bg-surface text-t2 hover:text-t1 hover:bg-surface-3"
               )}
             >
               {n}

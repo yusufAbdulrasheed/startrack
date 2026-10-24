@@ -1,3 +1,4 @@
+import { ReceiptPaper, type ReceiptData } from "@/components/receipt/ReceiptPaper";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -28,21 +29,16 @@ type Product = {
 };
 type Line = {
   uid: string; id: string; name: string; price: number; stock: number; qty: number;
+  // Copied from the product when the line is added, so the cart shows the same
+  // photo as the grid even if the product list reloads underneath it.
+  imageUrl?: string;
   // Present for any made-to-order line; width/height only when the recipe
   // actually needs a dimension (blinds) — a plain "unit" recipe (a bowl of
   // jollof) omits them and sells like a stock tap, straight to the cart.
   mto?: { width?: number; height?: number };
   serialNos?: string[]; // chosen units, for a tracksSerials product — optional, never blocks checkout
 };
-type Receipt = {
-  saleNo: string; businessName: string; at: string; staffName: string; customerName: string;
-  customerPhone?: string;
-  items: { name: string; qty: number; unitPrice: number; lineNet: number }[];
-  subtotal: number; discount: number; vat: number; total: number;
-  payments: { method: string; amount: number }[];
-  tendered?: number; change?: number;
-  footer: string; currency: string;
-};
+type Receipt = ReceiptData;
 
 type Method = "cash" | "pos" | "transfer";
 
@@ -57,10 +53,26 @@ const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 // Notes a Nigerian till actually holds — one tap covers most cash sales.
 const NOTES = [500, 1000, 2000, 5000];
 
+/** Cart-line photo; the category icon stands in when there is none or it won't load. */
+function LineThumb({ src, custom }: { src?: string; custom: boolean }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="w-12 h-12 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0 overflow-hidden">
+      {src && !failed ? (
+        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-cover" />
+      ) : custom ? (
+        <Ruler className="w-5 h-5" />
+      ) : (
+        <Package className="w-5 h-5" />
+      )}
+    </div>
+  );
+}
+
 export function POS() {
   const { activeBusiness, activeBranch, currency, hasModule } = useSession();
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const products = data?.products || [];
+  const products = useMemo(() => data?.products ?? [], [data]);
   const bizId = activeBusiness?.id || "";
   const branchId = activeBranch?.id || "";
 
@@ -166,7 +178,7 @@ export function POS() {
       setCart((c) => {
         const ex = c.find((l) => l.id === p.id && l.mto && !l.mto.width);
         if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
-        return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: Infinity, qty: 1, mto: {} }];
+        return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: Infinity, qty: 1, mto: {}, imageUrl: p.imageUrl }];
       });
       return;
     }
@@ -174,7 +186,7 @@ export function POS() {
     setCart((c) => {
       const ex = c.find((l) => l.id === p.id && !l.mto);
       if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
-      return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: p.stock ?? 0, qty: 1 }];
+      return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: p.stock ?? 0, qty: 1, imageUrl: p.imageUrl }];
     });
   };
   const addMtoLine = (p: Product, width: number, height: number, qty: number, unitPrice: number) => {
@@ -182,7 +194,7 @@ export function POS() {
       ...c,
       {
         uid: crypto.randomUUID(), id: p.id, name: `${p.name} — ${width}×${height}m`,
-        price: unitPrice, stock: Infinity, qty, mto: { width, height },
+        price: unitPrice, stock: Infinity, qty, mto: { width, height }, imageUrl: p.imageUrl,
       },
     ]);
     setMtoFor(null);
@@ -383,7 +395,7 @@ export function POS() {
                     disabled={oos}
                     className={cn(
                       "group relative text-left bg-surface border border-line rounded-card p-4 pt-5 overflow-hidden transition-all duration-150",
-                      oos ? "opacity-40 cursor-not-allowed" : "hover:border-brand-400 hover:shadow-e1 hover:-translate-y-0.5 active:translate-y-0"
+                      oos ? "opacity-40 cursor-not-allowed" : "hover:border-brand-400 hover:shadow-e1 active:translate-y-0"
                     )}
                   >
                     <span className="absolute top-0 inset-x-0 h-0.75 bg-primary/80" />
@@ -401,7 +413,7 @@ export function POS() {
                     </div>
                     <div className="text-[13px] font-semibold text-t1 leading-tight line-clamp-2 h-9">{p.name}</div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className="font-mono font-bold text-[14px] text-primary">
+                      <span className="font-mono font-semibold text-[14px] text-primary">
                         {fmtMoney(p.price, currency)}{custom && <span className="text-[10px] text-t4 font-sans">/m²</span>}
                       </span>
                       {!mto && <span className="text-[11px] text-t4">{left} left</span>}
@@ -421,7 +433,7 @@ export function POS() {
       <button
         onClick={() => setCartOpen(true)}
         className={cn(
-          "lg:hidden fixed bottom-4 right-4 z-40 h-12 px-5 rounded-full bg-primary text-on-primary text-[14px] font-display font-bold shadow-e2 flex items-center gap-2 active:scale-[0.98] transition-transform",
+          "lg:hidden fixed bottom-4 right-4 z-40 h-12 px-5 rounded-full bg-primary text-on-primary text-[14px] font-display font-semibold shadow-e2 flex items-center gap-2 active:scale-[0.98] transition-transform",
           cartOpen && "hidden"
         )}
       >
@@ -439,7 +451,7 @@ export function POS() {
       >
         <div className="p-4 border-b border-line flex items-center gap-2">
           <ShoppingCart className="w-4 h-4 text-primary" />
-          <span className="font-bold text-[14px] text-t1">Current Sale</span>
+          <span className="font-semibold text-[14px] text-t1">Current Sale</span>
           {count > 0 && <span className="ml-auto"><Badge tone="brand">{count} items</Badge></span>}
           <button
             onClick={() => setCartOpen(false)}
@@ -452,7 +464,7 @@ export function POS() {
         <div className="flex-1 overflow-y-auto p-3">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6">
-              <div className="w-14 h-14 rounded-2xl bg-surface-3 text-t4 flex items-center justify-center mb-3">
+              <div className="w-14 h-14 rounded-xl bg-surface-3 text-t4 flex items-center justify-center mb-3">
                 <ShoppingCart className="w-7 h-7" />
               </div>
               <div className="text-[13px] font-semibold text-t2">Cart is empty</div>
@@ -462,9 +474,7 @@ export function POS() {
             <div className="space-y-2">
               {cart.map((l) => (
                 <div key={l.uid} className="flex items-start gap-2.5 bg-surface-2 border border-line rounded-xl p-3 animate-fade-in">
-                  <div className="w-8 h-8 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
-                    {l.mto ? <Ruler className="w-4 h-4" /> : <Package className="w-4 h-4" />}
-                  </div>
+                  <LineThumb src={l.imageUrl} custom={!!l.mto} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-[13px] font-semibold text-t1 leading-tight">
@@ -491,12 +501,12 @@ export function POS() {
                         <button onClick={() => setQty(l.uid, -1)} className="w-8 h-8 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:bg-surface-3 hover:text-primary transition-colors">
                           <Minus className="w-3.5 h-3.5" />
                         </button>
-                        <span className="w-8 text-center font-mono font-bold text-[13px] text-t1">{l.qty}</span>
+                        <span className="w-8 text-center font-mono font-semibold text-[13px] text-t1">{l.qty}</span>
                         <button onClick={() => setQty(l.uid, 1)} className="w-8 h-8 rounded-lg border border-line-2 bg-surface flex items-center justify-center text-t2 hover:bg-surface-3 hover:text-primary transition-colors">
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      <span className="font-mono font-bold text-[14px] text-t1 tabular-nums">{fmtMoney(l.price * l.qty, currency)}</span>
+                      <span className="font-mono font-semibold text-[14px] text-t1 tabular-nums">{fmtMoney(l.price * l.qty, currency)}</span>
                     </div>
                   </div>
                 </div>
@@ -635,7 +645,7 @@ export function POS() {
           {cashDue > 0 && (
             <div className="rounded-ctl border border-line bg-surface-2 p-2.5 space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-t3 shrink-0">Cash in</span>
+                <span className="text-[11px] font-medium text-t3 shrink-0">Cash in</span>
                 <input
                   type="number"
                   value={tendered}
@@ -665,14 +675,14 @@ export function POS() {
                 ))}
               </div>
               {shortTender ? (
-                <div className="flex justify-between text-[12px] font-bold text-danger">
+                <div className="flex justify-between text-[12px] font-semibold text-danger">
                   <span>Short by</span>
                   <span className="font-mono tabular-nums">{fmtMoney(cashDue - tenderedNum, currency)}</span>
                 </div>
               ) : change > 0 ? (
                 <div className="flex justify-between items-center text-success">
-                  <span className="text-[12px] font-bold uppercase tracking-wide">Change due</span>
-                  <span className="font-mono font-extrabold text-[17px] tabular-nums">{fmtMoney(change, currency)}</span>
+                  <span className="text-[12px] font-medium">Change due</span>
+                  <span className="font-mono font-semibold text-[17px] tabular-nums">{fmtMoney(change, currency)}</span>
                 </div>
               ) : null}
             </div>
@@ -680,7 +690,7 @@ export function POS() {
 
           {/* discount */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-t3 shrink-0">Discount</span>
+            <span className="text-[11px] font-medium text-t3 shrink-0">Discount</span>
             <input
               type="number"
               value={discount || ""}
@@ -709,8 +719,8 @@ export function POS() {
               </div>
             )}
             <div className="flex justify-between items-center pt-1.5 border-t border-line">
-              <span className="font-display text-[14px] font-bold text-t1">Total</span>
-              <span className="font-mono font-extrabold text-[20px] text-primary tabular-nums">{fmtMoney(total, currency)}</span>
+              <span className="font-display text-[14px] font-semibold text-t1">Total</span>
+              <span className="font-mono font-semibold text-[20px] text-primary tabular-nums">{fmtMoney(total, currency)}</span>
             </div>
           </div>
 
@@ -801,8 +811,9 @@ function SerialPickerModal({ line, onClose, onSave }: {
   onClose: () => void;
   onSave: (serialNos: string[]) => void;
 }) {
+  const { hasFeature } = useSession();
   const { data, loading } = useApi<{ serials: { serialNo: string }[] }>(
-    line ? `/serials?productId=${line.id}&status=in_stock` : null,
+    line && hasFeature("verticals") ? `/serials?productId=${line.id}&status=in_stock` : null,
     [line?.id]
   );
   const [picked, setPicked] = useState<string[]>(line?.serialNos || []);
@@ -877,6 +888,10 @@ function receiptText(r: Receipt) {
   const money = (n: number) => `${r.currency}${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
   const lines = [
     `*${r.businessName}*`,
+    r.design?.headerNote || "",
+    r.design?.address || "",
+    r.design?.phone || "",
+    r.design?.taxId ? `Tax ID: ${r.design.taxId}` : "",
     `Receipt ${r.saleNo} · ${fmtDateTime(r.at)}`,
     r.customerName ? `Customer: ${r.customerName}` : "",
     "-----------------------------",
@@ -907,46 +922,11 @@ export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; on
   // otherwise anchor this overlay somewhere other than the viewport.
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] print:hidden" onClick={onClose} />
-      <div className="relative w-full max-w-sm bg-surface border border-line-2 rounded-2xl shadow-e2 animate-fade-up overflow-hidden print-receipt">
-        <div className="p-6 text-center border-b border-dashed border-line-2">
-          <CheckCircle2 className="w-10 h-10 text-success mx-auto mb-2 print:hidden" />
-          <div className="font-display text-[17px] font-extrabold text-t1">{receipt.businessName}</div>
-          <div className="text-[11px] text-t3 mt-1 font-mono">{receipt.saleNo} · {fmtDateTime(receipt.at)}</div>
-          <div className="text-[11px] text-t3">Served by {receipt.staffName}{receipt.customerName ? ` · for ${receipt.customerName}` : ""}</div>
-        </div>
-        <div className="p-5 space-y-1.5 max-h-[40vh] overflow-y-auto">
-          {receipt.items.map((i, idx) => (
-            <div key={idx} className="flex justify-between text-[12px]">
-              <span className="text-t2">{i.name} ×{i.qty}</span>
-              <span className="font-mono text-t1 tabular-nums">{fmtMoney(i.lineNet, receipt.currency)}</span>
-            </div>
-          ))}
-          <div className="pt-2 mt-2 border-t border-line space-y-1">
-            <div className="flex justify-between text-[12px] text-t2"><span>Subtotal</span><span className="font-mono">{fmtMoney(receipt.subtotal, receipt.currency)}</span></div>
-            {receipt.discount > 0 && <div className="flex justify-between text-[12px] text-danger"><span>Discount</span><span className="font-mono">−{fmtMoney(receipt.discount, receipt.currency)}</span></div>}
-            {receipt.vat > 0 && <div className="flex justify-between text-[12px] text-t2"><span>VAT</span><span className="font-mono">{fmtMoney(receipt.vat, receipt.currency)}</span></div>}
-            <div className="flex justify-between text-[15px] font-bold text-t1 pt-1"><span>Total</span><span className="font-mono">{fmtMoney(receipt.total, receipt.currency)}</span></div>
-            {receipt.payments.map((p, i) => (
-              <div key={i} className="flex justify-between text-[11px] text-t3">
-                <span>{p.method.toUpperCase()}</span>
-                <span className="font-mono tabular-nums">{fmtMoney(p.amount, receipt.currency)}</span>
-              </div>
-            ))}
-            {!!receipt.change && receipt.change > 0 && (
-              <>
-                <div className="flex justify-between text-[11px] text-t3">
-                  <span>Cash in</span>
-                  <span className="font-mono tabular-nums">{fmtMoney(receipt.tendered || 0, receipt.currency)}</span>
-                </div>
-                <div className="flex justify-between text-[12px] font-bold text-t1">
-                  <span>Change</span>
-                  <span className="font-mono tabular-nums">{fmtMoney(receipt.change, receipt.currency)}</span>
-                </div>
-              </>
-            )}
-          </div>
-          <div className="text-center text-[11px] text-t3 pt-3">{receipt.footer}</div>
+      <div className="absolute inset-0 bg-black/40  print:hidden" onClick={onClose} />
+      <div className="relative w-full max-w-sm pop border border-line-2 rounded-xl shadow-e2 animate-fade-up overflow-hidden print-receipt">
+        <div className="pt-5 text-center print:hidden"><CheckCircle2 className="w-10 h-10 text-success mx-auto" /></div>
+        <div className="p-4 max-h-[55vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-0">
+          <ReceiptPaper receipt={receipt} />
         </div>
         <div className="p-4 border-t border-line grid grid-cols-1 sm:grid-cols-3 gap-2 print:hidden">
           <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>

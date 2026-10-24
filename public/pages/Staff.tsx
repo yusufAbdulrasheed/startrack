@@ -27,8 +27,10 @@ const ROLE_TONE: Record<string, "brand" | "success" | "warning" | "neutral"> = {
 };
 
 export function Staff() {
-  const { session, activeBusiness, branchesForActive, can } = useSession();
-  const { data, loading, reload } = useApi<{ staff: Staff[] }>("/staff", []);
+  const { session, activeBusiness, activeBranch, branchesForActive, can } = useSession();
+  // Default to the team at the selected branch; owners can widen to everyone.
+  const [allBranches, setAllBranches] = useState(false);
+  const { data, loading, reload } = useApi<{ staff: Staff[] }>(allBranches ? "/staff?scope=all" : "/staff", []);
   const { data: shiftData, reload: reloadShifts } = useApi<{ shifts: ShiftRow[] }>("/staff/shifts", []);
   const shifts = shiftData?.shifts || [];
   const { data: settingsData } = useApi<{ business: { code: string } }>(can("settings") ? "/settings" : null, []);
@@ -67,11 +69,23 @@ export function Staff() {
         }
       />
 
+      {branchesForActive.length > 1 && activeBranch && (
+        <div className="flex items-center gap-2 mb-4 text-[13px] text-t2">
+          <span>
+            Showing the team at <b className="text-t1">{allBranches ? "every branch" : activeBranch.name}</b>
+            {!allBranches && <span className="text-t3"> (plus owners/admins who cover all branches)</span>}
+          </span>
+          <Button size="sm" variant="secondary" className="ml-auto" onClick={() => setAllBranches((v) => !v)}>
+            {allBranches ? `Only ${activeBranch.name}` : "Show all branches"}
+          </Button>
+        </div>
+      )}
+
       {code && (
         <div className="flex items-center gap-3 px-4 py-3 mb-4 rounded-card bg-primary-softer border border-line">
           <KeyRound className="w-4 h-4 text-primary shrink-0" />
           <div className="text-[13px] text-t2">
-            Till login code for this business: <span className="font-mono font-extrabold text-primary tracking-[0.2em]">{code}</span>
+            Till login code for this business: <span className="font-mono font-semibold text-primary tracking-[0.2em]">{code}</span>
             <span className="text-t3"> — staff enter it once on the till, then sign in with just their PIN.</span>
           </div>
           <Button size="sm" variant="secondary" className="ml-auto shrink-0" onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
@@ -84,11 +98,11 @@ export function Staff() {
         <Spinner />
       ) : (
         <>
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-5">
             <StatCard index={0} label="Total staff" value={String(staff.length)} icon={UserCog} />
-            <StatCard index={1} label="Active" value={String(activeCount)} icon={CheckCircle2} />
-            <StatCard index={2} label="Suspended" value={String(suspendedCount)} icon={Ban} />
-            <StatCard index={3} label="On a shift" value={String(onShiftCount)} icon={Clock} />
+            <StatCard tone="success" index={1} label="Active" value={String(activeCount)} icon={CheckCircle2} />
+            <StatCard tone="danger" index={2} label="Suspended" value={String(suspendedCount)} icon={Ban} />
+            <StatCard tone="neutral" index={3} label="On a shift" value={String(onShiftCount)} icon={Clock} />
           </div>
           <Card className="overflow-hidden">
             {staff.length === 0 ? (
@@ -97,7 +111,7 @@ export function Staff() {
               <div className="divide-y divide-line">
                 {paged.rows.map((s) => (
                   <div key={s.id} className={`flex items-center gap-3 px-4 py-3 ${s.status === "inactive" ? "opacity-50" : ""}`}>
-                    <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-bold text-[13px] flex items-center justify-center shrink-0">
+                    <div className="w-9 h-9 rounded-full bg-primary-soft text-primary font-semibold text-[13px] flex items-center justify-center shrink-0">
                       {s.name[0]?.toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
@@ -137,6 +151,7 @@ export function Staff() {
       <AddStaff
         open={adding}
         branches={branchesForActive}
+        defaultBranchId={activeBranch?.id || ""}
         staff={staff}
         positions={positions}
         isOwner={can("*")}
@@ -235,7 +250,7 @@ function ShiftsCard({ shifts, onChanged }: { shifts: ShiftRow[]; onChanged: () =
     <Card className="p-5 mt-4">
       <div className="flex items-center gap-2 mb-1">
         <Clock className="w-4 h-4 text-primary" />
-        <div className="text-[14px] font-bold text-t1">Shifts</div>
+        <div className="text-[14px] font-semibold text-t1">Shifts</div>
       </div>
       <div className="text-[12px] text-t3 mb-3">Define work windows, then assign each staff member to one via Edit.</div>
       {error && <div className="px-3 py-2 mb-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
@@ -320,11 +335,12 @@ function AssignRoster({ staff, shifts, onClose, onSaved }: {
   );
 }
 
-function AddStaff({ open, branches, staff, positions, isOwner, onClose, onSaved }: {
-  open: boolean; branches: { id: string; name: string }[]; staff: Staff[]; positions: string[];
+function AddStaff({ open, branches, defaultBranchId, staff, positions, isOwner, onClose, onSaved }: {
+  open: boolean; branches: { id: string; name: string }[]; defaultBranchId: string; staff: Staff[]; positions: string[];
   isOwner: boolean; onClose: () => void; onSaved: () => void;
 }) {
-  const [form, setForm] = useState({ name: "", role: "staff", branchId: "", pin: "", email: "", position: "", reportsToId: "" });
+  // New people start in the branch you're looking at.
+  const [form, setForm] = useState({ name: "", role: "staff", branchId: defaultBranchId, pin: "", email: "", position: "", reportsToId: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -342,7 +358,7 @@ function AddStaff({ open, branches, staff, positions, isOwner, onClose, onSaved 
           reportsToId: form.reportsToId || undefined,
         }),
       });
-      setForm({ name: "", role: "staff", branchId: "", pin: "", email: "", position: "", reportsToId: "" });
+      setForm({ name: "", role: "staff", branchId: defaultBranchId, pin: "", email: "", position: "", reportsToId: "" });
       onSaved();
     } catch (err: any) {
       setError(err.message);
@@ -372,8 +388,8 @@ function AddStaff({ open, branches, staff, positions, isOwner, onClose, onSaved 
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Till PIN" hint="4–6 digits, keep it secret">
-            <Input required inputMode="numeric" pattern="\d{4,6}" maxLength={6} value={form.pin} onChange={(e) => set("pin", e.target.value.replace(/\D/g, ""))} placeholder="4321" />
+          <Field label="Till PIN" hint="Exactly 4 digits, keep it secret">
+            <Input required inputMode="numeric" pattern="\d{4}" maxLength={4} value={form.pin} onChange={(e) => set("pin", e.target.value.replace(/\D/g, ""))} placeholder="4321" />
           </Field>
           <Field label="Email" hint="Optional — for full logins">
             <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="Optional" />
@@ -514,7 +530,7 @@ function ResetPin({ staff, onClose, onSaved }: { staff: Staff | null; onClose: (
       <form onSubmit={save} className="space-y-3">
         <ErrorBanner message={error} />
         <Field label="New PIN">
-          <Input autoFocus required inputMode="numeric" pattern="\d{4,6}" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
+          <Input autoFocus required inputMode="numeric" pattern="\d{4}" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
         </Field>
         <Button type="submit" className="w-full" disabled={busy}>{busy ? "Resetting…" : "Reset PIN"}</Button>
       </form>

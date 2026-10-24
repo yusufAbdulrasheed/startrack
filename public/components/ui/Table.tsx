@@ -21,7 +21,7 @@ export function TR({
 }: { hover?: boolean } & React.HTMLAttributes<HTMLTableRowElement>) {
   return (
     <tr
-      className={cn("border-b border-line last:border-0", hover && "hover:bg-surface-2 transition-colors", className)}
+      className={cn("border-b border-line last:border-0", hover && "hover:bg-surface-2/70 transition-colors", className)}
       {...props}
     />
   );
@@ -31,7 +31,7 @@ export function TH({ className, ...props }: React.ThHTMLAttributes<HTMLTableCell
   return (
     <th
       className={cn(
-        "px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-t4 border-b border-line",
+        "px-4 py-2.5 text-left text-[11.5px] font-medium text-t3 bg-surface-2 border-b border-line whitespace-nowrap",
         className
       )}
       {...props}
@@ -40,5 +40,5 @@ export function TH({ className, ...props }: React.ThHTMLAttributes<HTMLTableCell
 }
 
 export function TD({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn("px-4 py-3 text-[13px] text-t1", className)} {...props} />;
+  return <td className={cn("px-4 py-2.5 text-[13px] text-t1", className)} {...props} />;
 }

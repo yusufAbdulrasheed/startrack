@@ -13,6 +13,7 @@ import { useSession } from "@/lib/session";
 import { downloadCsv } from "@/lib/csv";
 import { ROWS_PER_PAGE } from "@/components/ui/Pager";
 import { fmtDateTime, fmtMoney, todayStr } from "@/lib/format";
+import { StatStrip } from "@/components/ui/Panel";
 import { cn } from "@/lib/utils";
 
 type Sale = {
@@ -132,42 +133,29 @@ export function SalesHistoryView() {
         </Button>
       </div>
 
-      {/* Totals bar */}
+      {/* Totals: one strip, so the period reads as a single summary. */}
       {t && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
-          {[
-            { l: "Sales", v: String(t.completed) },
-            { l: "Voided", v: String(t.voided) },
-            { l: "Revenue", v: fmtMoney(t.revenue, currency), hint: "Completed sales, before refunds" },
+        <StatStrip
+          className="mb-4"
+          cells={[
+            { label: "Sales", value: String(t.completed) },
+            { label: "Voided", value: String(t.voided), tone: t.voided > 0 ? "warning" : undefined },
+            { label: "Revenue", value: fmtMoney(t.revenue, currency), hint: "Completed sales, before refunds" },
             ...(t.refunds !== null
               ? [{
-                  l: `Refunds${t.refundCount ? ` · ${t.refundCount}` : ""}`,
-                  v: t.refunds > 0 ? `−${fmtMoney(t.refunds, currency)}` : fmtMoney(0, currency),
-                  tone: t.refunds > 0 ? "text-danger" : undefined,
+                  label: `Refunds${t.refundCount ? ` · ${t.refundCount}` : ""}`,
+                  value: t.refunds > 0 ? `−${fmtMoney(t.refunds, currency)}` : fmtMoney(0, currency),
+                  tone: t.refunds > 0 ? ("danger" as const) : undefined,
                 }]
               : []),
             // The figure the dashboard reports, shown here so the two agree.
             ...(t.net !== null
-              ? [{ l: "Net taken", v: fmtMoney(t.net, currency), strong: true, hint: "Revenue less refunds — matches the dashboard" }]
+              ? [{ label: "Net taken", value: fmtMoney(t.net, currency), strong: true, hint: "Revenue less refunds — matches the dashboard" }]
               : []),
-            { l: "VAT", v: fmtMoney(t.vat, currency) },
-            { l: "Avg sale", v: t.completed > 0 ? fmtMoney(t.revenue / t.completed, currency) : "—" },
-          ].map((s: any) => (
-            <div
-              key={s.l}
-              title={s.hint}
-              className={cn(
-                "rounded-xl border px-3 py-2.5",
-                s.strong ? "bg-primary-softer border-brand-300" : "bg-surface border-line"
-              )}
-            >
-              <div className={cn("text-[15px] font-bold font-mono tabular-nums truncate", s.tone || (s.strong ? "text-primary" : "text-t1"))}>
-                {s.v}
-              </div>
-              <div className="text-[10px] font-medium uppercase tracking-wide text-t3 mt-0.5">{s.l}</div>
-            </div>
-          ))}
-        </div>
+            { label: "VAT", value: fmtMoney(t.vat, currency) },
+            { label: "Avg sale", value: t.completed > 0 ? fmtMoney(t.revenue / t.completed, currency) : "—" },
+          ]}
+        />
       )}
 
       {loading ? (
@@ -211,7 +199,7 @@ export function SalesHistoryView() {
                     <TD>
                       {s.status === "voided" ? <Badge tone="danger">voided</Badge> : <Badge tone="success">completed</Badge>}
                     </TD>
-                    <TD className="text-right font-mono font-bold tabular-nums">{fmtMoney(s.total, currency)}</TD>
+                    <TD className="text-right font-mono font-semibold tabular-nums">{fmtMoney(s.total, currency)}</TD>
                   </TR>
                 ))}
               </tbody>
@@ -282,7 +270,7 @@ function SaleDetail({ sale, currency, canVoid, onClose, onVoid }: {
           <div className="flex justify-between text-[12px] text-t2"><span>Subtotal</span><span className="font-mono">{fmtMoney(sale.subtotal, currency)}</span></div>
           {sale.discount > 0 && <div className="flex justify-between text-[12px] text-danger"><span>Discount</span><span className="font-mono">−{fmtMoney(sale.discount, currency)}</span></div>}
           {sale.vat > 0 && <div className="flex justify-between text-[12px] text-t2"><span>VAT</span><span className="font-mono">{fmtMoney(sale.vat, currency)}</span></div>}
-          <div className="flex justify-between text-[15px] font-bold text-t1 pt-1"><span>Total</span><span className="font-mono">{fmtMoney(sale.total, currency)}</span></div>
+          <div className="flex justify-between text-[15px] font-semibold text-t1 pt-1"><span>Total</span><span className="font-mono">{fmtMoney(sale.total, currency)}</span></div>
           <div className="text-[11px] text-t3">Paid via {sale.payments.map((p) => `${p.method.toUpperCase()} ${fmtMoney(p.amount, currency)}`).join(" + ")}</div>
         </div>
       </div>

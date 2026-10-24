@@ -3,15 +3,15 @@ import { cn } from "@/lib/utils";
 export function Field({ label, hint, children, className }: { label: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
     <label className={cn("block", className)}>
-      <span className="block text-[12px] font-semibold text-t2 mb-1.5">{label}</span>
+      <span className="block text-[12.5px] font-semibold text-t2 mb-1.5">{label}</span>
       {children}
-      {hint && <span className="block text-[11px] text-t4 mt-1">{hint}</span>}
+      {hint && <span className="block text-[11.5px] text-t3 mt-1">{hint}</span>}
     </label>
   );
 }
 
 const inputCls =
-  "w-full h-10 px-3 rounded-ctl bg-surface-2 border border-line-2 text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer transition-colors";
+  "w-full h-10 px-3.5 rounded-xl bg-surface border border-line-2 text-[13px] text-t1 placeholder:text-t4 hover:border-t4 focus:outline-none focus:border-primary focus:shadow-[var(--st-focus-ring)] transition-[border-color,box-shadow] disabled:bg-surface-2 disabled:text-t3";
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(inputCls, props.className)} />;
@@ -28,7 +28,7 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
 export function ErrorBanner({ message }: { message: string }) {
   if (!message) return null;
   return (
-    <div className="px-3 py-2.5 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">
+    <div className="px-3 py-2 rounded-ctl bg-danger-soft text-danger text-[12.5px] font-medium">
       {message}
     </div>
   );

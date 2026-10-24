@@ -9,14 +9,16 @@ import { User } from "#modules/auth/user.model.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { hashPassword } from "#modules/auth/auth.service.js";
-import { applyMovement, InsufficientStockError } from "#modules/inventory/inventory.service.js";
+import { applyMovement } from "#modules/inventory/inventory.service.js";
 import { nextSeq } from "#core/counters.js";
 import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
 import { money } from "#core/money.js";
-import { audit } from "#core/audit.js";
 import { withTransaction } from "#core/tx.js";
 import { afterStockChange, raiseReturnPending } from "#modules/alerts/alerts.service.js";
 import { badRequest, notFound } from "#core/httpError.js";
+import { executeImport } from "#modules/imports/catalogTargets.js";
+import { archiveProducts, archivableFilter } from "#modules/products/archive.service.js";
+import { scopedToBranch } from "#core/branchScope.js";
 
 /**
  * Seven actions the AI can propose, deliberately narrower than full feature
@@ -48,6 +50,8 @@ export const ACTION_PERM = {
   process_return: "returns",
   create_staff: "staff_mgmt",
   record_expense: "expenses",
+  archive_products: "prices", // deleting from the catalog needs the same right as the Delete button
+  import_catalog: "prices", // creating catalog entries needs the same right as adding them by hand
 };
 
 export const TOOLS = [
@@ -160,11 +164,27 @@ export const TOOLS = [
         properties: {
           name: { type: "string" },
           role: { type: "string", enum: ["admin", "manager", "staff"] },
-          pin: { type: "string", description: "4-6 digit till PIN" },
+          pin: { type: "string", description: "Exactly 4-digit till PIN" },
           branchName: { type: "string", description: "Required for manager/staff roles — must match an existing branch" },
           email: { type: "string", description: "Optional — for account-based login instead of till-only" },
         },
         required: ["name", "role", "pin"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "archive_products",
+      description: "Propose deleting products from the catalog (they are archived, so past sales and reports keep their figures). Use for 'delete/remove X', 'delete everything in category Y' or 'delete all products'. Nothing is removed until the owner approves.",
+      parameters: {
+        type: "object",
+        properties: {
+          productNames: { type: "array", items: { type: "string" }, description: "Exact names of existing products to delete" },
+          category: { type: "string", description: "Delete every product in this category" },
+          all: { type: "boolean", description: "true ONLY when the person clearly asked to delete ALL products" },
+          reason: { type: "string", description: "Why, if they said" },
+        },
       },
     },
   },
@@ -249,11 +269,42 @@ export async function resolveAction(ctx, name, args) {
       return { items, customerName, paymentMethod: method };
     }
 
+    case "archive_products": {
+      const esc = (v) => String(v).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      let found = [];
+      if (args.all === true) {
+        found = await Product.find(archivableFilter(ctx)).select("name");
+      } else if (args.category?.trim()) {
+        found = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", category: { $regex: `^${esc(args.category)}$`, $options: "i" } })).select("name");
+        if (!found.length) throw notFound(`No products in a category called "${args.category}".`);
+      } else if (Array.isArray(args.productNames) && args.productNames.length) {
+        const missing = [];
+        for (const n of args.productNames.slice(0, 200)) {
+          const p = await Product.findOne(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", name: { $regex: `^${esc(n)}$`, $options: "i" } })).select("name");
+          if (p) found.push(p); else missing.push(n);
+        }
+        if (missing.length) throw notFound(`No product called ${missing.map((m) => `"${m}"`).join(", ")}.`);
+      } else {
+        throw badRequest("Say which products to delete: names, a category, or all of them.");
+      }
+      if (!found.length) throw badRequest("There are no products to delete.");
+      const unique = [...new Map(found.map((p) => [String(p._id), p])).values()];
+      return {
+        productIds: unique.map((p) => String(p._id)),
+        count: unique.length,
+        names: unique.slice(0, 12).map((p) => p.name),
+        scope: args.all === true ? "all" : args.category?.trim() ? "category" : "some",
+        category: args.category?.trim() || "",
+        reason: args.reason?.trim() || "",
+      };
+    }
+
     case "process_return": {
       if (!ctx.branchId) throw badRequest("Select a branch first.");
       const sale = await Sale.findOne({ businessId: ctx.businessId, saleNo: String(args.saleNo || "").trim() });
       if (!sale) throw notFound(`No sale with receipt number "${args.saleNo}".`);
       if (sale.status === "voided") throw badRequest("That sale was voided — nothing to return.");
+      if (sale.service?.kind) throw badRequest("That's a service payment, not goods — it can't be returned.");
       const items = [];
       for (const item of args.items || []) {
         const line = sale.items.find((l) => l.name.toLowerCase() === String(item.productName || "").toLowerCase());
@@ -271,7 +322,7 @@ export async function resolveAction(ctx, name, args) {
     case "create_staff": {
       if (!args.name?.trim()) throw badRequest("A staff member needs a name.");
       const role = ["admin", "manager", "staff"].includes(args.role) ? args.role : "staff";
-      if (!/^\d{4,6}$/.test(String(args.pin || ""))) throw badRequest("Give a 4-6 digit PIN.");
+      if (!/^\d{4}$/.test(String(args.pin || ""))) throw badRequest("Give a 4-digit PIN.");
       let branchId = null, branchName = "";
       if (args.branchName?.trim()) {
         const branch = await Branch.findOne({ businessId: ctx.businessId, name: { $regex: `^${args.branchName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } });
@@ -304,6 +355,14 @@ export async function resolveAction(ctx, name, args) {
 export async function executeAction(ctx, action) {
   const p = action.payload;
   switch (action.type) {
+    case "import_catalog":
+      return executeImport(ctx, action);
+
+    case "archive_products": {
+      const n = await archiveProducts(ctx, p.productIds, { via: "ai" });
+      return { type: "product", label: n ? `Deleted ${n} product${n === 1 ? "" : "s"}` : "Nothing to delete, they were already gone", count: n };
+    }
+
     case "create_customer": {
       if (p.phone) {
         const dupe = await Customer.findOne({ businessId: ctx.businessId, phone: p.phone });
@@ -493,6 +552,11 @@ export function describeAction(type, payload) {
     case "process_return": return `File a return on ${payload.saleNo}: ${payload.items.map((i) => `${i.name} ×${i.qty}`).join(", ")}`;
     case "create_staff": return `Create staff account "${payload.name}" (${payload.role}${payload.branchName ? `, ${payload.branchName}` : ""})`;
     case "record_expense": return `Log a ${payload.type} expense of ${payload.amount}${payload.paidBy ? ` (paid by ${payload.paidBy})` : ""}`;
+    case "archive_products":
+      return payload.scope === "all" ? `Delete ALL ${payload.count} products from the catalog`
+        : payload.scope === "category" ? `Delete the ${payload.count} product${payload.count === 1 ? "" : "s"} in “${payload.category}”`
+        : `Delete ${payload.count === 1 ? `product "${payload.names?.[0]}"` : `${payload.count} products: ${payload.names.slice(0, 4).join(", ")}${payload.count > 4 ? ", …" : ""}`}`;
+    case "import_catalog": return `Add ${payload.rows?.length ?? 0} ${String(payload.label || "items").toLowerCase()} from “${payload.fileName}”`;
     default: return type;
   }
 }

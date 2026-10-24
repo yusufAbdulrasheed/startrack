@@ -2,13 +2,13 @@ import {
   LayoutDashboard, ShoppingCart, Package, Settings, Receipt, LifeBuoy,
 } from "lucide-react";
 
-export type NavItem = { to: string; label: string; perm?: string; module?: string; capability?: string };
+export type NavItem = { to: string; label: string; perm?: string; module?: string; capability?: string; feature?: string };
 export type NavGroup = {
   to: string; // the group's own landing screen
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   perm?: string;
-  children?: NavItem[]; // revealed while the group is active
+  children?: (NavItem & { locked?: boolean })[]; // revealed while the group is active
 };
 
 /**
@@ -29,12 +29,15 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       to: "/app/pos", label: t.pos, icon: ShoppingCart, perm: "sales",
       children: [
         { to: "/app/pos", label: "Sell", perm: "sales" },
-        { to: "/app/front-desk", label: "Front Desk", perm: "sales", capability: "rooms" },
-        { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain" },
-        { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue" },
-        { to: "/app/jobs", label: "Job Tickets", perm: "sales", capability: "jobs" },
-        { to: "/app/members", label: "Members", perm: "sales", capability: "memberships" },
-        { to: "/app/returns", label: "Returns", perm: "returns", module: "returns" },
+        { to: "/app/front-desk", label: "Front Desk", perm: "sales", capability: "rooms", feature: "verticals" },
+        { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain", feature: "verticals" },
+        { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue", feature: "verticals" },
+        { to: "/app/jobs", label: "Job Tickets", perm: "sales", capability: "jobs", feature: "verticals" },
+        { to: "/app/members", label: "Members", perm: "sales", capability: "memberships", feature: "verticals" },
+        { to: "/app/academy", label: "Academy", perm: "sales", capability: "programs", feature: "verticals" },
+        { to: "/app/appointments", label: "Appointments", perm: "sales", capability: "appointments", feature: "verticals" },
+        { to: "/app/projects", label: "Projects", perm: "sales", capability: "projects", feature: "verticals" },
+        { to: "/app/returns", label: "Returns", perm: "returns", module: "returns", feature: "returns" },
         { to: "/app/activity", label: "My Activity", perm: "activity" },
       ],
     },
@@ -42,12 +45,13 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard_ops",
       children: [
         { to: "/app/dashboard", label: "Overview", perm: "dashboard_ops" },
-        { to: "/app/ask-ai", label: "Ask AI", perm: "dashboard_ops" },
+        { to: "/app/all-stores", label: "All stores", perm: "dashboard_finance", feature: "multiStore" },
+        { to: "/app/ask-ai", label: "Ask AI", perm: "dashboard_ops", feature: "ai" },
         { to: "/app/customers", label: "Customers", perm: "customers", module: "customers" },
         { to: "/app/expenses", label: "Expenses", perm: "expenses", module: "expenses" },
         { to: "/app/staff", label: "Staff", perm: "staff_mgmt" },
-        { to: "/app/attendance", label: "Attendance", perm: "dashboard_ops", module: "attendance" },
-        { to: "/app/vaccinations", label: "Vaccination & Medication", perm: "dashboard_ops", capability: "medication" },
+        { to: "/app/attendance", label: "Attendance", perm: "dashboard_ops", module: "attendance", feature: "attendance" },
+        { to: "/app/vaccinations", label: "Vaccination & Medication", perm: "dashboard_ops", capability: "medication", feature: "verticals" },
       ],
     },
     {
@@ -55,12 +59,12 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       children: [
         { to: "/app/products", label: "Catalog", perm: "stock" },
         { to: "/app/stock-in", label: "Stock In", perm: "stock" },
-        { to: "/app/transfers", label: "Transfers", perm: "stock", module: "transfers" },
-        { to: "/app/serials", label: "Serial Numbers", perm: "stock", capability: "serials" },
-        { to: "/app/production", label: "Production", perm: "stock", capability: "production" },
-        { to: "/app/suppliers", label: "Suppliers", perm: "stock", module: "suppliers" },
-        { to: "/app/stock-count", label: "Stock Counts", perm: "stock", module: "stock_count" },
-        { to: "/app/cohorts", label: "Batches", perm: "stock", capability: "cohorts" },
+        { to: "/app/transfers", label: "Transfers", perm: "stock", module: "transfers", feature: "transfers" },
+        { to: "/app/serials", label: "Serial Numbers", perm: "stock", capability: "serials", feature: "verticals" },
+        { to: "/app/production", label: "Production", perm: "stock", capability: "production", feature: "verticals" },
+        { to: "/app/suppliers", label: "Suppliers", perm: "stock", module: "suppliers", feature: "suppliers" },
+        { to: "/app/stock-count", label: "Stock Counts", perm: "stock", module: "stock_count", feature: "stockCount" },
+        { to: "/app/cohorts", label: "Batches", perm: "stock", capability: "cohorts", feature: "verticals" },
       ],
     },
     { to: "/app/sales", label: "History", icon: Receipt, perm: "dashboard_ops" },
@@ -70,7 +74,10 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       children: [
         { to: "/app/settings", label: "Preferences", perm: "settings" },
         { to: "/app/businesses", label: "My Businesses", perm: "*" },
-        { to: "/app/audit", label: "Audit Log", perm: "settings" },
+        { to: "/app/my-site", label: "Business page", perm: "*", feature: "sitePage" },
+        { to: "/app/receipt", label: "Receipt designer", perm: "settings", feature: "receiptCustom" },
+        { to: "/app/billing", label: "Plan & billing", perm: "*" },
+        { to: "/app/audit", label: "Audit Log", perm: "settings", feature: "auditLog" },
       ],
     },
   ];

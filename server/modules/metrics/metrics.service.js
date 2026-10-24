@@ -9,6 +9,7 @@ import { Customer } from "#modules/customers/customer.model.js";
 import { Attendance } from "#modules/staff/attendance.model.js";
 import { canSeeCost } from "#core/middleware/tenant.js";
 import { money } from "#core/money.js";
+import { scopedToBranch } from "#core/branchScope.js";
 
 
 export function localDay(d = new Date()) {
@@ -53,7 +54,7 @@ export function dayOffset(base, days) {
  */
 export async function buildInventoryReport(ctx) {
   const showFinance = canSeeCost(ctx);
-  const products = await Product.find({ businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })
+  const products = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }))
     .select("name category price cost reorderLevel expiry");
   const invFilter = ctx.branchId ? { branchId: ctx.branchId } : { businessId: ctx.businessId };
   const inv = await Inventory.find({ ...invFilter, productId: { $in: products.map((p) => p._id) } });
@@ -167,7 +168,7 @@ export async function buildDashboardSummary(ctx) {
 
   let lowStock = [];
   if (ctx.branchId) {
-    const products = await Product.find({ businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }).select("name reorderLevel");
+    const products = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })).select("name reorderLevel");
     const inv = await Inventory.find({ branchId: ctx.branchId, productId: { $in: products.map((p) => p._id) } });
     const stockBy = new Map(inv.map((i) => [String(i.productId), i.stock]));
     lowStock = products
@@ -305,7 +306,7 @@ export async function buildSalesReport(ctx, daysBack = 30) {
  * duplicated for the AI features.
  */
 export async function buildCustomersReport(ctx) {
-  const scope = { businessId: ctx.businessId };
+  const scope = scopedToBranch(ctx, { businessId: ctx.businessId });
   const since30 = new Date(Date.now() - 30 * 24 * 3600 * 1000);
 
   const total = await Customer.countDocuments(scope);

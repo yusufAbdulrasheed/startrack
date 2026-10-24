@@ -415,6 +415,60 @@ export const DEMOS = {
       { name: "Annual", price: 220000, durationDays: 365 },
     ],
   },
+
+  // ── Service businesses ─────────────────────────────────────────────
+  // These sell time and expertise. The catalog below is only the physical
+  // extras they also sell; the real workflow data (courses, appointments,
+  // projects) is seeded by server/modules/services/demoSeedServices.js.
+  academy: {
+    label: "Tech Academy / Training School", group: "Education & Training", depth: "full",
+    blurb: "Courses, classes and students — with the fees still owed.",
+    business: "CodeBridge Academy",
+    branch: { name: "Yaba Campus", address: "12 Herbert Macaulay Way, Yaba" },
+    highlight: "Frontend, Backend, SQL, Power BI… with live classes, fee balances and attendance",
+    catalog: [
+      { name: "Course Workbook", category: "Books & Materials", price: 5000, cost: 2200, stock: 60, reorder: 20, image: img("workbook,notebook", 301) },
+      { name: "Academy T-Shirt", category: "Merchandise", price: 6500, cost: 3500, stock: 40, reorder: 15, image: img("tshirt,clothes", 302) },
+      { name: "USB Flash Drive 32GB", category: "Equipment", price: 6000, cost: 3800, stock: 35, reorder: 12, image: img("usb,flash", 303) },
+      { name: "Laptop Bag", category: "Merchandise", price: 15000, cost: 9500, stock: 18, reorder: 8, image: img("laptop,bag", 304) },
+      { name: "HD Webcam", category: "Equipment", price: 18000, cost: 12000, stock: 10, reorder: 5, image: img("webcam,camera", 305) },
+      { name: "Wireless Mouse", category: "Equipment", price: 6500, cost: 3800, stock: 25, reorder: 10, image: img("mouse,computer", 306) },
+      { name: "Notebook & Pen Set", category: "Books & Materials", price: 2500, cost: 1100, stock: 80, reorder: 30, image: img("notebook,pen", 307) },
+      { name: "Certificate Frame", category: "Merchandise", price: 4000, cost: 2200, stock: 3, reorder: 8, image: img("frame,certificate", 308) },
+    ],
+  },
+
+  salon: {
+    label: "Salon / Barber / Spa", group: "Beauty & Wellness", depth: "full",
+    blurb: "Book the chair, never double-book a stylist, take a deposit, get paid.",
+    business: "Glow & Shape Studio",
+    branch: { name: "Lekki Studio", address: "5 Admiralty Road, Lekki Phase 1" },
+    highlight: "Today's appointments are in progress — try booking a clash with a stylist",
+    catalog: [
+      { name: "Shampoo 500ml", category: "Hair Products", price: 6500, cost: 4200, stock: 24, reorder: 10, image: img("shampoo,bottle", 311) },
+      { name: "Conditioner 500ml", category: "Hair Products", price: 6800, cost: 4400, stock: 20, reorder: 10, image: img("conditioner,bottle", 312) },
+      { name: "Hair Growth Oil", category: "Hair Products", price: 4500, cost: 2600, stock: 30, reorder: 12, image: img("hair,oil", 313) },
+      { name: "Edge Control", category: "Hair Products", price: 3500, cost: 1900, stock: 4, reorder: 10, image: img("hair,gel", 314) },
+      { name: "Hair Extensions Pack", category: "Accessories", price: 22000, cost: 15000, stock: 12, reorder: 6, image: img("hair,extensions", 315) },
+      { name: "Nail Polish", category: "Accessories", price: 2500, cost: 1200, stock: 50, reorder: 20, image: img("nail,polish", 316) },
+      { name: "Face Cream", category: "Skin Care", price: 9000, cost: 5500, stock: 16, reorder: 8, image: img("face,cream", 317) },
+      { name: "Hair Clipper", category: "Accessories", price: 28000, cost: 19000, stock: 5, reorder: 3, image: img("hair,clipper", 318) },
+    ],
+  },
+
+  agency: {
+    label: "Tech Agency / Freelance Studio", group: "Professional Services", depth: "full",
+    blurb: "Projects, milestones and the money still to collect.",
+    business: "Pixelcraft Digital",
+    branch: { name: "Studio", address: "20 Ozumba Mbadiwe, Victoria Island" },
+    highlight: "6 live projects — one late, one waiting for an invoice, one proposal",
+    catalog: [
+      { name: "Laptop Stand", category: "Equipment", price: 12000, cost: 7500, stock: 10, reorder: 4, image: img("laptop,stand", 321) },
+      { name: "USB-C Hub", category: "Equipment", price: 15000, cost: 9800, stock: 12, reorder: 5, image: img("usb,hub", 322) },
+      { name: "External SSD 1TB", category: "Equipment", price: 65000, cost: 52000, stock: 6, reorder: 3, image: img("ssd,drive", 323) },
+      { name: "Design Software Licence (1yr)", category: "Licences", price: 90000, cost: 70000, stock: 8, reorder: 3, image: img("software,licence", 324) },
+    ],
+  },
 };
 
 export const DEMO_TYPES = Object.keys(DEMOS);

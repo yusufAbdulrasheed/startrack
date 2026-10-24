@@ -2,129 +2,122 @@
 
 /* ────────────────────────────────────────────────
    StarTrack Design Tokens
-   Brand: Enterprise Indigo (#00288e family)
-   Light-first · dark mode via .dark on <html>
-   Sidebar (--st-nav-*) is theme-independent — always dark navy.
+   Royal indigo with an indigo-to-violet gradient, a deep "ink" sidebar,
+   a lavender-white canvas and one gold accent. Plus Jakarta Sans.
+   Light-first; dark mode via .dark on <html>.
 ──────────────────────────────────────────────── */
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Brand — Enterprise Indigo. 700/500 land exactly on the design system's
-     primary (#00288e) and primary-container (#1e40af); 200/100 land on its
-     primary-fixed-dim/primary-fixed. Everything else interpolates between. */
-  --st-brand-950: #000f33;
-  --st-brand-900: #001453;
-  --st-brand-800: #001f6e;
-  --st-brand-700: #00288e; /* primary */
-  --st-brand-600: #12379f;
-  --st-brand-500: #1e40af; /* primary-container */
-  --st-brand-400: #3755c3;
-  --st-brand-300: #7c93e0;
-  --st-brand-200: #b8c4ff;
-  --st-brand-100: #dde1ff;
-  --st-brand-50:  #eef1ff;
+  --st-brand-950: #04062e;
+  --st-brand-900: #000066;
+  --st-brand-800: #1a1d8a;
+  --st-brand-700: #2426b8;
+  --st-brand-600: #2c2fe0;
+  --st-brand-500: #3b3ff5;
+  --st-brand-400: #7478fb;
+  --st-brand-300: #a9adff;
+  --st-brand-200: #cdd0ff;
+  --st-brand-100: #e4e6ff;
+  --st-brand-50:  #f1f2ff;
 
-  /* Semantic — light. Cool blue-white surfaces per the Enterprise Indigo
-     design system: background/surface run #f8f9ff → #ffffff → #e5eeff. */
-  --st-bg:        #f8f9ff;
+  --st-royal:  #3538f0;
+  --st-violet: #7b3cf5;
+  --st-gold:   #cc9933;
+
+  --st-gradient-primary:       linear-gradient(135deg, #3538f0 0%, #5a3bf4 60%, #7b3cf5 100%);
+  --st-gradient-primary-hover: linear-gradient(135deg, #2a2de0 0%, #4c2fe6 60%, #6c2fe8 100%);
+  --st-gradient-ink:           linear-gradient(180deg, #0c1552 0%, #0a1045 45%, #070b33 100%);
+
+  --st-bg:        #f4f5fd;
   --st-surface:   #ffffff;
-  --st-surface-2: #eff4ff;
-  --st-surface-3: #e5eeff;
-  --st-border:    #c4c5d5;
-  --st-border-2:  #757684;
-  --st-text-1:    #0b1c30;
-  --st-text-2:    #444653;
-  --st-text-3:    #757684;
-  --st-text-4:    #c4c5d5;
+  --st-surface-2: #f6f7fd;
+  --st-surface-3: #eff0f9;
+  --st-border:    #e9ebf5;
+  --st-border-2:  #cdd0e1;
+  --st-text-1:    #0f1437;
+  --st-text-2:    #41465f;
+  --st-text-3:    #6f7492;
+  --st-text-4:    #9a9eb8;
 
-  --st-primary:          var(--st-brand-700);
-  --st-primary-hover:    var(--st-brand-500);
-  --st-primary-soft:     #dde1ff;
-  --st-primary-softer:   #eef1ff;
+  --st-primary:          #3538f0;
+  --st-primary-hover:    #2426b8;
+  --st-primary-soft:     #eceeff;
+  --st-primary-softer:   #f6f6ff;
   --st-on-primary:       #ffffff;
 
-  /* "Success" borrows the design system's teal secondary — it's what the
-     mockups use for Paid/In-Stock/trending-up, not a separate green. */
-  --st-success:      #006a61;
-  --st-success-soft: #d4f7ef;
-  --st-warning:      #8a5b00;
-  --st-warning-soft: #fcdeb5;
-  --st-danger:       #ba1a1a;
-  --st-danger-soft:  #ffdad6;
+  --st-success:      #0f9f6e;
+  --st-success-soft: #e4f7ef;
+  --st-warning:      #c96a05;
+  --st-warning-soft: #fff3e2;
+  --st-danger:       #d02b3c;
+  --st-danger-soft:  #ffe6e8;
 
-  /* Sidebar. Fixed dark navy in BOTH light and dark app mode — every mockup
-     shows a persistent dark rail regardless of the content theme, so these
-     are declared once here and never redeclared inside .dark. */
-  --st-nav-bg:        #0f172a;
-  --st-nav-bg-2:      #1a2540;
-  --st-nav-fg:        #a9b4cc;
+  /* Sidebar: always ink, in both themes. */
+  --st-nav-bg:        #0a1045;
+  --st-nav-bg-2:      rgba(255, 255, 255, 0.06);
+  --st-nav-fg:        #aab0dc;
   --st-nav-fg-strong: #ffffff;
-  --st-nav-active:    #00288e;
-  --st-nav-hover:     #182238;
-  --st-nav-border:    #22304d;
+  --st-nav-active:    rgba(255, 255, 255, 0.10);
+  --st-nav-hover:     rgba(255, 255, 255, 0.06);
+  --st-nav-border:    rgba(160, 170, 255, 0.16);
 
-  /* The dark panel used by the landing page and the sign-up split screen. */
-  --st-ink:           #0f172a;
+  --st-ink:           #070b33;
 
-  --st-shadow-1: 0 1px 2px rgba(11, 28, 48, 0.06);
-  --st-shadow-2: 0 4px 12px rgba(11, 28, 48, 0.08), 0 1px 3px rgba(11, 28, 48, 0.05);
-  --st-shadow-brand: 0 2px 8px rgba(0, 40, 142, 0.20);
+  --st-shadow-1: 0 1px 2px rgba(22, 28, 90, 0.04), 0 10px 30px -12px rgba(38, 44, 140, 0.12);
+  --st-shadow-lg: 0 2px 6px rgba(22, 28, 90, 0.05), 0 24px 48px -18px rgba(38, 44, 140, 0.22);
+  --st-shadow-2: 0 30px 60px -20px rgba(22, 28, 90, 0.30), 0 8px 16px -8px rgba(22, 28, 90, 0.12);
+  --st-shadow-brand: 0 8px 20px -6px rgba(59, 63, 245, 0.45);
+  --st-focus-ring: 0 0 0 4px rgba(59, 63, 245, 0.14);
 
-  /* Chart categoricals — validated with the dataviz palette checker (light
-     mode). Deliberately not the same hue as --st-primary: a thin line/area
-     fill needs a lighter, more vivid blue than the dark UI primary to stay
-     legible, so this stays as originally validated. */
-  --chart-1: #2254e0;
-  --chart-2: #0f9f76;
-  --chart-3: #e8930f;
-  --chart-4: #8b5cf6;
-  --chart-grid: rgba(18, 42, 92, 0.08);
-  --chart-axis: #6b84af;
+  --chart-1: #3538f0;
+  --chart-2: #0f9f6e;
+  --chart-3: #cc9933;
+  --chart-4: #7b3cf5;
+  --chart-grid: rgba(22, 28, 90, 0.07);
+  --chart-axis: #8a8fb0;
 }
 
 .dark {
-  /* Dark counterpart: an elevated slate, deliberately NOT near-black —
-     surfaces step up in lightness so cards read as raised rather than as
-     holes cut in a black page. --st-nav-* is intentionally absent here: the
-     sidebar stays the same dark navy in both modes (see :root above). */
-  --st-bg:        #10141d;
-  --st-surface:   #1a1f2b;
-  --st-surface-2: #212736;
-  --st-surface-3: #2a3143;
-  --st-border:    #333c52;
-  --st-border-2:  #495267;
-  --st-text-1:    #e8ebf5;
-  --st-text-2:    #b6c0d4;
-  --st-text-3:    #8892a8;
-  --st-text-4:    #5b6478;
+  --st-bg:        #070a22;
+  --st-surface:   #0e1438;
+  --st-surface-2: #121a45;
+  --st-surface-3: #1a2254;
+  --st-border:    rgba(160, 170, 255, 0.14);
+  --st-border-2:  rgba(160, 170, 255, 0.26);
+  --st-text-1:    #f1f2ff;
+  --st-text-2:    #c3c8ee;
+  --st-text-3:    #96a0d2;
+  --st-text-4:    #66709f;
 
-  --st-primary:        #b8c4ff;
-  --st-primary-hover:  #dde1ff;
-  --st-primary-soft:   #1e40af;
-  --st-primary-softer: #172449;
-  --st-on-primary:     #001453;
+  --st-primary:        #8f94ff;
+  --st-primary-hover:  #b3b6ff;
+  --st-primary-soft:   rgba(143, 148, 255, 0.16);
+  --st-primary-softer: rgba(143, 148, 255, 0.09);
+  --st-on-primary:     #ffffff;
 
-  --st-success:      #6bd7ab;
-  --st-success-soft: #054733;
-  --st-warning:      #f0c07a;
-  --st-warning-soft: #3f2c00;
-  --st-danger:       #ffb4ab;
-  --st-danger-soft:  #5c0f0f;
+  --st-success:      #4fd1a1;
+  --st-success-soft: rgba(15, 159, 110, 0.18);
+  --st-warning:      #f0b663;
+  --st-warning-soft: rgba(201, 106, 5, 0.2);
+  --st-danger:       #ff8f9b;
+  --st-danger-soft:  rgba(208, 43, 60, 0.2);
 
-  --st-ink:           #0f172a;
+  --st-ink:           #050824;
 
-  --st-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.32);
-  --st-shadow-2: 0 4px 16px rgba(0, 0, 0, 0.5), 0 12px 32px rgba(0, 0, 0, 0.4);
-  --st-shadow-brand: 0 2px 10px rgba(30, 64, 175, 0.4);
+  --st-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -12px rgba(0, 0, 0, 0.5);
+  --st-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.35), 0 24px 48px -18px rgba(0, 0, 0, 0.6);
+  --st-shadow-2: 0 30px 60px -20px rgba(0, 0, 0, 0.7), 0 8px 16px -8px rgba(0, 0, 0, 0.4);
+  --st-shadow-brand: 0 8px 20px -6px rgba(59, 63, 245, 0.55);
+  --st-focus-ring: 0 0 0 4px rgba(143, 148, 255, 0.2);
 
-  /* Chart categoricals — lifted for the dark surface */
-  --chart-1: #6b9dff;
-  --chart-2: #34d399;
-  --chart-3: #e0a961;
-  --chart-4: #a78bfa;
-  --chart-grid: rgba(255, 255, 255, 0.08);
-  --chart-axis: #76777d;
+  --chart-1: #8f94ff;
+  --chart-2: #4fd1a1;
+  --chart-3: #e6c079;
+  --chart-4: #b48cff;
+  --chart-grid: rgba(160, 170, 255, 0.1);
+  --chart-axis: #7d86b8;
 }
 
 /* Map tokens into Tailwind utilities (bg-surface, text-t1, border-line, bg-primary…) */
@@ -140,6 +133,8 @@
   --color-brand-800: var(--st-brand-800);
   --color-brand-900: var(--st-brand-900);
   --color-brand-950: var(--st-brand-950);
+
+  --color-gold: var(--st-gold);
 
   --color-canvas:    var(--st-bg);
   --color-surface:   var(--st-surface);
@@ -175,22 +170,25 @@
 
   --shadow-e1: var(--st-shadow-1);
   --shadow-e2: var(--st-shadow-2);
+  --shadow-lg2: var(--st-shadow-lg);
   --shadow-brand: var(--st-shadow-brand);
 
-  --radius-card: 12px;
-  --radius-ctl: 8px;
+  --radius-card: 18px;
+  --radius-ctl: 12px;
 
-  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-  --font-display: "Public Sans", "Inter", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Manrope", "Inter", system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
 }
 
-/* Reusable animation utilities */
-@keyframes st-fade-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes st-dot { 0%, 80%, 100% { transform: translateY(0); opacity: .35; } 40% { transform: translateY(-4px); opacity: 1; } }
+
+/* Reusable motion */
+@keyframes st-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes st-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
 @keyframes st-fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes st-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
-.animate-fade-up { animation: st-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.animate-fade-in { animation: st-fade-in 0.4s ease both; }
+.animate-fade-up { animation: st-fade-up 0.26s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.animate-fade-in { animation: st-fade-in 0.2s ease both; }
 .st-grid-bg {
   background-image:
     linear-gradient(var(--st-border) 1px, transparent 1px),
@@ -209,7 +207,62 @@ body {
   color: var(--st-text-1);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+::selection { background: var(--st-primary-soft); color: var(--st-text-1); }
+
+:focus-visible { outline: 2px solid var(--st-primary); outline-offset: 2px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+
+/* Primary actions carry the brand gradient and a soft glow, everywhere a
+   solid brand button or link appears. */
+button.bg-primary,
+a.bg-primary {
+  background-image: var(--st-gradient-primary);
+  color: #fff;
+  box-shadow: var(--st-shadow-brand);
+  transition: box-shadow 0.14s ease, transform 0.14s ease, background-image 0.14s ease;
+}
+button.bg-primary:hover:not(:disabled),
+a.bg-primary:hover {
+  background-image: var(--st-gradient-primary-hover);
+  box-shadow: 0 12px 26px -8px rgba(59, 63, 245, 0.55);
+}
+button.bg-primary:active:not(:disabled) { transform: scale(0.98); }
+button.bg-primary:disabled { box-shadow: none; }
+
+/* The page behind the content: canvas with two faint tints at the top. */
+.content-bg {
+  background:
+    radial-gradient(60rem 26rem at 100% -8%, rgba(123, 60, 245, 0.08), transparent 60%),
+    radial-gradient(40rem 22rem at 20% -10%, rgba(53, 56, 240, 0.06), transparent 60%),
+    var(--st-bg);
+}
+
+/* Frosted top bar. The blur sits on a pseudo-element so position:fixed
+   panels inside the bar (AI drawer) aren't trapped by it. */
+.frost { position: relative; }
+.frost::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--st-surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* Popovers and dialogs: solid and raised. */
+.pop { background: var(--st-surface); }
 
 /* Receipt printing: hide the app, show only the receipt card */
 @media print {
@@ -221,6 +274,8 @@ body {
     visibility: visible;
   }
   .print-receipt {
+    background: #fff;
+    color: #000;
     position: fixed;
     inset: 0;
     width: 100%;
@@ -231,27 +286,26 @@ body {
   }
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* No scrollbars anywhere. Everything still scrolls (wheel, trackpad, touch,
+   keyboard); the bars just aren't drawn. */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--st-border-2);
-  border-radius: 6px;
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
-/* Slow ambient drift for the sign-up panel. Long, offset durations so the two
-   blooms never sync up into an obvious pulse. */
-@keyframes st-drift {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50%      { transform: translate3d(28px, -22px, 0) scale(1.08); }
+/* Browser autofill paints inputs pale blue; keep them on the surface colour. */
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--st-text-1);
+  box-shadow: 0 0 0 100px var(--st-surface) inset;
+  caret-color: var(--st-text-1);
 }
-.animate-drift      { animation: st-drift 18s ease-in-out infinite; }
-.animate-drift-slow { animation: st-drift 26s ease-in-out infinite reverse; }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-drift, .animate-drift-slow { animation: none; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

@@ -98,7 +98,7 @@ export function Hotel() {
         <div className="ml-auto flex items-center gap-3 flex-wrap">
           {(Object.keys(CELL) as CellState[]).map((k) => (
             <span key={k} className="inline-flex items-center gap-1.5 text-[11px] text-t3">
-              <span className={cn("w-4 h-4 rounded border flex items-center justify-center text-[8px] font-bold", CELL[k].cls)}>{CELL[k].mark}</span>
+              <span className={cn("w-4 h-4 rounded border flex items-center justify-center text-[8px] font-semibold", CELL[k].cls)}>{CELL[k].mark}</span>
               {CELL[k].label}
             </span>
           ))}
@@ -123,7 +123,7 @@ export function Hotel() {
               <table className="w-full border-separate border-spacing-0">
                 <thead>
                   <tr>
-                    <th className="sticky left-0 z-10 bg-surface-2 border-b border-r border-line px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-t4 min-w-[132px]">
+                    <th className="sticky left-0 z-10 bg-surface-2 border-b border-r border-line px-3 py-2 text-left text-[11.5px] font-medium text-t4 min-w-[132px]">
                       Room
                     </th>
                     {data.nights.map((n) => {
@@ -131,7 +131,7 @@ export function Hotel() {
                       const weekend = d.getDay() === 0 || d.getDay() === 6;
                       return (
                         <th key={n} className={cn(
-                          "border-b border-line px-1 py-2 text-[10px] font-bold text-center min-w-[42px]",
+                          "border-b border-line px-1 py-2 text-[10px] font-semibold text-center min-w-[42px]",
                           weekend ? "bg-primary-softer text-primary" : "bg-surface-2 text-t4",
                           n === todayStr() && "ring-1 ring-inset ring-brand-400"
                         )}>
@@ -146,7 +146,7 @@ export function Hotel() {
                   {data.rooms.map((room) => (
                     <tr key={room.id}>
                       <td className="sticky left-0 z-10 bg-surface border-b border-r border-line px-3 py-1.5">
-                        <div className="text-[13px] font-bold text-t1">{room.number}</div>
+                        <div className="text-[13px] font-semibold text-t1">{room.number}</div>
                         <div className="text-[10px] text-t3 truncate">{room.typeName} · {fmtMoney(room.rate, currency)}</div>
                       </td>
                       {room.cells.map((c) => {
@@ -162,7 +162,7 @@ export function Hotel() {
                               }}
                               title={c.guestName ? `${c.guestName} · ${c.folioNo}` : `${room.number} · ${meta.label} · ${c.night}`}
                               className={cn(
-                                "w-full h-8 rounded border text-[9px] font-bold flex items-center justify-center transition-all",
+                                "w-full h-8 rounded border text-[9px] font-semibold flex items-center justify-center transition-all",
                                 meta.cls,
                                 clickable && "hover:ring-2 hover:ring-brand-400 cursor-pointer",
                                 c.arrival && "rounded-l-lg",
@@ -179,12 +179,12 @@ export function Hotel() {
                     </tr>
                   ))}
                   <tr>
-                    <td className="sticky left-0 z-10 bg-surface-2 border-r border-line px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-t4">
+                    <td className="sticky left-0 z-10 bg-surface-2 border-r border-line px-3 py-2 text-[11.5px] font-medium text-t4">
                       Occupancy
                     </td>
                     {data.occupancy.map((o) => (
                       <td key={o.night} className="px-1 py-2 text-center bg-surface-2">
-                        <div className={cn("text-[11px] font-bold tabular-nums",
+                        <div className={cn("text-[11px] font-semibold tabular-nums",
                           o.pct >= 80 ? "text-success" : o.pct >= 40 ? "text-t1" : "text-t3")}>{o.pct}%</div>
                         <div className="text-[9px] text-t4">{o.occupied}/{o.sellable}</div>
                       </td>
@@ -285,7 +285,7 @@ function RoomSetupModal({ open, onClose, onChanged, currency }: {
     <Modal open={open} onClose={onClose} title="Manage rooms" subtitle="Room types set the nightly rate; rooms are numbered units of a type" wide>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Room types</div>
+          <div className="text-[11px] font-medium text-t4 mb-2">Room types</div>
           <form onSubmit={addType} className="space-y-2 mb-3">
             <ErrorBanner message={typeError} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -309,7 +309,7 @@ function RoomSetupModal({ open, onClose, onChanged, currency }: {
         </div>
 
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-t4 mb-2">Rooms</div>
+          <div className="text-[11px] font-medium text-t4 mb-2">Rooms</div>
           <form onSubmit={addRoom} className="space-y-2 mb-3">
             <ErrorBanner message={roomError} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -369,7 +369,7 @@ function StayList({ query, label, icon: Icon, onOpen, currency, branchKey }: any
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-line">
         <Icon className="w-4 h-4 text-primary" />
-        <span className="text-[13px] font-bold text-t1">{label}</span>
+        <span className="text-[13px] font-semibold text-t1">{label}</span>
         {stays.length > 0 && <span className="ml-auto"><Badge tone="brand">{stays.length}</Badge></span>}
       </div>
       {stays.length === 0 ? (
@@ -378,14 +378,14 @@ function StayList({ query, label, icon: Icon, onOpen, currency, branchKey }: any
         <div className="divide-y divide-line">
           {stays.map((s) => (
             <button key={s.id} onClick={() => onOpen(s.id)} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-2 transition-colors">
-              <span className="w-9 h-9 shrink-0 rounded-lg bg-primary-soft text-primary flex items-center justify-center text-[12px] font-bold">
+              <span className="w-9 h-9 shrink-0 rounded-lg bg-primary-soft text-primary flex items-center justify-center text-[12px] font-semibold">
                 {s.roomNumber}
               </span>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold text-t1 truncate">{s.guestName}</div>
                 <div className="text-[11px] text-t3">{s.checkIn} → {s.checkOut} · {s.nights}n</div>
               </div>
-              <span className="text-[12px] font-mono font-bold text-t1 tabular-nums shrink-0">{fmtMoney(s.balance, currency)}</span>
+              <span className="text-[12px] font-mono font-semibold text-t1 tabular-nums shrink-0">{fmtMoney(s.balance, currency)}</span>
             </button>
           ))}
         </div>
@@ -453,8 +453,8 @@ function BookRoom({ target, currency, onClose, onSaved }: {
         <div className="rounded-ctl bg-surface-2 border border-line px-3 py-2.5 space-y-1">
           <div className="flex justify-between text-[12px] text-t2"><span>{fmtDate(target.night)} → {fmtDate(checkOut)}</span><span>{Math.max(1, form.nights)} night{form.nights === 1 ? "" : "s"}</span></div>
           <div className="flex justify-between items-center pt-1 border-t border-line">
-            <span className="text-[13px] font-bold text-t1">Room total</span>
-            <span className="font-mono font-extrabold text-[16px] text-primary tabular-nums">{fmtMoney(rate * Math.max(1, form.nights), currency)}</span>
+            <span className="text-[13px] font-semibold text-t1">Room total</span>
+            <span className="font-mono font-semibold text-[16px] text-primary tabular-nums">{fmtMoney(rate * Math.max(1, form.nights), currency)}</span>
           </div>
         </div>
 
@@ -597,8 +597,8 @@ function FolioModal({ stayId, currency, onClose, onChanged }: {
 function FolioRow({ label, value, bold, tone }: { label: string; value: string; bold?: boolean; tone?: string }) {
   return (
     <div className="flex justify-between items-center">
-      <span className={cn("text-[12px]", bold ? "font-bold text-t1" : "text-t2")}>{label}</span>
-      <span className={cn("font-mono tabular-nums", bold ? "text-[15px] font-bold" : "text-[12px]", tone || "text-t1")}>{value}</span>
+      <span className={cn("text-[12px]", bold ? "font-semibold text-t1" : "text-t2")}>{label}</span>
+      <span className={cn("font-mono tabular-nums", bold ? "text-[15px] font-semibold" : "text-[12px]", tone || "text-t1")}>{value}</span>
     </div>
   );
 }

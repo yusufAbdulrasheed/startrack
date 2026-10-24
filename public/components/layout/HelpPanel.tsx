@@ -48,11 +48,11 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
           <div className="rounded-card border border-line bg-primary-softer p-4">
             <div className="flex items-center gap-2 mb-1">
               <KeyRound className="w-4 h-4 text-primary" />
-              <span className="text-[13px] font-bold text-t1">Till login code</span>
+              <span className="text-[13px] font-semibold text-t1">Till login code</span>
             </div>
             <p className="text-[12px] text-t3 mb-3">Staff type this once per device, then sign in with their PIN.</p>
             <div className="flex items-center gap-2">
-              <span className="flex-1 font-mono text-[20px] font-extrabold tracking-[0.3em] text-primary text-center py-2.5 rounded-ctl bg-surface border border-line">
+              <span className="flex-1 font-mono text-[20px] font-semibold tracking-[0.3em] text-primary text-center py-2.5 rounded-ctl bg-surface border border-line">
                 {code}
               </span>
               <button
@@ -69,7 +69,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Keyboard className="w-4 h-4 text-primary" />
-            <span className="text-[13px] font-bold text-t1">Shortcuts</span>
+            <span className="text-[13px] font-semibold text-t1">Shortcuts</span>
           </div>
           <div className="rounded-ctl border border-line overflow-hidden">
             {shortcuts.map(([k, v]) => (
@@ -82,12 +82,12 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
 
         <div>
-          <div className="text-[13px] font-bold text-t1 mb-2">Common questions</div>
+          <div className="text-[13px] font-semibold text-t1 mb-2">Common questions</div>
           <div className="space-y-2">
             {answers.map((a) => (
               <details key={a.q} className="group rounded-ctl border border-line bg-surface-2 overflow-hidden">
                 <summary className="px-3 py-2.5 text-[12.5px] font-semibold text-t1 cursor-pointer list-none flex items-center gap-2">
-                  <span className={cn("w-4 h-4 rounded-full bg-primary-soft text-primary text-[10px] font-bold flex items-center justify-center shrink-0 transition-transform", "group-open:rotate-45")}>+</span>
+                  <span className={cn("w-4 h-4 rounded-full bg-primary-soft text-primary text-[10px] font-semibold flex items-center justify-center shrink-0 transition-transform", "group-open:rotate-45")}>+</span>
                   {a.q}
                 </summary>
                 <p className="px-3 pb-3 pl-9 text-[12px] text-t3 leading-relaxed">{a.a}</p>
@@ -99,7 +99,7 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="rounded-card border border-line p-4">
           <div className="flex items-center gap-2 mb-1">
             <LifeBuoy className="w-4 h-4 text-primary" />
-            <span className="text-[13px] font-bold text-t1">Still stuck?</span>
+            <span className="text-[13px] font-semibold text-t1">Still stuck?</span>
           </div>
           <p className="text-[12px] text-t3 mb-3">
             Send us what happened and which screen you were on — we read every one.

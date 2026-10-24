@@ -123,7 +123,7 @@ export function Transfers() {
         </Card>
 
         <Card className="lg:col-span-3 overflow-hidden self-start">
-          <div className="p-4 pb-2 text-[14px] font-bold text-t1">Recent transfers out</div>
+          <div className="p-4 pb-2 text-[14px] font-semibold text-t1">Recent transfers out</div>
           {loading ? (
             <Spinner />
           ) : !moveData?.movements.length ? (
@@ -140,7 +140,7 @@ export function Transfers() {
                       <div className="text-[13px] font-semibold text-t1 truncate">{m.productName}</div>
                       <div className="text-[11px] text-t3 truncate">{m.reason} · {m.actorName} · {fmtDateTime(m.at)}</div>
                     </div>
-                    <div className="font-mono text-[13px] font-bold text-t1 tabular-nums shrink-0">{m.qty}</div>
+                    <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums shrink-0">{m.qty}</div>
                   </div>
                 ))}
               </div>
