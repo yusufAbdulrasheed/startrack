@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth, useSession } from "@/lib/session";
 import { Landing } from "@/pages/Landing";
+import { Docs } from "@/pages/Docs";
 import { Login } from "@/pages/Login";
 import { Register } from "@/pages/Register";
 import { LoyaltyCardView } from "@/pages/LoyaltyCardView";
@@ -65,6 +66,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+      <Route path="/docs" element={<Docs />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/loyalty/:code" element={<LoyaltyCardView />} />

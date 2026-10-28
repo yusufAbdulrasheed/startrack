@@ -19,7 +19,9 @@ const primaryShadow = { background: GRADIENT, boxShadow: "0 16px 32px -14px rgba
 const ghostOnDark = "inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold text-white border border-white/25 bg-white/5 hover:bg-white/10 transition-colors";
 
 /* ── Nav ─────────────────────────────────────────────────────────── */
-const LINKS = [["Features", "#features"], ["AI", "#ai"], ["Industries", "#industries"], ["Pricing", "#pricing"], ["FAQ", "#faq"]] as const;
+const LINKS = [["Features", "#features"], ["AI", "#ai"], ["Industries", "#industries"], ["Pricing", "#pricing"], ["FAQ", "#faq"], ["Docs", "/docs"]] as const;
+
+const navLinkCls = "px-3.5 py-2 rounded-full text-[14px] font-semibold text-white/75 hover:text-white hover:bg-white/10 transition-colors";
 
 function Logo({ dark }: { dark?: boolean }) {
   return (
@@ -37,7 +39,9 @@ function Nav() {
       <div className="max-w-[1180px] mx-auto px-5 h-[76px] flex items-center gap-8">
         <Logo dark />
         <nav className="hidden lg:flex items-center gap-1 ml-4">
-          {LINKS.map(([l, h]) => <a key={l} href={h} className="px-3.5 py-2 rounded-full text-[14px] font-semibold text-white/75 hover:text-white hover:bg-white/10 transition-colors">{l}</a>)}
+          {LINKS.map(([l, h]) => h.startsWith("/")
+            ? <Link key={l} to={h} className={navLinkCls}>{l}</Link>
+            : <a key={l} href={h} className={navLinkCls}>{l}</a>)}
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle className="hidden sm:grid !text-white/80 hover:!text-white" />
@@ -48,7 +52,12 @@ function Nav() {
       </div>
       {open && (
         <div className="lg:hidden mx-4 rounded-3xl bg-[#0f1550]/95 backdrop-blur border border-white/10 p-4 space-y-1">
-          {LINKS.map(([l, h]) => <a key={l} href={h} onClick={() => setOpen(false)} className="block px-4 py-3 rounded-2xl text-[15px] font-semibold text-white/85 hover:bg-white/10">{l}</a>)}
+          {LINKS.map(([l, h]) => {
+            const cls = "block px-4 py-3 rounded-2xl text-[15px] font-semibold text-white/85 hover:bg-white/10";
+            return h.startsWith("/")
+              ? <Link key={l} to={h} onClick={() => setOpen(false)} className={cls}>{l}</Link>
+              : <a key={l} href={h} onClick={() => setOpen(false)} className={cls}>{l}</a>;
+          })}
           <div className="grid grid-cols-2 gap-2 pt-2">
             <Link to="/login" className="h-11 grid place-items-center rounded-full border border-white/20 text-white font-semibold text-[14px]">Sign in</Link>
             <Link to="/register" className="h-11 grid place-items-center rounded-full bg-white text-[#0a1045] font-bold text-[14px]">Start free trial</Link>
@@ -456,7 +465,7 @@ function Footer() {
           <p className="mt-4 text-[14px] text-t3 leading-relaxed max-w-[320px]">The operating system for small and growing businesses.</p>
         </div>
         {[
-          ["Product", [["Features", "#features"], ["AI assistant", "#ai"], ["Pricing", "#pricing"], ["Industries", "#industries"]]],
+          ["Product", [["Features", "#features"], ["AI assistant", "#ai"], ["Pricing", "#pricing"], ["Industries", "#industries"], ["Docs", "/docs"]]],
           ["Get started", [["Create account", "/register"], ["Sign in", "/login"], ["FAQ", "#faq"]]],
         ].map(([title, links]) => (
           <div key={title as string}>
