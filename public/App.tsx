@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
-import { RequireAuth, useSession } from "@/lib/session";
+import { RequireAuth, RequirePlatform, useSession } from "@/lib/session";
+import { AdminShell } from "@/components/layout/AdminShell";
 import { Landing } from "@/pages/Landing";
 import { Docs } from "@/pages/Docs";
 import { Login } from "@/pages/Login";
@@ -72,6 +73,17 @@ export default function App() {
       <Route path="/loyalty/:code" element={<LoyaltyCardView />} />
       <Route path="/s/:slug" element={<BusinessSite />} />
       <Route
+        path="/admin"
+        element={
+          <RequirePlatform>
+            <AdminShell />
+          </RequirePlatform>
+        }
+      >
+        <Route index element={<Navigate to="overview" replace />} />
+        <Route path=":tab" element={<Platform />} />
+      </Route>
+      <Route
         path="/app"
         element={
           <RequireAuth>
@@ -104,7 +116,7 @@ export default function App() {
         <Route path="front-desk" element={<FeatureGate feature="verticals"><Hotel /></FeatureGate>} />
         <Route path="cold-room" element={<FeatureGate feature="verticals"><ColdRoom /></FeatureGate>} />
         <Route path="businesses" element={<MyBusinesses />} />
-        <Route path="platform" element={<Platform />} />
+        <Route path="platform" element={<Navigate to="/admin" replace />} />
         <Route path="customers" element={<Customers />} />
         <Route path="expenses" element={<Expenses />} />
         <Route path="staff" element={<Staff />} />

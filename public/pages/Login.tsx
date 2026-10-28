@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { LockOpen, AlertCircle, KeyRound, Delete } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
-import { useSession } from "@/lib/session";
+import { isPlatformUser, useSession } from "@/lib/session";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +26,9 @@ export function Login() {
     setBusy(true);
     try {
       if (tab === "account") {
-        await login(email.trim(), password);
-        navigate("/app/dashboard");
+        const s = await login(email.trim(), password);
+        // StarTrack staff have their own console; everyone else lands in their business.
+        navigate(isPlatformUser(s) ? "/admin" : "/app/dashboard");
       } else {
         await tillLogin(businessCode.trim(), pin);
         // Remember the code on this device — staff only type their PIN next time.

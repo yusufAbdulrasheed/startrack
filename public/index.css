@@ -309,3 +309,97 @@ input:-webkit-autofill:focus {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Platform console palette — "spruce & sand".
+   Scoped to the admin shell only: it re-points the same tokens the whole UI
+   already reads, so every shared component picks it up without a code change,
+   and the business app keeps the StarTrack indigo.
+   ────────────────────────────────────────────────────────────────────────── */
+.admin-theme {
+  --st-bg:        #f2eee3;
+  --st-surface:   #fffdf8;
+  --st-surface-2: #f8f4ea;
+  --st-surface-3: #eee8d9;
+  --st-border:    #e4ddca;
+  --st-border-2:  #cbc2aa;
+  --st-text-1:    #12231f;
+  --st-text-2:    #3a4a44;
+  --st-text-3:    #66756e;
+  --st-text-4:    #98a39d;
+
+  --st-primary:        #0d7a5f;
+  --st-primary-hover:  #095f4a;
+  --st-primary-soft:   #dcf1e8;
+  --st-primary-softer: #eef8f3;
+  --st-on-primary:     #ffffff;
+  --st-violet:         #d9922b;
+  --st-amber:          #f0b13f;
+
+  --st-success:      #2a9d57;
+  --st-success-soft: #e0f3e5;
+  --st-warning:      #b66f12;
+  --st-warning-soft: #fbedd0;
+  --st-danger:       #c4423a;
+  --st-danger-soft:  #fbe3df;
+
+  --st-nav-bg:        #0b2622;
+  --st-nav-bg-2:      rgba(255, 255, 255, 0.06);
+  --st-nav-fg:        #9db9b0;
+  --st-nav-fg-strong: #ffffff;
+  --st-nav-active:    rgba(255, 255, 255, 0.10);
+  --st-nav-hover:     rgba(255, 255, 255, 0.06);
+  --st-nav-border:    rgba(160, 230, 205, 0.16);
+  --st-ink:           #0b2622;
+
+  --st-gradient-primary: linear-gradient(135deg, #0d7a5f 0%, #1f9c78 100%);
+  --st-shadow-1:  0 1px 2px rgba(40, 32, 8, 0.05), 0 10px 28px -14px rgba(40, 32, 8, 0.16);
+  --st-shadow-lg: 0 2px 6px rgba(40, 32, 8, 0.06), 0 24px 44px -20px rgba(40, 32, 8, 0.26);
+  --st-shadow-2:  0 30px 60px -22px rgba(11, 38, 34, 0.38), 0 8px 16px -8px rgba(11, 38, 34, 0.16);
+  --st-focus-ring: 0 0 0 4px rgba(13, 122, 95, 0.16);
+  background: var(--st-bg);
+  color: var(--st-text-1);
+}
+.dark .admin-theme {
+  --st-bg:        #07150f;
+  --st-surface:   #0e1f19;
+  --st-surface-2: #132821;
+  --st-surface-3: #1a3329;
+  --st-border:    rgba(150, 230, 200, 0.13);
+  --st-border-2:  rgba(150, 230, 200, 0.26);
+  --st-text-1:    #ecf6f1;
+  --st-text-2:    #bfd3ca;
+  --st-text-3:    #8fa89d;
+  --st-text-4:    #62796f;
+
+  --st-primary:        #46d9a0;
+  --st-primary-hover:  #7be8bd;
+  --st-primary-soft:   rgba(70, 217, 160, 0.15);
+  --st-primary-softer: rgba(70, 217, 160, 0.08);
+  --st-on-primary:     #04251a;
+  --st-violet:         #f0b13f;
+
+  --st-success:      #5fd48a;
+  --st-success-soft: rgba(95, 212, 138, 0.16);
+  --st-warning:      #f0b663;
+  --st-warning-soft: rgba(240, 182, 99, 0.16);
+  --st-danger:       #ff8f86;
+  --st-danger-soft:  rgba(255, 143, 134, 0.16);
+
+  --st-nav-bg: #051a15;
+  --st-ink:    #051a15;
+  --st-gradient-primary: linear-gradient(135deg, #1f9c78 0%, #46d9a0 100%);
+}
+.admin-theme .content-bg {
+  background:
+    radial-gradient(52rem 26rem at 100% -10%, rgba(240, 177, 63, 0.10), transparent 60%),
+    radial-gradient(44rem 24rem at 0% -12%, rgba(13, 122, 95, 0.08), transparent 60%),
+    var(--st-bg);
+}
+/* Serif display face for headings and big numbers gives the console its own voice. */
+.admin-theme .font-display {
+  font-family: "Fraunces", "Iowan Old Style", Georgia, serif;
+  font-optical-sizing: auto;
+  letter-spacing: -0.01em;
+}

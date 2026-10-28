@@ -57,7 +57,7 @@ type Ctx = {
    */
   dataVersion: number;
   refreshData: () => void;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<Session>;
   tillLogin: (businessCode: string, pin: string) => Promise<void>;
   demoLogin: (type?: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
@@ -134,6 +134,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       login: async (email, password) => {
         const s = await api<Session>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
         applySession(s);
+        return s;
       },
       tillLogin: async (businessCode, pin) => {
         const s = await api<Session>("/auth/till", { method: "POST", body: JSON.stringify({ businessCode, pin }) });
@@ -184,6 +185,26 @@ export function useSession() {
   const ctx = useContext(SessionContext);
   if (!ctx) throw new Error("useSession must be used within SessionProvider");
   return ctx;
+}
+
+/** StarTrack staff (overseer or support) — people who run the platform, not a business on it. */
+export const isPlatformUser = (s: Session | null | undefined) => !!s && !s.mode && (s.platformRole === "overseer" || s.platformRole === "support");
+
+// Route guard for /admin/*. Anyone without platform access is sent back to
+// their own business; the API enforces the same rule independently.
+export function RequirePlatform({ children }: { children: React.ReactNode }) {
+  const { session, loading } = useSession();
+  const location = useLocation();
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-canvas">
+        <div className="w-8 h-8 rounded-full border-2 border-line border-t-primary animate-spin" />
+      </div>
+    );
+  }
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!isPlatformUser(session)) return <Navigate to="/app" replace />;
+  return <>{children}</>;
 }
 
 // Route guard for /app/*

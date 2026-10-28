@@ -124,9 +124,9 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onClose }: {
         {/* Footer: support and sign out */}
         <div className="relative p-4 flex flex-col gap-1 group-data-[collapsed=true]/side:lg:px-3">
           {isPlatform && (
-            <NavLink to="/app/platform" onClick={onClose} title="Platform" className={() => item(pathname === "/app/platform")}>
+            <NavLink to="/admin" onClick={onClose} title="Platform admin" className={() => item(false)}>
               <Globe2 className="w-[18px] h-[18px] shrink-0 opacity-90" strokeWidth={1.8} />
-              <span className={label}>Platform</span>
+              <span className={label}>Platform admin</span>
             </NavLink>
           )}
           <button

@@ -11,7 +11,7 @@ import { requireAuth } from "#core/middleware/requireAuth.js";
 import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { money } from "#core/money.js";
 import { typeTemplate } from "#shared/businessTypes.js";
-import { effectivePlan, isPlan, isLegacyAccount, planStatus } from "#shared/plans.js";
+import { PLANS, effectivePlan, isPlan, isLegacyAccount, planStatus } from "#shared/plans.js";
 
 export const platformRouter = Router();
 
@@ -242,6 +242,165 @@ platformRouter.post("/accounts/:id/status", requireOverseer, async (req, res) =>
   });
 
   res.json({ account: { id: account._id, name: account.name, status: account.status } });
+});
+
+// GET /api/platform/growth?days=30 — daily sign-ups and trading volume, zero-filled
+// so the chart has a point for every day even when nothing happened.
+platformRouter.get("/growth", async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setTime(start.getTime() - (days - 1) * DAY);
+
+  const day = (field) => ({ $dateToString: { format: "%Y-%m-%d", date: field } });
+  const [signups, sales] = await Promise.all([
+    Account.aggregate([
+      { $match: { isSandbox: { $ne: true }, createdAt: { $gte: start } } },
+      { $group: { _id: day("$createdAt"), n: { $sum: 1 } } },
+    ]),
+    Sale.aggregate([
+      { $match: { status: "completed", at: { $gte: start } } },
+      { $group: { _id: day("$at"), total: { $sum: "$total" }, txns: { $sum: 1 } } },
+    ]),
+  ]);
+  const signupBy = new Map(signups.map((s) => [s._id, s.n]));
+  const salesBy = new Map(sales.map((s) => [s._id, s]));
+
+  const series = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start.getTime() + i * DAY);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    series.push({ date: key, signups: signupBy.get(key) || 0, volume: money(salesBy.get(key)?.total || 0), txns: salesBy.get(key)?.txns || 0 });
+  }
+  res.json({ days, series });
+});
+
+// GET /api/platform/businesses?q=&typeKey=&inactive=1&page= — every individual
+// business (a tenant account can own several), with how recently it traded.
+platformRouter.get("/businesses", async (req, res) => {
+  const filter = {};
+  if (req.query.q) {
+    filter.name = { $regex: String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+  }
+  if (req.query.typeKey) filter.typeKey = String(req.query.typeKey);
+
+  // Demo sandboxes would drown out real customers, so they are always left out.
+  const sandboxIds = await Account.distinct("_id", { isSandbox: true });
+  if (sandboxIds.length) filter.accountId = { $nin: sandboxIds };
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 100);
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const since30 = new Date(Date.now() - 30 * DAY);
+
+  const [rows, total] = await Promise.all([
+    Business.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Business.countDocuments(filter),
+  ]);
+  const ids = rows.map((b) => b._id);
+  const [accounts, sales, people] = await Promise.all([
+    Account.find({ _id: { $in: rows.map((b) => b.accountId) } }).lean(),
+    Sale.aggregate([
+      { $match: { businessId: { $in: ids }, status: "completed" } },
+      {
+        $group: {
+          _id: "$businessId",
+          last: { $max: "$at" },
+          txns: { $sum: 1 },
+          revenue30d: { $sum: { $cond: [{ $gte: ["$at", since30] }, "$total", 0] } },
+        },
+      },
+    ]),
+    Membership.aggregate([
+      { $match: { businessId: { $in: ids }, status: "active" } },
+      { $group: { _id: "$businessId", n: { $sum: 1 } } },
+    ]),
+  ]);
+  const accountById = new Map(accounts.map((a) => [String(a._id), a]));
+  const salesById = new Map(sales.map((s) => [String(s._id), s]));
+  const peopleById = new Map(people.map((p) => [String(p._id), p.n]));
+
+  res.json({
+    businesses: rows.map((b) => {
+      const a = accountById.get(String(b.accountId));
+      const s = salesById.get(String(b._id));
+      return {
+        id: b._id,
+        accountId: b.accountId,
+        name: b.name,
+        typeKey: b.typeKey,
+        typeLabel: typeTemplate(b.typeKey).label,
+        accountName: a?.name || "—",
+        plan: a ? effectivePlan(a) : "free",
+        accountStatus: a?.status || "active",
+        people: peopleById.get(String(b._id)) || 0,
+        txns: s?.txns || 0,
+        revenue30d: money(s?.revenue30d || 0),
+        lastSaleAt: s?.last || null,
+        createdAt: b.createdAt,
+      };
+    }),
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    total,
+  });
+});
+
+// GET /api/platform/subscriptions — who is paying, who is on trial, who is about to lapse.
+platformRouter.get("/subscriptions", async (_req, res) => {
+  const now = new Date();
+  const accounts = await Account.find({ isSandbox: { $ne: true } })
+    .select("name plan subscription status ownerUserId createdAt").lean();
+  const owners = await User.find({ _id: { $in: accounts.map((a) => a.ownerUserId) } }).select("name email").lean();
+  const ownerById = new Map(owners.map((o) => [String(o._id), o]));
+
+  const counts = { paid: 0, trialing: 0, lapsed: 0, free: 0, legacy: 0 };
+  let mrr = 0;
+  const expiring = [];
+  const lapsed = [];
+  const payments = [];
+  const since30 = new Date(Date.now() - 30 * DAY);
+  let collected30d = 0;
+  let collectedAll = 0;
+
+  for (const a of accounts) {
+    const st = planStatus(a, now);
+    const owner = ownerById.get(String(a.ownerUserId));
+    const row = {
+      id: a._id, name: a.name, plan: st.plan, trial: st.trial,
+      periodEnd: st.periodEnd, owner: owner ? { name: owner.name, email: owner.email } : null,
+    };
+    if (st.legacy) counts.legacy++;
+    else if (st.lapsed) { counts.lapsed++; lapsed.push({ ...row, plan: a.subscription?.plan || "free" }); }
+    else if (st.trial) counts.trialing++;
+    else if (st.plan === "free") counts.free++;
+    else {
+      counts.paid++;
+      mrr += PLANS[st.plan]?.price || 0;
+    }
+    if (!st.legacy && !st.lapsed && st.plan !== "free" && st.periodEnd) {
+      const left = new Date(st.periodEnd).getTime() - now.getTime();
+      if (left <= 14 * DAY) expiring.push({ ...row, daysLeft: Math.max(0, Math.ceil(left / DAY)) });
+    }
+    for (const p of a.subscription?.payments || []) {
+      collectedAll += p.amount || 0;
+      if (p.at && new Date(p.at) >= since30) collected30d += p.amount || 0;
+      payments.push({ accountId: a._id, accountName: a.name, plan: p.plan, amount: p.amount, at: p.at, reference: p.reference });
+    }
+  }
+
+  expiring.sort((x, y) => x.daysLeft - y.daysLeft);
+  lapsed.sort((x, y) => new Date(y.periodEnd || 0) - new Date(x.periodEnd || 0));
+  payments.sort((x, y) => new Date(y.at || 0) - new Date(x.at || 0));
+
+  res.json({
+    counts,
+    mrr: money(mrr),
+    collected30d: money(collected30d),
+    collectedAll: money(collectedAll),
+    expiring: expiring.slice(0, 25),
+    lapsed: lapsed.slice(0, 25),
+    payments: payments.slice(0, 25),
+  });
 });
 
 // GET /api/platform/tickets — business tickets escalated to StarTrack support.

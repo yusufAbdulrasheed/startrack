@@ -22,6 +22,7 @@
     "seed:showcase": "node server/scripts/seedShowcase.js",
     "seed:showcase:reset": "node server/scripts/seedShowcase.js --reset",
     "seed:plans": "node server/scripts/assignPlans.js",
+    "seed:admin": "node server/scripts/seedSuperAdmin.js",
     "lint": "oxlint",
     "preview": "vite preview"
   },
