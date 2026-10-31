@@ -9,6 +9,7 @@ type AccountRow = {
   owner: { name: string; email: string } | null;
 };
 type Subs = {
+  paymentsOn?: boolean;
   counts: { paid: number; trialing: number; lapsed: number; free: number; legacy: number };
   mrr: number; collected30d: number; collectedAll: number;
   expiring: AccountRow[]; lapsed: AccountRow[];
@@ -31,6 +32,12 @@ export function SubscriptionsTab({ onOpenAccount }: { onOpenAccount: (id: string
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto animate-fade-up">
       <PageHeader title="Subscriptions" subtitle="Who is paying, who is trialling, and who is about to lapse." />
+
+      {data.paymentsOn === false && (
+        <div className="mb-4 rounded-2xl border border-warning/30 bg-warning-soft px-5 py-3.5 text-[13px] text-t1">
+          <b>Payments are switched off.</b> New accounts get 14 days of Pro, then continue free on Freemium; nobody is charged, so there is no income here. To give an account Pro or Business, set it from the account's drawer. Turn payments back on with <code className="font-mono text-[12px]">PAYMENTS_ENABLED</code> in server/shared/plans.js.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard icon={TrendingUp} tone="brand" label="Est. monthly recurring" value={compactMoney(data.mrr)} sub="From accounts on a current paid plan" />

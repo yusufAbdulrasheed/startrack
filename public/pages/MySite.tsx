@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown, ArrowUp, BadgeCheck, Check, Clock, Copy, ExternalLink, Globe, HelpCircle, Images, ImagePlus, LayoutGrid, Loader2, Megaphone, Monitor, Palette,
-  Phone, Plus, Quote, Rocket, Smartphone, Sparkles, Star, Trash2, Type, X,
+  Phone, Plus, Quote, Rocket, ShoppingBag, Smartphone, Sparkles, Star, Trash2, Type, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Panel";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select, TextArea } from "@/components/ui/Field";
 import { SiteView } from "@/components/site/SiteView";
+import { StoreSettings } from "@/pages/StoreSettings";
 import { api } from "@/lib/api";
 import { qrDataUrl } from "@/lib/qrcode";
 import { useSession } from "@/lib/session";
@@ -42,6 +43,7 @@ const TABS = [
   { key: "content", label: "Content", icon: Type },
   { key: "business", label: "Business", icon: Phone },
   { key: "layout", label: "Layout", icon: LayoutGrid },
+  { key: "store", label: "Online store", icon: ShoppingBag },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
@@ -314,7 +316,7 @@ export function MySite() {
         ))}
       </div>
 
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_430px] gap-6 items-start">
+      <div className={cn("grid gap-6 items-start", tab !== "store" && "lg:grid-cols-[minmax(0,1fr)_430px]")}>
         <div className="space-y-5 min-w-0">
           {tab === "setup" && (
             <>
@@ -586,6 +588,8 @@ export function MySite() {
             </>
           )}
 
+          {tab === "store" && <StoreSettings />}
+
           {tab === "layout" && (
             <Panel title="Sections" subtitle="Switch sections on or off and put them in the order you like" icon={LayoutGrid} tone="brand">
               <div className="space-y-2">
@@ -620,7 +624,7 @@ export function MySite() {
           )}
         </div>
 
-        <aside className="lg:sticky lg:top-4 space-y-3 min-w-0">
+        {tab !== "store" && <aside className="lg:sticky lg:top-4 space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <div className="text-[13px] font-bold text-t1">Live preview</div>
             <div className="flex p-1 rounded-xl border border-line-2 bg-surface-2 gap-0.5">
@@ -633,10 +637,10 @@ export function MySite() {
             <div className="max-h-[72vh] overflow-y-auto"><SiteView data={preview} preview /></div>
           </div>
           <p className="text-[11.5px] text-t3 text-center">Preview shows up to 12 products. The live page shows them all.</p>
-        </aside>
+        </aside>}
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
+      {tab !== "store" && <div className="fixed bottom-0 left-0 right-0 z-30 pointer-events-none">
         <div className="max-w-[1320px] mx-auto px-6 lg:px-8 pb-4 flex justify-end lg:pl-[calc(80px+2rem)]">
           <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-line bg-surface/95 backdrop-blur px-4 py-2.5 shadow-e3">
             <span className="text-[12.5px] text-t3">{saving ? "Saving…" : dirty ? "You have unsaved changes" : justSaved ? "All changes saved" : "No changes"}</span>
@@ -644,7 +648,7 @@ export function MySite() {
             <Button onClick={save} disabled={!dirty || saving}>{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save changes</Button>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

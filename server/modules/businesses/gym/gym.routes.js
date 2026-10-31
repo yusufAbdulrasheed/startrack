@@ -86,105 +86,100 @@ gymRouter.post("/subscriptions", requirePerm("sales"), requireBranch, async (req
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const out = await withTransaction(async (session) => {
-      const plan = await GymPlan.findOne({ _id: d.planId, businessId: req.ctx.businessId, active: true }).session(session);
-      if (!plan) throw notFound("That plan isn't available.");
+  const out = await withTransaction(async (session) => {
+    const plan = await GymPlan.findOne({ _id: d.planId, businessId: req.ctx.businessId, active: true }).session(session);
+    if (!plan) throw notFound("That plan isn't available.");
 
-      let customer = null;
-      if (d.customerId) {
-        customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
-        if (!customer) throw badRequest("That customer doesn't exist.");
-      } else if (d.customer?.name) {
-        customer =
-          (d.customer.phone &&
-            (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
-          (await Customer.create(
-            [{ accountId: req.ctx.accountId, businessId: req.ctx.businessId, name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone }],
-            { session }
-          ))[0];
-      } else {
-        throw badRequest("A membership needs a customer.");
-      }
+    let customer = null;
+    if (d.customerId) {
+      customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
+      if (!customer) throw badRequest("That customer doesn't exist.");
+    } else if (d.customer?.name) {
+      customer =
+        (d.customer.phone &&
+          (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
+        (await Customer.create(
+          [{ accountId: req.ctx.accountId, businessId: req.ctx.businessId, name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone }],
+          { session }
+        ))[0];
+    } else {
+      throw badRequest("A membership needs a customer.");
+    }
 
-      const paid = money(d.payments.reduce((s, p) => s + p.amount, 0));
-      if (Math.abs(paid - plan.price) > 0.01) {
-        throw badRequest(`Payments (${paid}) don't match the plan price (${plan.price}).`, "payment_mismatch");
-      }
+    const paid = money(d.payments.reduce((s, p) => s + p.amount, 0));
+    if (Math.abs(paid - plan.price) > 0.01) {
+      throw badRequest(`Payments (${paid}) don't match the plan price (${plan.price}).`, "payment_mismatch");
+    }
 
-      // Renewing extends from whichever is later — the current expiry (still
-      // active) or today (lapsed) — never from today when time is left on
-      // the clock already.
-      let subscription = await GymSubscription.findOne({ businessId: req.ctx.businessId, customerId: customer._id }).session(session);
-      const base = subscription && subscription.expiresAt > new Date() ? subscription.expiresAt : new Date();
-      const expiresAt = new Date(base.getTime() + plan.durationDays * 24 * 3600 * 1000);
+    // Renewing extends from whichever is later — the current expiry (still
+    // active) or today (lapsed) — never from today when time is left on
+    // the clock already.
+    let subscription = await GymSubscription.findOne({ businessId: req.ctx.businessId, customerId: customer._id }).session(session);
+    const base = subscription && subscription.expiresAt > new Date() ? subscription.expiresAt : new Date();
+    const expiresAt = new Date(base.getTime() + plan.durationDays * 24 * 3600 * 1000);
 
-      const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
-      const [sale] = await Sale.create(
+    const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
+    const [sale] = await Sale.create(
+      [{
+        accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
+        saleNo: `R-${String(seq).padStart(5, "0")}`,
+        staffId: req.ctx.userId, staffName: req.ctx.actorName,
+        customerId: customer._id, customerName: customer.name,
+        items: [{
+          productId: new mongoose.Types.ObjectId(), name: `${plan.name} membership`,
+          qty: 1, unitPrice: plan.price, lineCost: 0, lineNet: plan.price, returnedQty: 0,
+        }],
+        subtotal: plan.price, discount: 0, vat: 0, total: plan.price,
+        payments: d.payments.map((p) => ({ method: p.method, amount: money(p.amount) })),
+      }],
+      { session }
+    );
+
+    if (subscription) {
+      subscription.planId = plan._id;
+      subscription.planName = plan.name;
+      subscription.expiresAt = expiresAt;
+      subscription.status = "active";
+      subscription.saleId = sale._id;
+      subscription.renewalHistory.push({ at: new Date(), planId: plan._id, planName: plan.name, saleId: sale._id, expiresAtAfter: expiresAt });
+      await subscription.save({ session });
+    } else {
+      [subscription] = await GymSubscription.create(
         [{
           accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
-          saleNo: `R-${String(seq).padStart(5, "0")}`,
-          staffId: req.ctx.userId, staffName: req.ctx.actorName,
           customerId: customer._id, customerName: customer.name,
-          items: [{
-            productId: new mongoose.Types.ObjectId(), name: `${plan.name} membership`,
-            qty: 1, unitPrice: plan.price, lineCost: 0, lineNet: plan.price, returnedQty: 0,
-          }],
-          subtotal: plan.price, discount: 0, vat: 0, total: plan.price,
-          payments: d.payments.map((p) => ({ method: p.method, amount: money(p.amount) })),
+          planId: plan._id, planName: plan.name,
+          startDate: new Date(), expiresAt, status: "active", saleId: sale._id,
         }],
         { session }
       );
+    }
 
-      if (subscription) {
-        subscription.planId = plan._id;
-        subscription.planName = plan.name;
-        subscription.expiresAt = expiresAt;
-        subscription.status = "active";
-        subscription.saleId = sale._id;
-        subscription.renewalHistory.push({ at: new Date(), planId: plan._id, planName: plan.name, saleId: sale._id, expiresAtAfter: expiresAt });
-        await subscription.save({ session });
-      } else {
-        [subscription] = await GymSubscription.create(
-          [{
-            accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
-            customerId: customer._id, customerName: customer.name,
-            planId: plan._id, planName: plan.name,
-            startDate: new Date(), expiresAt, status: "active", saleId: sale._id,
-          }],
-          { session }
-        );
-      }
+    customer.totalSpend = money(customer.totalSpend + plan.price);
+    customer.visits += 1;
+    customer.lastSeen = new Date();
+    customer.lastBranchId = req.ctx.branchId;
+    await customer.save({ session });
 
-      customer.totalSpend = money(customer.totalSpend + plan.price);
-      customer.visits += 1;
-      customer.lastSeen = new Date();
-      customer.lastBranchId = req.ctx.branchId;
-      await customer.save({ session });
+    // Access control IS the product here — issue the check-in card on
+    // signup immediately, bypassing the loyalty module's own patronage
+    // rule (that's a reward for repeat custom; this is what a member is
+    // buying). Reuses the exact same LoyaltyCard model/QR flow, not a
+    // second card system.
+    let card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, customerId: customer._id, status: "active" }).session(session);
+    if (!card) card = await issueCardForCustomer(req.ctx, customer._id, "gym_signup", session);
 
-      // Access control IS the product here — issue the check-in card on
-      // signup immediately, bypassing the loyalty module's own patronage
-      // rule (that's a reward for repeat custom; this is what a member is
-      // buying). Reuses the exact same LoyaltyCard model/QR flow, not a
-      // second card system.
-      let card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, customerId: customer._id, status: "active" }).session(session);
-      if (!card) card = await issueCardForCustomer(req.ctx, customer._id, "gym_signup", session);
+    const split = {};
+    for (const p of d.payments) split[p.method] = (split[p.method] || 0) + p.amount;
+    await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { revenue: plan.price, profit: plan.price, txns: 1, payments: split }, session);
 
-      const split = {};
-      for (const p of d.payments) split[p.method] = (split[p.method] || 0) + p.amount;
-      await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { revenue: plan.price, profit: plan.price, txns: 1, payments: split }, session);
+    return { subscription, sale, card };
+  });
 
-      return { subscription, sale, card };
-    });
-
-    audit(req.ctx, "gym.subscription.purchase", { type: "gymSubscription", id: out.subscription._id, label: out.subscription.customerName }, undefined, {
-      planName: out.subscription.planName, saleNo: out.sale.saleNo,
-    });
-    res.status(201).json({ subscription: shapeSubscription(out.subscription), saleNo: out.sale.saleNo, cardCode: out.card?.code });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  audit(req.ctx, "gym.subscription.purchase", { type: "gymSubscription", id: out.subscription._id, label: out.subscription.customerName }, undefined, {
+    planName: out.subscription.planName, saleNo: out.sale.saleNo,
+  });
+  res.status(201).json({ subscription: shapeSubscription(out.subscription), saleNo: out.sale.saleNo, cardCode: out.card?.code });
 });
 
 // GET /api/gym/subscriptions?status=active — the roster.
@@ -216,39 +211,34 @@ gymRouter.post("/check-in", requirePerm("sales"), requireBranch, async (req, res
   const parsed = checkInSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: "That doesn't look like a member code." });
 
-  try {
-    const card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, code: parsed.data.code, status: "active" });
-    if (!card) throw notFound("That card isn't recognised here.", "not_found");
+  const card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, code: parsed.data.code, status: "active" });
+  if (!card) throw notFound("That card isn't recognised here.", "not_found");
 
-    const customer = await Customer.findById(card.customerId);
-    if (!customer) throw notFound("The member for this card no longer exists.", "not_found");
+  const customer = await Customer.findById(card.customerId);
+  if (!customer) throw notFound("The member for this card no longer exists.", "not_found");
 
-    const subscription = await GymSubscription.findOne({ businessId: req.ctx.businessId, customerId: card.customerId });
-    const active = !!subscription && subscription.status === "active" && subscription.expiresAt > new Date();
-    const reason = !subscription ? "no_membership" : !active ? "expired" : "";
+  const subscription = await GymSubscription.findOne({ businessId: req.ctx.businessId, customerId: card.customerId });
+  const active = !!subscription && subscription.status === "active" && subscription.expiresAt > new Date();
+  const reason = !subscription ? "no_membership" : !active ? "expired" : "";
 
-    card.lastScannedAt = new Date();
-    card.scanCount += 1;
-    await card.save();
+  card.lastScannedAt = new Date();
+  card.scanCount += 1;
+  await card.save();
 
-    const checkIn = await GymCheckIn.create({
-      accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
-      customerId: customer._id, customerName: customer.name, subscriptionId: subscription?._id || null,
-      allowed: active, reason, byStaffId: req.ctx.userId, byStaffName: req.ctx.actorName,
-    });
+  const checkIn = await GymCheckIn.create({
+    accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
+    customerId: customer._id, customerName: customer.name, subscriptionId: subscription?._id || null,
+    allowed: active, reason, byStaffId: req.ctx.userId, byStaffName: req.ctx.actorName,
+  });
 
-    res.json({
-      allowed: active,
-      memberName: customer.name,
-      planName: subscription?.planName || null,
-      expiresAt: subscription?.expiresAt || null,
-      reason: reason || undefined,
-      checkInId: checkIn._id,
-    });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  res.json({
+    allowed: active,
+    memberName: customer.name,
+    planName: subscription?.planName || null,
+    expiresAt: subscription?.expiresAt || null,
+    reason: reason || undefined,
+    checkInId: checkIn._id,
+  });
 });
 
 // GET /api/gym/check-ins?date=YYYY-MM-DD — front desk's activity log.

@@ -42,6 +42,12 @@ import { Academy } from "@/pages/Academy";
 import { Appointments } from "@/pages/Appointments";
 import { Projects } from "@/pages/Projects";
 import { MySite } from "@/pages/MySite";
+import { Orders } from "@/pages/Orders";
+import { Invoices } from "@/pages/Invoices";
+import { InvoiceView } from "@/pages/InvoiceView";
+import { ReceiptView } from "@/pages/ReceiptView";
+import { Inventory } from "@/pages/Inventory";
+import { ImportHistory } from "@/pages/ImportHistory";
 import { Billing } from "@/pages/Billing";
 import { ReceiptDesigner } from "@/pages/ReceiptDesigner";
 import { FeatureGate } from "@/components/plan/PlanUi";
@@ -72,6 +78,8 @@ export default function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/loyalty/:code" element={<LoyaltyCardView />} />
       <Route path="/s/:slug" element={<BusinessSite />} />
+      <Route path="/i/:token" element={<InvoiceView />} />
+      <Route path="/r/:token" element={<ReceiptView />} />
       <Route
         path="/admin"
         element={
@@ -125,6 +133,10 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
         <Route path="billing" element={<Billing />} />
         <Route path="receipt" element={<FeatureGate feature="receiptCustom"><ReceiptDesigner /></FeatureGate>} />
+        <Route path="inventory" element={<Inventory />} />
+        <Route path="import-history" element={<FeatureGate feature="csvImport"><ImportHistory /></FeatureGate>} />
+        <Route path="invoices" element={<FeatureGate feature="invoices"><Invoices /></FeatureGate>} />
+        <Route path="orders" element={<FeatureGate feature="sitePage"><Orders /></FeatureGate>} />
         <Route path="my-site" element={<FeatureGate feature="sitePage"><MySite /></FeatureGate>} />
         <Route path="audit" element={<FeatureGate feature="auditLog"><Audit /></FeatureGate>} />
         <Route path="tickets" element={<Tickets />} />

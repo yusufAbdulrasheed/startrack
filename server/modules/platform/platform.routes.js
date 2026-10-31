@@ -11,7 +11,8 @@ import { requireAuth } from "#core/middleware/requireAuth.js";
 import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { money } from "#core/money.js";
 import { typeTemplate } from "#shared/businessTypes.js";
-import { PLANS, effectivePlan, isPlan, isLegacyAccount, planStatus } from "#shared/plans.js";
+import { PAYMENTS_ENABLED, PLANS, effectivePlan, isPlan, isLegacyAccount, planStatus } from "#shared/plans.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const platformRouter = Router();
 
@@ -72,6 +73,7 @@ platformRouter.get("/overview", async (req, res) => {
   const activeIds = await Sale.distinct("businessId", { at: { $gte: since7 } });
 
   res.json({
+    paymentsOn: PAYMENTS_ENABLED,
     viewer: { name: req.platformUser.name, platformRole: req.platformUser.platformRole },
     totals: {
       accounts, sandboxes, businesses, users, branches,
@@ -89,7 +91,7 @@ platformRouter.get("/overview", async (req, res) => {
 platformRouter.get("/accounts", async (req, res) => {
   const filter = req.query.includeSandbox === "1" ? {} : { isSandbox: { $ne: true } };
   if (req.query.q) {
-    filter.name = { $regex: String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+    filter.name = { $regex: escapeRegex(req.query.q), $options: "i" };
   }
   if (req.query.status === "suspended") filter.status = "suspended";
 
@@ -201,8 +203,12 @@ platformRouter.post("/accounts/:id/plan", requireOverseer, async (req, res) => {
     account.subscription = {
       plan,
       trial: false,
+      // Keeps this from being read as an account that predates the trial rules.
+      registeredPlan: account.subscription?.registeredPlan || (isPlan(account.plan) ? account.plan : plan),
       currentPeriodEnd: new Date(Date.now() + days * DAY),
       payments: account.subscription?.payments || [],
+      bonus: account.subscription?.bonus,
+      bonusUsed: !!account.subscription?.bonusUsed,
     };
   }
   await account.save();
@@ -280,7 +286,7 @@ platformRouter.get("/growth", async (req, res) => {
 platformRouter.get("/businesses", async (req, res) => {
   const filter = {};
   if (req.query.q) {
-    filter.name = { $regex: String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+    filter.name = { $regex: escapeRegex(req.query.q), $options: "i" };
   }
   if (req.query.typeKey) filter.typeKey = String(req.query.typeKey);
 
@@ -393,6 +399,7 @@ platformRouter.get("/subscriptions", async (_req, res) => {
   payments.sort((x, y) => new Date(y.at || 0) - new Date(x.at || 0));
 
   res.json({
+    paymentsOn: PAYMENTS_ENABLED,
     counts,
     mrr: money(mrr),
     collected30d: money(collected30d),

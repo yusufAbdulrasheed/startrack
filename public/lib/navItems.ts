@@ -29,6 +29,8 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       to: "/app/pos", label: t.pos, icon: ShoppingCart, perm: "sales",
       children: [
         { to: "/app/pos", label: "Sell", perm: "sales" },
+        { to: "/app/orders", label: "Online orders", perm: "sales", feature: "sitePage" },
+        { to: "/app/invoices", label: "Invoices", perm: "customers", feature: "invoices" },
         { to: "/app/front-desk", label: "Front Desk", perm: "sales", capability: "rooms", feature: "verticals" },
         { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain", feature: "verticals" },
         { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue", feature: "verticals" },
@@ -58,6 +60,7 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       to: "/app/products", label: t.products, icon: Package, perm: "stock",
       children: [
         { to: "/app/products", label: "Catalog", perm: "stock" },
+        { to: "/app/inventory", label: "Inventory", perm: "stock" },
         { to: "/app/stock-in", label: "Stock In", perm: "stock" },
         { to: "/app/transfers", label: "Transfers", perm: "stock", module: "transfers", feature: "transfers" },
         { to: "/app/serials", label: "Serial Numbers", perm: "stock", capability: "serials", feature: "verticals" },
@@ -75,6 +78,7 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
         { to: "/app/settings", label: "Preferences", perm: "settings" },
         { to: "/app/businesses", label: "My Businesses", perm: "*" },
         { to: "/app/my-site", label: "Business page", perm: "*", feature: "sitePage" },
+        { to: "/app/import-history", label: "Import past sales", perm: "*", feature: "csvImport" },
         { to: "/app/receipt", label: "Receipt designer", perm: "settings", feature: "receiptCustom" },
         { to: "/app/billing", label: "Plan & billing", perm: "*" },
         { to: "/app/audit", label: "Audit Log", perm: "settings", feature: "auditLog" },

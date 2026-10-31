@@ -14,6 +14,7 @@ import { audit } from "#core/audit.js";
 import { withTransaction } from "#core/tx.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
+import { escapeRegex } from "#core/regex.js";
 import {
   availabilityGrid, isRoomFree, validateRange, nightsIn, addDays,
   folioTotals, shapeStay,
@@ -130,69 +131,64 @@ hotelRouter.post("/stays", requirePerm("sales"), requireBranch, async (req, res)
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const stay = await withTransaction(async (session) => {
-      const nights = validateRange(d.checkIn, d.checkOut);
-      const room = await Room.findOne({ _id: d.roomId, businessId: req.ctx.businessId, branchId: req.ctx.branchId }).session(session);
-      if (!room) throw badRequest("That room doesn't exist.");
-      if (room.housekeeping === "out_of_service") throw conflict(`Room ${room.number} is out of service.`, "out_of_service");
+  const stay = await withTransaction(async (session) => {
+    const nights = validateRange(d.checkIn, d.checkOut);
+    const room = await Room.findOne({ _id: d.roomId, businessId: req.ctx.businessId, branchId: req.ctx.branchId }).session(session);
+    if (!room) throw badRequest("That room doesn't exist.");
+    if (room.housekeeping === "out_of_service") throw conflict(`Room ${room.number} is out of service.`, "out_of_service");
 
-      const { free, clash } = await isRoomFree(req.ctx.businessId, room._id, d.checkIn, d.checkOut);
-      if (!free) {
-        throw conflict(
-          `Room ${room.number} is taken by ${clash.guestName} (${clash.checkIn} → ${clash.checkOut}).`,
-          "room_taken"
-        );
-      }
+    const { free, clash } = await isRoomFree(req.ctx.businessId, room._id, d.checkIn, d.checkOut);
+    if (!free) {
+      throw conflict(
+        `Room ${room.number} is taken by ${clash.guestName} (${clash.checkIn} → ${clash.checkOut}).`,
+        "room_taken"
+      );
+    }
 
-      const type = await RoomType.findById(room.roomTypeId).session(session);
-      const nightlyRate = d.rate !== undefined ? money(d.rate) : (type?.rate ?? 0);
+    const type = await RoomType.findById(room.roomTypeId).session(session);
+    const nightlyRate = d.rate !== undefined ? money(d.rate) : (type?.rate ?? 0);
 
-      let customer = null;
-      if (d.guestPhone) {
-        customer =
-          (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.guestPhone }).session(session)) ||
-          (await Customer.create([{
-            accountId: req.ctx.accountId, businessId: req.ctx.businessId,
-            name: d.guestName, phone: d.guestPhone, whatsapp: d.guestPhone,
-          }], { session }))[0];
-      }
+    let customer = null;
+    if (d.guestPhone) {
+      customer =
+        (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.guestPhone }).session(session)) ||
+        (await Customer.create([{
+          accountId: req.ctx.accountId, businessId: req.ctx.businessId,
+          name: d.guestName, phone: d.guestPhone, whatsapp: d.guestPhone,
+        }], { session }))[0];
+    }
 
-      const seq = await nextSeq(`folio:${req.ctx.branchId}`, session);
-      const [stay] = await Stay.create([{
-        accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
-        folioNo: `F-${String(seq).padStart(5, "0")}`,
-        roomId: room._id, roomNumber: room.number, roomTypeName: type?.name || "",
-        guestName: d.guestName.trim(), guestPhone: d.guestPhone, customerId: customer?._id,
-        guests: d.guests, checkIn: d.checkIn, checkOut: d.checkOut, nights, nightlyRate,
-        status: d.checkInNow ? "checked_in" : "booked",
-        checkedInAt: d.checkInNow ? new Date() : undefined,
-        notes: d.notes,
-        staffName: req.ctx.actorName,
-        // Room nights are posted up front so the folio always shows what the
-        // stay is worth, even before anything else is charged to it.
-        charges: nightsIn(d.checkIn, d.checkOut).map((night) => ({
-          at: new Date(), source: "room", name: `${room.number} · ${type?.name || "Room"} · ${night}`,
-          qty: 1, unitPrice: nightlyRate, lineCost: 0, lineNet: nightlyRate,
-          byName: req.ctx.actorName,
-        })),
-      }], { session });
+    const seq = await nextSeq(`folio:${req.ctx.branchId}`, session);
+    const [stay] = await Stay.create([{
+      accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
+      folioNo: `F-${String(seq).padStart(5, "0")}`,
+      roomId: room._id, roomNumber: room.number, roomTypeName: type?.name || "",
+      guestName: d.guestName.trim(), guestPhone: d.guestPhone, customerId: customer?._id,
+      guests: d.guests, checkIn: d.checkIn, checkOut: d.checkOut, nights, nightlyRate,
+      status: d.checkInNow ? "checked_in" : "booked",
+      checkedInAt: d.checkInNow ? new Date() : undefined,
+      notes: d.notes,
+      staffName: req.ctx.actorName,
+      // Room nights are posted up front so the folio always shows what the
+      // stay is worth, even before anything else is charged to it.
+      charges: nightsIn(d.checkIn, d.checkOut).map((night) => ({
+        at: new Date(), source: "room", name: `${room.number} · ${type?.name || "Room"} · ${night}`,
+        qty: 1, unitPrice: nightlyRate, lineCost: 0, lineNet: nightlyRate,
+        byName: req.ctx.actorName,
+      })),
+    }], { session });
 
-      if (d.checkInNow) {
-        room.housekeeping = "clean";
-        await room.save({ session });
-      }
-      return stay;
-    });
+    if (d.checkInNow) {
+      room.housekeeping = "clean";
+      await room.save({ session });
+    }
+    return stay;
+  });
 
-    audit(req.ctx, "hotel.book", { type: "stay", id: stay._id, label: stay.folioNo }, undefined, {
-      room: stay.roomNumber, guest: stay.guestName, nights: stay.nights,
-    });
-    res.status(201).json({ stay: shapeStay(stay, req.ctx.business, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  audit(req.ctx, "hotel.book", { type: "stay", id: stay._id, label: stay.folioNo }, undefined, {
+    room: stay.roomNumber, guest: stay.guestName, nights: stay.nights,
+  });
+  res.status(201).json({ stay: shapeStay(stay, req.ctx.business, canSeeCost(req.ctx)) });
 });
 
 // GET /api/hotel/stays?status=&q=
@@ -204,7 +200,7 @@ hotelRouter.get("/stays", requirePerm("sales", "dashboard_ops"), requireBranch, 
   if (req.query.arrivals === "1") { filter.status = "booked"; filter.checkIn = today(); }
   if (req.query.departures === "1") { filter.status = "checked_in"; filter.checkOut = today(); }
   if (req.query.q) {
-    const rx = String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = escapeRegex(req.query.q);
     filter.$or = [
       { folioNo: { $regex: rx, $options: "i" } },
       { guestName: { $regex: rx, $options: "i" } },
@@ -234,24 +230,19 @@ hotelRouter.get("/stays/:id", requirePerm("sales", "dashboard_ops"), async (req,
 
 // POST /api/hotel/stays/:id/check-in
 hotelRouter.post("/stays/:id/check-in", requirePerm("sales"), async (req, res) => {
-  try {
-    const stay = await withTransaction(async (session) => {
-      const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!stay) throw notFound("Folio not found.");
-      if (stay.status === "checked_in") throw conflict("This guest is already checked in.", "already_in");
-      if (stay.status !== "booked") throw conflict(`This stay is ${stay.status.replace("_", " ")}.`, "bad_status");
-      stay.status = "checked_in";
-      stay.checkedInAt = new Date();
-      await stay.save({ session });
-      await Room.updateOne({ _id: stay.roomId }, { $set: { housekeeping: "clean" } }, { session });
-      return stay;
-    });
-    audit(req.ctx, "hotel.check_in", { type: "stay", id: stay._id, label: stay.folioNo }, undefined, { room: stay.roomNumber });
-    res.json({ stay: shapeStay(stay, req.ctx.business, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  const stay = await withTransaction(async (session) => {
+    const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!stay) throw notFound("Folio not found.");
+    if (stay.status === "checked_in") throw conflict("This guest is already checked in.", "already_in");
+    if (stay.status !== "booked") throw conflict(`This stay is ${stay.status.replace("_", " ")}.`, "bad_status");
+    stay.status = "checked_in";
+    stay.checkedInAt = new Date();
+    await stay.save({ session });
+    await Room.updateOne({ _id: stay.roomId }, { $set: { housekeeping: "clean" } }, { session });
+    return stay;
+  });
+  audit(req.ctx, "hotel.check_in", { type: "stay", id: stay._id, label: stay.folioNo }, undefined, { room: stay.roomNumber });
+  res.json({ stay: shapeStay(stay, req.ctx.business, canSeeCost(req.ctx)) });
 });
 
 const chargeSchema = z.object({
@@ -274,50 +265,44 @@ hotelRouter.post("/stays/:id/charge", requirePerm("sales"), async (req, res) => 
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const out = await withTransaction(async (session) => {
-      const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!stay) throw notFound("Folio not found.");
-      if (stay.status !== "checked_in") throw conflict("Charges can only be posted to a guest in house.", "not_in_house");
+  const out = await withTransaction(async (session) => {
+    const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!stay) throw notFound("Folio not found.");
+    if (stay.status !== "checked_in") throw conflict("Charges can only be posted to a guest in house.", "not_in_house");
 
-      let charge;
-      if (d.productId) {
-        const p = await Product.findOne({ _id: d.productId, businessId: req.ctx.businessId, status: "active" }).session(session);
-        if (!p) throw badRequest("That item no longer exists.");
-        const unitPrice = d.price !== undefined ? money(d.price) : p.price;
-        // The item physically left the hotel's stock even though nobody paid.
-        await applyMovement(req.ctx, {
-          branchId: stay.branchId, productId: p._id, productName: p.name,
-          type: "OUT", qty: -d.qty, refType: "stay", refId: stay._id,
-          reason: `Folio ${stay.folioNo} · room ${stay.roomNumber}`, session,
-        });
-        charge = {
-          at: new Date(), source: d.source, productId: p._id, name: p.name, qty: d.qty,
-          unitPrice, lineCost: money((p.cost || 0) * d.qty), lineNet: money(unitPrice * d.qty),
-          byName: req.ctx.actorName, stockMoved: true,
-        };
-      } else {
-        if (!d.name?.trim()) throw badRequest("Describe the charge.");
-        if (d.price === undefined) throw badRequest("Give the charge a price.");
-        charge = {
-          at: new Date(), source: d.source, name: d.name.trim(), qty: d.qty,
-          unitPrice: money(d.price), lineCost: 0, lineNet: money(money(d.price) * d.qty),
-          byName: req.ctx.actorName, stockMoved: false,
-        };
-      }
+    let charge;
+    if (d.productId) {
+      const p = await Product.findOne({ _id: d.productId, businessId: req.ctx.businessId, status: "active" }).session(session);
+      if (!p) throw badRequest("That item no longer exists.");
+      const unitPrice = d.price !== undefined ? money(d.price) : p.price;
+      // The item physically left the hotel's stock even though nobody paid.
+      await applyMovement(req.ctx, {
+        branchId: stay.branchId, productId: p._id, productName: p.name,
+        type: "OUT", qty: -d.qty, refType: "stay", refId: stay._id,
+        reason: `Folio ${stay.folioNo} · room ${stay.roomNumber}`, session,
+      });
+      charge = {
+        at: new Date(), source: d.source, productId: p._id, name: p.name, qty: d.qty,
+        unitPrice, lineCost: money((p.cost || 0) * d.qty), lineNet: money(unitPrice * d.qty),
+        byName: req.ctx.actorName, stockMoved: true,
+      };
+    } else {
+      if (!d.name?.trim()) throw badRequest("Describe the charge.");
+      if (d.price === undefined) throw badRequest("Give the charge a price.");
+      charge = {
+        at: new Date(), source: d.source, name: d.name.trim(), qty: d.qty,
+        unitPrice: money(d.price), lineCost: 0, lineNet: money(money(d.price) * d.qty),
+        byName: req.ctx.actorName, stockMoved: false,
+      };
+    }
 
-      stay.charges.push(charge);
-      await stay.save({ session });
-      return { stay, charge };
-    });
+    stay.charges.push(charge);
+    await stay.save({ session });
+    return { stay, charge };
+  });
 
-    if (out.charge.productId) afterStockChange(req.ctx, out.stay.branchId, [out.charge.productId]);
-    res.status(201).json({ stay: shapeStay(out.stay, req.ctx.business, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  if (out.charge.productId) afterStockChange(req.ctx, out.stay.branchId, [out.charge.productId]);
+  res.status(201).json({ stay: shapeStay(out.stay, req.ctx.business, canSeeCost(req.ctx)) });
 });
 
 // POST /api/hotel/stays/:id/payment — part-payment during the stay
@@ -346,80 +331,75 @@ hotelRouter.post("/stays/:id/payment", requirePerm("sales"), async (req, res) =>
 hotelRouter.post("/stays/:id/check-out", requirePerm("sales"), async (req, res) => {
   const payments = Array.isArray(req.body?.payments) ? req.body.payments : [];
 
-  try {
-    const out = await withTransaction(async (session) => {
-      const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!stay) throw notFound("Folio not found.");
-      if (stay.status === "checked_out") throw conflict("This guest already checked out.", "already_out");
-      if (stay.status !== "checked_in") throw conflict("Check the guest in first.", "not_in_house");
+  const out = await withTransaction(async (session) => {
+    const stay = await Stay.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!stay) throw notFound("Folio not found.");
+    if (stay.status === "checked_out") throw conflict("This guest already checked out.", "already_out");
+    if (stay.status !== "checked_in") throw conflict("Check the guest in first.", "not_in_house");
 
-      const totals = folioTotals(req.ctx.business, stay.charges, stay.discount);
-      const already = money(stay.payments.reduce((s, p) => s + p.amount, 0));
-      const nowPaid = money(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
-      const due = money(totals.total - already);
-      if (Math.abs(nowPaid - due) > 0.01) {
-        throw badRequest(`Payments (${nowPaid}) don't match the balance owing (${due}).`, "payment_mismatch");
+    const totals = folioTotals(req.ctx.business, stay.charges, stay.discount);
+    const already = money(stay.payments.reduce((s, p) => s + p.amount, 0));
+    const nowPaid = money(payments.reduce((s, p) => s + Number(p.amount || 0), 0));
+    const due = money(totals.total - already);
+    if (Math.abs(nowPaid - due) > 0.01) {
+      throw badRequest(`Payments (${nowPaid}) don't match the balance owing (${due}).`, "payment_mismatch");
+    }
+
+    for (const p of payments) {
+      if (!["cash", "pos", "transfer"].includes(p.method)) throw badRequest("Unknown payment method.");
+      stay.payments.push({ method: p.method, amount: money(p.amount), at: new Date() });
+    }
+
+    const split = {};
+    for (const p of stay.payments) split[p.method] = money((split[p.method] || 0) + p.amount);
+
+    const seq = await nextSeq(`sale:${stay.branchId}`, session);
+    const [sale] = await Sale.create([{
+      accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: stay.branchId,
+      saleNo: `R-${String(seq).padStart(5, "0")}`,
+      staffId: req.ctx.userId, staffName: req.ctx.actorName,
+      customerId: stay.customerId, customerName: stay.guestName,
+      items: stay.charges.map((c) => ({
+        productId: c.productId || stay._id, name: c.name, qty: c.qty,
+        unitPrice: c.unitPrice, lineCost: c.lineCost, lineNet: c.lineNet, returnedQty: 0,
+      })),
+      subtotal: totals.subtotal, discount: totals.discount, vat: totals.vat, total: totals.total,
+      payments: Object.entries(split).map(([method, amount]) => ({ method, amount })),
+    }], { session });
+
+    stay.status = "checked_out";
+    stay.checkedOutAt = new Date();
+    stay.vat = totals.vat;
+    stay.total = totals.total;
+    stay.saleId = sale._id;
+    await stay.save({ session });
+
+    // The guest has gone; the room needs making up before it sells again.
+    await Room.updateOne({ _id: stay.roomId }, { $set: { housekeeping: "dirty" } }, { session });
+
+    if (stay.customerId) {
+      const customer = await Customer.findById(stay.customerId).session(session);
+      if (customer) {
+        customer.totalSpend = money(customer.totalSpend + totals.total);
+        customer.visits += 1;
+        customer.lastSeen = new Date();
+        await customer.save({ session });
       }
+    }
 
-      for (const p of payments) {
-        if (!["cash", "pos", "transfer"].includes(p.method)) throw badRequest("Unknown payment method.");
-        stay.payments.push({ method: p.method, amount: money(p.amount), at: new Date() });
-      }
+    const totalCost = money(stay.charges.reduce((s, c) => s + (c.lineCost || 0), 0));
+    await bumpDailyMetric(req.ctx, stay.branchId, localDay(), {
+      revenue: totals.total, cost: totalCost, profit: totals.total - totals.vat - totalCost,
+      txns: 1, discountTotal: totals.discount, vatTotal: totals.vat, payments: split,
+    }, session);
 
-      const split = {};
-      for (const p of stay.payments) split[p.method] = money((split[p.method] || 0) + p.amount);
+    return { stay, sale };
+  });
 
-      const seq = await nextSeq(`sale:${stay.branchId}`, session);
-      const [sale] = await Sale.create([{
-        accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: stay.branchId,
-        saleNo: `R-${String(seq).padStart(5, "0")}`,
-        staffId: req.ctx.userId, staffName: req.ctx.actorName,
-        customerId: stay.customerId, customerName: stay.guestName,
-        items: stay.charges.map((c) => ({
-          productId: c.productId || stay._id, name: c.name, qty: c.qty,
-          unitPrice: c.unitPrice, lineCost: c.lineCost, lineNet: c.lineNet, returnedQty: 0,
-        })),
-        subtotal: totals.subtotal, discount: totals.discount, vat: totals.vat, total: totals.total,
-        payments: Object.entries(split).map(([method, amount]) => ({ method, amount })),
-      }], { session });
-
-      stay.status = "checked_out";
-      stay.checkedOutAt = new Date();
-      stay.vat = totals.vat;
-      stay.total = totals.total;
-      stay.saleId = sale._id;
-      await stay.save({ session });
-
-      // The guest has gone; the room needs making up before it sells again.
-      await Room.updateOne({ _id: stay.roomId }, { $set: { housekeeping: "dirty" } }, { session });
-
-      if (stay.customerId) {
-        const customer = await Customer.findById(stay.customerId).session(session);
-        if (customer) {
-          customer.totalSpend = money(customer.totalSpend + totals.total);
-          customer.visits += 1;
-          customer.lastSeen = new Date();
-          await customer.save({ session });
-        }
-      }
-
-      const totalCost = money(stay.charges.reduce((s, c) => s + (c.lineCost || 0), 0));
-      await bumpDailyMetric(req.ctx, stay.branchId, localDay(), {
-        revenue: totals.total, cost: totalCost, profit: totals.total - totals.vat - totalCost,
-        txns: 1, discountTotal: totals.discount, vatTotal: totals.vat, payments: split,
-      }, session);
-
-      return { stay, sale };
-    });
-
-    audit(req.ctx, "hotel.check_out", { type: "stay", id: out.stay._id, label: out.stay.folioNo }, undefined, {
-      room: out.stay.roomNumber, total: out.stay.total, saleNo: out.sale.saleNo,
-    });
-    res.json({ stay: shapeStay(out.stay, req.ctx.business, canSeeCost(req.ctx)), saleNo: out.sale.saleNo });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  audit(req.ctx, "hotel.check_out", { type: "stay", id: out.stay._id, label: out.stay.folioNo }, undefined, {
+    room: out.stay.roomNumber, total: out.stay.total, saleNo: out.sale.saleNo,
+  });
+  res.json({ stay: shapeStay(out.stay, req.ctx.business, canSeeCost(req.ctx)), saleNo: out.sale.saleNo });
 });
 
 // POST /api/hotel/stays/:id/cancel — frees the room immediately

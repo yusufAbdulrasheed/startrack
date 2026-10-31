@@ -12,6 +12,7 @@ import { imageUploadEnabled, uploadImage, deleteImage } from "#core/cloudinary.j
 import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { archiveProducts, archivableFilter } from "#modules/products/archive.service.js";
 import { findPhotos, downloadPhoto, photoSources } from "#modules/products/photoSearch.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const productsRouter = Router();
 
@@ -25,7 +26,7 @@ const upload = multer({
 // whitespace-insensitively — "Egg Crate" and "egg crate " are the same
 // product. Scoped per business; another business can have its own.
 async function findNameTaken(ctx, name, excludeId) {
-  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = escapeRegex(name);
   const filter = { businessId: ctx.businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } };
   if (excludeId) filter._id = { $ne: excludeId };
   // Only clashes with what this store can see: another store may sell its own "Rice".
@@ -119,7 +120,7 @@ async function validateBom(businessId, bom) {
 productsRouter.get("/", async (req, res) => {
   const filter = { businessId: req.ctx.businessId, status: req.query.status === "archived" ? "archived" : "active" };
   if (req.query.category && req.query.category !== "All") filter.category = req.query.category;
-  if (req.query.q) filter.name = { $regex: String(req.query.q).trim(), $options: "i" };
+  if (req.query.q) filter.name = { $regex: escapeRegex(req.query.q).slice(0, 60), $options: "i" };
 
   const products = await Product.find(scopedToBranch(req.ctx, filter)).sort({ name: 1 }).limit(1000);
   let stockByProduct = null;

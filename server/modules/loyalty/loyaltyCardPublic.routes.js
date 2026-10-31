@@ -1,8 +1,8 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { LoyaltyCard } from "#modules/loyalty/loyaltyCard.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
 import { Business } from "#modules/business/business.model.js";
-import { rateLimit } from "#core/rateLimit.js";
+import { allow } from "#core/rateLimit.js";
 
 export const loyaltyCardPublicRouter = Router();
 
@@ -15,9 +15,7 @@ export const loyaltyCardPublicRouter = Router();
  */
 loyaltyCardPublicRouter.get("/:code", async (req, res) => {
   const code = req.params.code;
-  if (!rateLimit(`loyaltycard:${code}`, { max: 20, windowMs: 60_000 })) {
-    return res.status(429).json({ error: "rate_limited", message: "Too many requests. Try again shortly." });
-  }
+  if (!allow(res, `loyaltycard:${code}`, { max: 20, windowMs: 60_000 })) return;
 
   const card = await LoyaltyCard.findOne({ code, status: "active" });
   if (!card) return res.status(404).json({ error: "not_found", message: "This loyalty card isn't valid." });

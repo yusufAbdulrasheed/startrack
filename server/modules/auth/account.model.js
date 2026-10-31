@@ -19,6 +19,15 @@ const accountSchema = new mongoose.Schema(
       // Every payment that has been applied, so a replayed webhook or a
       // double-click on "verify" can never extend the plan twice.
       payments: { type: [{ _id: false, reference: String, plan: String, amount: Number, at: Date }], default: [] },
+      // What the owner signed up for. New accounts carry it (and may be trialling
+      // a bigger plan); its absence is how accounts from before the trial rules
+      // are recognised and grandfathered — see migrateExistingAccounts().
+      registeredPlan: { type: String, enum: ["free", "pro", "business"] },
+      // Full access for good (existing accounts when the trial rules began).
+      grandfathered: { type: Boolean, default: false },
+      // The welcome bonus a first Freemium payment earns: a bigger plan, free, until `until`.
+      bonus: { type: { _id: false, plan: String, until: Date }, default: undefined },
+      bonusUsed: { type: Boolean, default: false },
     },
     status: { type: String, enum: ["active", "suspended"], default: "active" },
     // Throwaway "Try the demo" sandboxes — swept after 24h.

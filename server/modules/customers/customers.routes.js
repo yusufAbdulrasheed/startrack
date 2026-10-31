@@ -3,12 +3,14 @@ import { z } from "zod";
 import { Customer } from "#modules/customers/customer.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { CustomerLedgerEntry, applyCreditChange } from "#modules/customers/customerLedger.model.js";
-import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
+import { requirePerm, requireBranch, limitProblem } from "#core/middleware/tenant.js";
+import { customerRoom } from "#modules/customers/customerLimit.js";
 import { hasCapability } from "#shared/businessTypes.js";
 import { money } from "#core/money.js";
 import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { audit } from "#core/audit.js";
 import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const customersRouter = Router();
 
@@ -24,6 +26,9 @@ function shape(c) {
     firstSeen: c.firstSeen,
     lastSeen: c.lastSeen,
     creditBalance: c.creditBalance || 0,
+    source: c.source || "pos",
+    email: c.email || "",
+    address: c.address || "",
   };
 }
 
@@ -31,10 +36,11 @@ function shape(c) {
 customersRouter.get("/", requirePerm("customers", "sales"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
   if (req.query.q) {
-    const q = String(req.query.q).trim();
-    filter.$or = [{ name: { $regex: q, $options: "i" } }, { phone: { $regex: q } }];
+    const q = escapeRegex(req.query.q).slice(0, 60);
+    filter.$or = [{ name: { $regex: q, $options: "i" } }, { phone: { $regex: q } }, { email: { $regex: q, $options: "i" } }];
   }
   if (req.query.debtorsOnly === "1") filter.creditBalance = { $gt: 0 };
+  if (req.query.source === "website") filter.source = "website";
   const customers = await Customer.find(scopedToBranch(req.ctx, filter)).sort(req.query.debtorsOnly === "1" ? { creditBalance: -1 } : { lastSeen: -1 }).limit(200);
   // The "credit" capability's headline number — how much is out there right
   // now, across every debtor, not just the page on screen.
@@ -46,7 +52,8 @@ customersRouter.get("/", requirePerm("customers", "sales"), async (req, res) => 
     ]);
     totalOutstanding = money(agg?.total || 0);
   }
-  res.json({ customers: customers.map(shape), totalOutstanding });
+  const room = await customerRoom(req.ctx.businessId, req.ctx.plan);
+  res.json({ customers: customers.map(shape), totalOutstanding, usage: { count: room.count, cap: room.cap } });
 });
 
 const customerSchema = z.object({
@@ -63,6 +70,10 @@ customersRouter.post("/", requirePerm("customers", "sales"), async (req, res) =>
   const parsed = customerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
+
+  const room = await customerRoom(req.ctx.businessId, req.ctx.plan);
+  const full = limitProblem(req.ctx.plan, "customers", room.count);
+  if (full) return res.status(403).json(full);
 
   if (d.phone) {
     const dupe = await Customer.findOne(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, phone: d.phone }));

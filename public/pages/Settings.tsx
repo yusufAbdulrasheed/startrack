@@ -770,6 +770,7 @@ function AdvancedSection() {
 }
 
 function AddBranch({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const { refreshSession } = useSession();
   const [form, setForm] = useState({ name: "", address: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -780,9 +781,9 @@ function AddBranch({ open, onClose, onSaved }: { open: boolean; onClose: () => v
     try {
       await api("/settings/branches", { method: "POST", body: JSON.stringify(form) });
       setForm({ name: "", address: "" });
+      await refreshSession(); // the switcher reads branches from the session
+      setBusy(false);
       onSaved();
-      // New branch appears in the switcher on next sign-in refresh.
-      window.location.reload();
     } catch (err: any) {
       setError(err.message);
       setBusy(false);

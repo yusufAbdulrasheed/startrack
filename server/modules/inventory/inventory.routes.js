@@ -150,34 +150,29 @@ inventoryRouter.post("/waste", requirePerm("stock"), requireBranch, async (req, 
   const product = await Product.findOne({ _id: productId, businessId: req.ctx.businessId });
   if (!product) return res.status(404).json({ error: "not_found", message: "Product not found." });
 
-  try {
-    const balance = await applyMovement(req.ctx, {
-      branchId: req.ctx.branchId,
-      productId: product._id,
-      productName: product.name,
-      type: "OUT",
-      qty: -qty,
-      refType: "waste",
-      reason: note || wasteReason.replace("_", " "),
-      wasteReason,
-      // Snapshotted so a later metrics rebuild can reconstruct wasteTotal
-      // exactly, even after the product's cost has since changed.
-      unitCost: product.cost || 0,
-    });
-    afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
-    // Nothing was sold, so there's no revenue or COGS-of-a-sale to reverse —
-    // the loss is pure profit erosion, valued at cost (never selling price,
-    // since a wasted item was never sold).
-    const costValue = money((product.cost || 0) * qty);
-    if (costValue > 0) {
-      await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { profit: -costValue, wasteTotal: costValue });
-    }
-    audit(req.ctx, "stock.waste", { type: "product", id: product._id, label: product.name }, undefined, { qty, wasteReason, costValue });
-    res.status(201).json({ productId: product._id, stock: balance });
-  } catch (err) {
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
+  const balance = await applyMovement(req.ctx, {
+    branchId: req.ctx.branchId,
+    productId: product._id,
+    productName: product.name,
+    type: "OUT",
+    qty: -qty,
+    refType: "waste",
+    reason: note || wasteReason.replace("_", " "),
+    wasteReason,
+    // Snapshotted so a later metrics rebuild can reconstruct wasteTotal
+    // exactly, even after the product's cost has since changed.
+    unitCost: product.cost || 0,
+  });
+  afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
+  // Nothing was sold, so there's no revenue or COGS-of-a-sale to reverse —
+  // the loss is pure profit erosion, valued at cost (never selling price,
+  // since a wasted item was never sold).
+  const costValue = money((product.cost || 0) * qty);
+  if (costValue > 0) {
+    await bumpDailyMetric(req.ctx, req.ctx.branchId, localDay(), { profit: -costValue, wasteTotal: costValue });
   }
+  audit(req.ctx, "stock.waste", { type: "product", id: product._id, label: product.name }, undefined, { qty, wasteReason, costValue });
+  res.status(201).json({ productId: product._id, stock: balance });
 });
 
 const transferSchema = z.object({

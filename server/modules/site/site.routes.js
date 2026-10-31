@@ -3,6 +3,7 @@ import multer from "multer";
 import { z } from "zod";
 import { Business } from "#modules/business/business.model.js";
 import { Product } from "#modules/products/product.model.js";
+import { Branch } from "#modules/business/branch.model.js";
 import { requirePerm } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { imageUploadEnabled, uploadImage, deleteImage } from "#core/cloudinary.js";
@@ -10,6 +11,7 @@ import { aiEnabled, chat } from "#core/ai.js";
 import { rateLimit } from "#core/rateLimit.js";
 import { ownerView, slugProblem, siteOf, SECTION_KEYS, ICONS } from "#modules/site/site.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
+import { storeOf, storefrontEligible } from "#modules/storefront/store.service.js";
 
 /**
  * The owner's editor for the business's public page. Every route needs the "*"
@@ -204,4 +206,72 @@ siteRouter.post("/draft", async (req, res) => {
     features: (d.features || []).slice(0, 3).map((f) => ({ icon: ICONS.includes(f.icon) ? f.icon : "sparkles", title: f.title.slice(0, 50), text: f.text.slice(0, 220) })),
     cta: d.cta ? { headline: d.cta.headline.slice(0, 90), text: d.cta.text.slice(0, 200), label: d.cta.label.slice(0, 30) } : null,
   });
+});
+
+
+// ── Online store settings ────────────────────────────────────────────────────
+
+const money0 = z.number().min(0).max(10_000_000);
+const storefrontSchema = z
+  .object({
+    enabled: z.boolean(),
+    acceptingOrders: z.boolean(),
+    branchId: z.string().regex(/^[a-f\d]{24}$/i).nullable(),
+    pickup: z.boolean(),
+    delivery: z.boolean(),
+    deliveryFee: money0,
+    freeDeliveryOver: money0,
+    minOrder: money0,
+    payOnDelivery: z.boolean(),
+    payAtPickup: z.boolean(),
+    transfer: z.boolean(),
+    bankName: text(60),
+    accountName: text(80),
+    accountNumber: z.string().trim().max(24).regex(/^[0-9 -]*$/, "Account number can only have digits"),
+    leadTime: text(80),
+    instructions: text(300),
+    deliveryAreas: text(200),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.enabled) return;
+    const fail = (message, path) => ctx.addIssue({ code: "custom", message, path: [path] });
+    if (!d.pickup && !d.delivery) fail("Offer pickup, delivery or both.", "pickup");
+    if (d.delivery && !d.payOnDelivery && !d.transfer) fail("Delivery needs a way to pay: cash on delivery or bank transfer.", "payOnDelivery");
+    if (d.pickup && !d.payAtPickup && !d.transfer) fail("Pickup needs a way to pay: pay at pickup or bank transfer.", "payAtPickup");
+    if (d.transfer && (!d.bankName || !d.accountName || !d.accountNumber)) fail("Add the bank name, account name and account number so customers know where to pay.", "bankName");
+  });
+
+// GET /api/site/storefront
+siteRouter.get("/storefront", async (req, res) => {
+  const b = await Business.findById(req.ctx.businessId);
+  const branches = await Branch.find({ businessId: b._id }).sort({ createdAt: 1 }).select("name");
+  const site = siteOf(b);
+  res.json({
+    store: { ...storeOf(b), branchId: storeOf(b).branchId ? String(storeOf(b).branchId) : null },
+    eligible: storefrontEligible(b.typeKey),
+    pageLive: !!site.enabled && !!site.slug,
+    slug: site.slug || "",
+    visits: site.visits || 0,
+    qrScans: site.qrScans || 0,
+    branches: branches.map((x) => ({ id: String(x._id), name: x.name })),
+    currency: b.settings?.currency || "₦",
+  });
+});
+
+// PUT /api/site/storefront
+siteRouter.put("/storefront", async (req, res) => {
+  const b = await Business.findById(req.ctx.businessId);
+  const parsed = storefrontSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const d = parsed.data;
+  if (d.enabled && !storefrontEligible(b.typeKey)) {
+    return res.status(400).json({ error: "not_available", message: "This kind of business doesn't sell items from a basket, so it can't run an online store." });
+  }
+  if (d.branchId && !(await Branch.exists({ _id: d.branchId, businessId: b._id }))) {
+    return res.status(400).json({ error: "invalid", message: "Pick one of your own branches." });
+  }
+  const before = storeOf(b);
+  await Business.updateOne({ _id: b._id }, { $set: { "site.storefront": { ...d, branchId: d.branchId || null } } });
+  audit(req.ctx, "site.storefront", { type: "business", id: b._id, label: b.tradingName || b.name }, { enabled: before.enabled }, { enabled: d.enabled });
+  res.json({ ok: true });
 });

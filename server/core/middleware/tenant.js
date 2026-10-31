@@ -62,6 +62,9 @@ export async function tenantContext(req, res, next) {
     }
 
     const account = await Account.findById(business.accountId).select("isSandbox subscription status");
+    if (account?.status === "suspended") {
+      return res.status(403).json({ error: "account_suspended", message: "This account is suspended. Please contact support." });
+    }
     const status = planStatus(account);
 
     // A lapsed account can still look at everything it has; it just can't change
@@ -160,7 +163,7 @@ export function limitProblem(plan, name, currentCount, adding = 1) {
   const cap = limitOf(plan, name);
   if (cap === null || currentCount + adding <= cap) return null;
   const upTo = ["free", "pro", "business"].find((p) => limitOf(p, name) === null || limitOf(p, name) > cap);
-  const noun = { businesses: "businesses", branches: "branches", staff: "staff accounts", products: "products" }[name];
+  const noun = { businesses: "businesses", branches: "branches", staff: "staff accounts", products: "products", customers: "customers" }[name];
   return {
     error: "plan_limit",
     limit: name,

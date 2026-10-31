@@ -10,7 +10,9 @@ import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { TYPE_META } from "@/lib/businessTypes";
 import { useSession } from "@/lib/session";
 import { BrandMark } from "@/components/brand/BrandMark";
-import { PLANS, TRIAL_DAYS } from "#shared/plans.js";
+import { PAYMENTS_ENABLED, PLANS, TRIAL_DAYS, bonusPlanFor } from "#shared/plans.js";
+import { api } from "@/lib/api";
+import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const TYPE_ICON: Record<string, any> = {
@@ -73,6 +75,17 @@ export function Register() {
         currency: form.currency,
         ...(wantedPlan ? { plan: wantedPlan } : {}),
       } as any);
+      // Plans are paid: go straight to paying for the one they chose. If payment can't open
+      // (not set up, or they close the tab), they land on the billing page, where they can pay.
+      if (PAYMENTS_ENABLED) {
+        try {
+          const r = await api<{ url: string }>("/billing/checkout", { method: "POST", body: JSON.stringify({ plan: wantedPlan || "free" }) });
+          window.location.href = r.url;
+          return;
+        } catch { /* fall through to the billing page */ }
+        navigate("/app/billing");
+        return;
+      }
       navigate("/app/dashboard");
     } catch (err: any) {
       setError(err.message || "Could not create your account");
@@ -155,7 +168,13 @@ export function Register() {
 
             <div className="mb-6">
               <div className="text-[11px] font-medium tracking-[0.1em] text-t4">Step {step} of 3</div>
-              {wantedPlan && <div className="mt-1 text-[12.5px] font-semibold text-primary">You're starting a {TRIAL_DAYS}-day free trial of {PLANS[wantedPlan].name}.</div>}
+              <div className="mt-1 text-[12.5px] font-semibold text-primary">
+                {PAYMENTS_ENABLED
+                  ? (bonusPlanFor(wantedPlan || "free")
+                      ? `You're starting on ${PLANS[wantedPlan || "free"].name} (${fmtMoney(PLANS[wantedPlan || "free"].price, "₦")}/month) with ${TRIAL_DAYS} days of ${PLANS[bonusPlanFor(wantedPlan || "free")!].name} free.`
+                      : `You're starting on ${PLANS[wantedPlan || "free"].name} (${fmtMoney(PLANS[wantedPlan || "free"].price, "₦")}/month).`)
+                  : `You're starting ${TRIAL_DAYS} days of ${PLANS[bonusPlanFor(wantedPlan || "free") || (wantedPlan as "pro" | "business")].name}, free, then carrying on free on Freemium.`}
+              </div>
               <h2 className="font-display font-semibold text-t1 text-[26px] tracking-tight mt-1">
                 {step === 1 ? "What kind of business?" : step === 2 ? "Who's the owner?" : "Where do you trade?"}
               </h2>

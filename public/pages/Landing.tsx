@@ -7,7 +7,7 @@ import {
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { DemoButton } from "@/components/landing/DemoPicker";
-import { PLANS, PLAN_ORDER, TRIAL_DAYS } from "#shared/plans.js";
+import { PAYMENTS_ENABLED, PLANS, PLAN_ORDER, TRIAL_DAYS } from "#shared/plans.js";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -160,11 +160,11 @@ function Hero() {
             Sales, stock, staff and customers for shops, restaurants, farms, salons and more. Simple enough for day one, powerful enough for ten branches.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
-            <Link to="/register" className={primaryBtn} style={primaryShadow}>Start your {TRIAL_DAYS}-day trial <ArrowRight className="w-4 h-4" /></Link>
+            <Link to="/register" className={primaryBtn} style={primaryShadow}>{PAYMENTS_ENABLED ? `Get started — ${TRIAL_DAYS} days of Pro free` : `Start free — ${TRIAL_DAYS} days of Pro on us`} <ArrowRight className="w-4 h-4" /></Link>
             <DemoButton className={ghostOnDark}>Try the live demo</DemoButton>
           </div>
           <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-[13.5px] text-white/65">
-            {[`${TRIAL_DAYS} days free, no card`, "Priced in naira", "Works with spotty internet"].map((t) => <span key={t} className="inline-flex items-center gap-1.5"><Check className="w-4 h-4 text-[#7ee0b5]" strokeWidth={2.6} /> {t}</span>)}
+            {[PAYMENTS_ENABLED ? `${TRIAL_DAYS} days of Pro with your first month` : `${TRIAL_DAYS} days of Pro, no card`, PAYMENTS_ENABLED ? "Priced in naira" : "Free forever after", "Works with spotty internet"].map((t) => <span key={t} className="inline-flex items-center gap-1.5"><Check className="w-4 h-4 text-[#7ee0b5]" strokeWidth={2.6} /> {t}</span>)}
           </div>
         </div>
         <HeroMockup />
@@ -368,7 +368,7 @@ function Pricing() {
   return (
     <section id="pricing" className="px-5 py-24 lg:py-32">
       <div className="max-w-[1180px] mx-auto">
-        <Heading eyebrow="Pricing" title="Simple plans. Start with a free trial." sub={`Every plan starts with ${TRIAL_DAYS} days free. Pay monthly in naira, and nothing renews by itself.`} />
+        <Heading eyebrow="Pricing" title={PAYMENTS_ENABLED ? "Simple, honest pricing." : "Free to start. Free to keep."} sub={PAYMENTS_ENABLED ? `Pay monthly in naira; nothing renews by itself. Start on Freemium and your first month includes ${TRIAL_DAYS} days of Pro, free.` : `Every new account gets ${TRIAL_DAYS} days of Pro, free. After that you carry on free on Freemium, and nothing you entered is deleted.`} />
         <div className="mt-16 grid md:grid-cols-3 gap-6 items-stretch">
           {PLAN_ORDER.map((k) => {
             const p = PLANS[k];
@@ -380,12 +380,12 @@ function Pricing() {
                 <h3 className={cn("text-[22px] font-extrabold", !hot && "text-t1")}>{p.name}</h3>
                 <p className={cn("mt-1 text-[14px]", hot ? "text-white/75" : "text-t3")}>{p.tagline}</p>
                 <div className="mt-6 flex items-baseline gap-1.5">
-                  <span className={cn("text-[46px] font-extrabold tracking-[-0.04em] leading-none", !hot && "text-t1")}>{fmtMoney(p.price, "₦")}</span>
-                  <span className={cn("text-[14px]", hot ? "text-white/70" : "text-t3")}>/ month</span>
+                  <span className={cn("text-[46px] font-extrabold tracking-[-0.04em] leading-none", !hot && "text-t1")}>{PAYMENTS_ENABLED ? fmtMoney(p.price, "₦") : "₦0"}</span>
+                  <span className={cn("text-[14px]", hot ? "text-white/70" : "text-t3")}>{PAYMENTS_ENABLED ? "/ month" : k === "free" ? "forever" : `for ${TRIAL_DAYS} days`}</span>
                 </div>
                 <Link to={`/register?plan=${k}`}
                   className={cn("mt-7 h-12 rounded-full inline-flex items-center justify-center gap-2 text-[15px] font-bold transition-transform hover:-translate-y-0.5", hot ? "bg-white text-[#3538f0]" : k === "business" ? "text-white bg-[#101436]" : "border border-line-2 text-t1 hover:border-primary hover:text-primary")}>
-                  Try {p.name} free <ArrowRight className="w-4 h-4" />
+                  {k === "free" ? (PAYMENTS_ENABLED ? `Start with ${p.name}` : "Start free, with 14 days of Pro") : (PAYMENTS_ENABLED ? `Get ${p.name}` : `Try ${p.name} free`)} <ArrowRight className="w-4 h-4" />
                 </Link>
                 <ul className="mt-8 space-y-3">
                   {p.highlights.map((h) => (
@@ -398,7 +398,7 @@ function Pricing() {
             );
           })}
         </div>
-        <p className="mt-10 text-center text-[13.5px] text-t3">Pay securely by card, bank transfer or USSD. Prices in Nigerian naira.</p>
+        <p className="mt-10 text-center text-[13.5px] text-t3">{PAYMENTS_ENABLED ? "Pay securely by card, bank transfer or USSD. Prices in Nigerian naira, per month." : `Payments are switched off, so there is nothing to pay. When ${TRIAL_DAYS} days are up your account continues on Freemium.`}</p>
       </div>
     </section>
   );
@@ -406,7 +406,7 @@ function Pricing() {
 
 /* ── FAQ ─────────────────────────────────────────────────────────── */
 const FAQS = [
-  ["Is there a free trial?", `Yes. Every plan starts with ${TRIAL_DAYS} days free, no card needed. After that you pick a plan and pay monthly. If you don't, the account goes read-only: you can still view everything, but changes are paused until you renew.`],
+  ["Is there a free trial?", `Not a free trial, but a welcome gift: start on Freemium (${fmtMoney(PLANS.free.price, "₦")} a month) and your first month includes ${TRIAL_DAYS} days of Pro, free. When those days end you carry on with Freemium, the plan you paid for. Pro and Business start straight away on the plan you pick. When a paid month ends and isn't renewed, the account goes read-only: you can still view everything, but changes are paused until you renew.`],
   ["What do I get on Pro?", "Everything in Freemium, plus the AI assistant, PDF and Excel reports, barcodes and labels, loyalty cards, branch transfers, expiry tracking, suppliers, stock counts, returns, and a customisable receipt. Up to 3 branches and 10 staff."],
   ["What's different on Business?", "No limits on branches, staff or products, multiple businesses with an all-stores dashboard, designed receipt templates with an AI writer, your own public landing page, and the audit log."],
   ["What happens if I downgrade?", "Nothing is deleted. Your data stays, and features from the higher plan lock until you upgrade again. If you're over a limit, you simply can't add more until you're back under it."],
@@ -415,6 +415,13 @@ const FAQS = [
   ["Can I try it before signing up?", "Yes. Open the live demo, pick your kind of business, and you'll land in a stocked sandbox with a week of sample sales. No sign-up needed."],
 ] as const;
 
+// With payments off, the answers about trials and paying say what is actually true.
+const FREE_ANSWERS: Record<string, string> = {
+  "Is there a free trial?": `Yes. Every new account gets ${TRIAL_DAYS} days of Pro, free and with no card. After that you carry on free on Freemium, and nothing you entered is deleted.`,
+  "How does payment work?": "You don't pay anything right now. Plans are free and payments are switched off.",
+};
+const FAQ_LIST: readonly (readonly [string, string])[] = PAYMENTS_ENABLED ? FAQS : FAQS.map(([q, a]) => [q, FREE_ANSWERS[q] ?? a] as const);
+
 function Faq() {
   const [open, setOpen] = useState<number | null>(0);
   return (
@@ -422,7 +429,7 @@ function Faq() {
       <div className="max-w-[820px] mx-auto">
         <Heading eyebrow="FAQ" title="Questions, answered." />
         <div className="mt-12 space-y-3">
-          {FAQS.map(([q, a], i) => (
+          {FAQ_LIST.map(([q, a], i) => (
             <div key={q} className={cn("rounded-2xl bg-surface border transition-colors", open === i ? "border-primary/50 shadow-e2" : "border-line")}>
               <button onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i} className="w-full flex items-center justify-between gap-4 px-6 py-5 text-left">
                 <span className="text-[16.5px] font-bold text-t1">{q}</span>
@@ -445,9 +452,9 @@ function Closing() {
         <div className="absolute inset-0 opacity-[0.15]" style={{ backgroundImage: "radial-gradient(rgba(255,255,255,0.4) 1px, transparent 1px)", backgroundSize: "24px 24px" }} />
         <div className="relative max-w-[640px] mx-auto">
           <h2 className="text-[36px] sm:text-[52px] font-extrabold tracking-[-0.035em] leading-[1.05]">Give your business the system it deserves.</h2>
-          <p className="mt-5 text-[18px] text-white/75">Start your {TRIAL_DAYS}-day free trial in minutes. No card needed.</p>
+          <p className="mt-5 text-[18px] text-white/75">{PAYMENTS_ENABLED ? `Get started in minutes. Your first month on Freemium includes ${TRIAL_DAYS} days of Pro.` : `Start free in minutes — ${TRIAL_DAYS} days of Pro, no card needed.`}</p>
           <div className="mt-9 flex flex-wrap justify-center gap-3">
-            <Link to="/register" className="inline-flex items-center gap-2 h-13 px-8 py-3.5 rounded-full text-[15.5px] font-bold bg-white text-[#0a1045] hover:-translate-y-0.5 transition-transform">Start free trial <ArrowRight className="w-4 h-4" /></Link>
+            <Link to="/register" className="inline-flex items-center gap-2 h-13 px-8 py-3.5 rounded-full text-[15.5px] font-bold bg-white text-[#0a1045] hover:-translate-y-0.5 transition-transform">{PAYMENTS_ENABLED ? "Get started" : "Start free"} <ArrowRight className="w-4 h-4" /></Link>
             <DemoButton className={ghostOnDark}>Try the live demo</DemoButton>
           </div>
         </div>

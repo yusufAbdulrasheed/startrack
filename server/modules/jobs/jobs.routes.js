@@ -14,6 +14,7 @@ import { withTransaction } from "#core/tx.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { afterStockChange } from "#modules/alerts/alerts.service.js";
 import { priceLines, totalsFor, consumeParts, restoreParts, shapeJob } from "#modules/jobs/jobs.service.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const jobsRouter = Router();
 
@@ -48,57 +49,52 @@ jobsRouter.post("/", requirePerm("sales"), requireBranch, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const job = await withTransaction(async (session) => {
-      const { lines, subtotal } = await priceLines(req.ctx, d.lines, session);
-      const totals = totalsFor(req.ctx.business, subtotal, d.discount);
-      if (d.deposit > totals.total) throw badRequest("The deposit is more than the job is worth.");
+  const job = await withTransaction(async (session) => {
+    const { lines, subtotal } = await priceLines(req.ctx, d.lines, session);
+    const totals = totalsFor(req.ctx.business, subtotal, d.discount);
+    if (d.deposit > totals.total) throw badRequest("The deposit is more than the job is worth.");
 
-      let customer = null;
-      if (d.customerId) {
-        customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
-        if (!customer) throw badRequest("That customer doesn't exist.");
-      } else if (d.customer?.name) {
-        customer =
-          (d.customer.phone &&
-            (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
-          (await Customer.create([{
-            accountId: req.ctx.accountId, businessId: req.ctx.businessId,
-            name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone,
-          }], { session }))[0];
-      }
+    let customer = null;
+    if (d.customerId) {
+      customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
+      if (!customer) throw badRequest("That customer doesn't exist.");
+    } else if (d.customer?.name) {
+      customer =
+        (d.customer.phone &&
+          (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
+        (await Customer.create([{
+          accountId: req.ctx.accountId, businessId: req.ctx.businessId,
+          name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone,
+        }], { session }))[0];
+    }
 
-      const seq = await nextSeq(`job:${req.ctx.branchId}`, session);
-      const [job] = await Job.create([{
-        accountId: req.ctx.accountId,
-        businessId: req.ctx.businessId,
-        branchId: req.ctx.branchId,
-        jobNo: `J-${String(seq).padStart(5, "0")}`,
-        customerId: customer?._id,
-        customerName: customer?.name || "",
-        customerPhone: customer?.phone || "",
-        title: d.title.trim(),
-        reference: d.reference.trim(),
-        serialNo: d.serialNo.trim(),
-        notes: d.notes,
-        lines,
-        ...totals,
-        deposit: money(d.deposit),
-        depositMethod: d.depositMethod,
-        promisedAt: d.promisedAt ? new Date(d.promisedAt) : undefined,
-        staffId: req.ctx.userId,
-        staffName: req.ctx.actorName,
-        stageHistory: [{ stage: "received", at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName }],
-      }], { session });
-      return job;
-    });
+    const seq = await nextSeq(`job:${req.ctx.branchId}`, session);
+    const [job] = await Job.create([{
+      accountId: req.ctx.accountId,
+      businessId: req.ctx.businessId,
+      branchId: req.ctx.branchId,
+      jobNo: `J-${String(seq).padStart(5, "0")}`,
+      customerId: customer?._id,
+      customerName: customer?.name || "",
+      customerPhone: customer?.phone || "",
+      title: d.title.trim(),
+      reference: d.reference.trim(),
+      serialNo: d.serialNo.trim(),
+      notes: d.notes,
+      lines,
+      ...totals,
+      deposit: money(d.deposit),
+      depositMethod: d.depositMethod,
+      promisedAt: d.promisedAt ? new Date(d.promisedAt) : undefined,
+      staffId: req.ctx.userId,
+      staffName: req.ctx.actorName,
+      stageHistory: [{ stage: "received", at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName }],
+    }], { session });
+    return job;
+  });
 
-    audit(req.ctx, "job.create", { type: "job", id: job._id, label: job.jobNo }, undefined, { total: job.total, deposit: job.deposit });
-    res.status(201).json({ job: shapeJob(job, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  audit(req.ctx, "job.create", { type: "job", id: job._id, label: job.jobNo }, undefined, { total: job.total, deposit: job.deposit });
+  res.status(201).json({ job: shapeJob(job, canSeeCost(req.ctx)) });
 });
 
 // GET /api/jobs?stage=&q=&page=&limit=
@@ -112,7 +108,7 @@ jobsRouter.get("/", requirePerm("sales", "dashboard_ops"), requireBranch, async 
     filter.promisedAt = { $lt: new Date() };
   }
   if (req.query.q) {
-    const rx = String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = escapeRegex(req.query.q);
     filter.$or = [
       { jobNo: { $regex: rx, $options: "i" } },
       { title: { $regex: rx, $options: "i" } },
@@ -167,45 +163,40 @@ jobsRouter.patch("/:id", requirePerm("sales"), async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const job = await withTransaction(async (session) => {
-      const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!job) throw notFound("Job not found.");
-      if (job.stage === "collected" || job.stage === "cancelled") {
-        throw conflict("This job is closed — reopen isn't possible.", "closed");
-      }
-      // Changing the lines after parts have been issued would silently
-      // desync stock from the ledger.
-      if (d.lines && job.partsConsumed) {
-        throw conflict("Parts are already issued for this job — cancel it instead of re-pricing.", "parts_issued");
-      }
+  const job = await withTransaction(async (session) => {
+    const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!job) throw notFound("Job not found.");
+    if (job.stage === "collected" || job.stage === "cancelled") {
+      throw conflict("This job is closed — reopen isn't possible.", "closed");
+    }
+    // Changing the lines after parts have been issued would silently
+    // desync stock from the ledger.
+    if (d.lines && job.partsConsumed) {
+      throw conflict("Parts are already issued for this job — cancel it instead of re-pricing.", "parts_issued");
+    }
 
-      if (d.title !== undefined) job.title = d.title.trim();
-      if (d.reference !== undefined) job.reference = d.reference.trim();
-      if (d.serialNo !== undefined) job.serialNo = d.serialNo.trim();
-      if (d.notes !== undefined) job.notes = d.notes;
-      if (d.promisedAt !== undefined) job.promisedAt = d.promisedAt ? new Date(d.promisedAt) : undefined;
+    if (d.title !== undefined) job.title = d.title.trim();
+    if (d.reference !== undefined) job.reference = d.reference.trim();
+    if (d.serialNo !== undefined) job.serialNo = d.serialNo.trim();
+    if (d.notes !== undefined) job.notes = d.notes;
+    if (d.promisedAt !== undefined) job.promisedAt = d.promisedAt ? new Date(d.promisedAt) : undefined;
 
-      if (d.lines || d.discount !== undefined) {
-        const raw = d.lines ?? job.lines.map((l) => ({
-          productId: l.productId ? String(l.productId) : undefined,
-          name: l.name, kind: l.kind, qty: l.qty, price: l.unitPrice,
-        }));
-        const { lines, subtotal } = await priceLines(req.ctx, raw, session);
-        const totals = totalsFor(req.ctx.business, subtotal, d.discount ?? job.discount);
-        job.lines = lines;
-        Object.assign(job, totals);
-        if (job.deposit > job.total) throw badRequest("The deposit is now more than the job is worth.");
-      }
+    if (d.lines || d.discount !== undefined) {
+      const raw = d.lines ?? job.lines.map((l) => ({
+        productId: l.productId ? String(l.productId) : undefined,
+        name: l.name, kind: l.kind, qty: l.qty, price: l.unitPrice,
+      }));
+      const { lines, subtotal } = await priceLines(req.ctx, raw, session);
+      const totals = totalsFor(req.ctx.business, subtotal, d.discount ?? job.discount);
+      job.lines = lines;
+      Object.assign(job, totals);
+      if (job.deposit > job.total) throw badRequest("The deposit is now more than the job is worth.");
+    }
 
-      await job.save({ session });
-      return job;
-    });
-    res.json({ job: shapeJob(job, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+    await job.save({ session });
+    return job;
+  });
+  res.json({ job: shapeJob(job, canSeeCost(req.ctx)) });
 });
 
 // Which stage can follow which. Collection has its own endpoint because it
@@ -224,40 +215,34 @@ jobsRouter.post("/:id/stage", requirePerm("sales"), async (req, res) => {
   const note = String(req.body?.note || "");
   if (!JOB_STAGES.includes(stage)) return res.status(400).json({ error: "invalid", message: "Unknown stage." });
 
-  try {
-    const job = await withTransaction(async (session) => {
-      const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!job) throw notFound("Job not found.");
-      if (!NEXT[job.stage].includes(stage)) {
-        throw conflict(`A job that is ${job.stage.replace("_", " ")} can't move to ${stage.replace("_", " ")}.`, "bad_stage");
-      }
+  const job = await withTransaction(async (session) => {
+    const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!job) throw notFound("Job not found.");
+    if (!NEXT[job.stage].includes(stage)) {
+      throw conflict(`A job that is ${job.stage.replace("_", " ")} can't move to ${stage.replace("_", " ")}.`, "bad_stage");
+    }
 
-      // Starting work is when parts leave the shelf.
-      if (stage === "in_progress" && !job.partsConsumed) {
-        await consumeParts(req.ctx, job, session);
-        job.partsConsumed = true;
-      }
-      // Cancelling puts them back.
-      if (stage === "cancelled" && job.partsConsumed) {
-        await restoreParts(req.ctx, job, session);
-        job.partsConsumed = false;
-      }
+    // Starting work is when parts leave the shelf.
+    if (stage === "in_progress" && !job.partsConsumed) {
+      await consumeParts(req.ctx, job, session);
+      job.partsConsumed = true;
+    }
+    // Cancelling puts them back.
+    if (stage === "cancelled" && job.partsConsumed) {
+      await restoreParts(req.ctx, job, session);
+      job.partsConsumed = false;
+    }
 
-      job.stage = stage;
-      if (stage === "ready") job.readyAt = new Date();
-      job.stageHistory.push({ stage, at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName, note });
-      await job.save({ session });
-      return job;
-    });
+    job.stage = stage;
+    if (stage === "ready") job.readyAt = new Date();
+    job.stageHistory.push({ stage, at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName, note });
+    await job.save({ session });
+    return job;
+  });
 
-    afterStockChange(req.ctx, job.branchId, job.lines.filter((l) => l.productId).map((l) => l.productId));
-    audit(req.ctx, "job.stage", { type: "job", id: job._id, label: job.jobNo }, undefined, { stage, note });
-    res.json({ job: shapeJob(job, canSeeCost(req.ctx)) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  afterStockChange(req.ctx, job.branchId, job.lines.filter((l) => l.productId).map((l) => l.productId));
+  audit(req.ctx, "job.stage", { type: "job", id: job._id, label: job.jobNo }, undefined, { stage, note });
+  res.json({ job: shapeJob(job, canSeeCost(req.ctx)) });
 });
 
 const collectSchema = z.object({
@@ -275,90 +260,84 @@ jobsRouter.post("/:id/collect", requirePerm("sales"), async (req, res) => {
   const parsed = collectSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
 
-  try {
-    const out = await withTransaction(async (session) => {
-      const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!job) throw notFound("Job not found.");
-      if (job.stage === "collected") throw conflict("This job was already collected.", "already_collected");
-      if (job.stage === "cancelled") throw conflict("This job was cancelled.", "cancelled");
-      if (job.stage !== "ready") throw conflict("Mark the job ready before collecting it.", "not_ready");
+  const out = await withTransaction(async (session) => {
+    const job = await Job.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!job) throw notFound("Job not found.");
+    if (job.stage === "collected") throw conflict("This job was already collected.", "already_collected");
+    if (job.stage === "cancelled") throw conflict("This job was cancelled.", "cancelled");
+    if (job.stage !== "ready") throw conflict("Mark the job ready before collecting it.", "not_ready");
 
-      const balance = money(job.total - job.deposit);
-      const paid = money(parsed.data.payments.reduce((s, p) => s + p.amount, 0));
-      if (Math.abs(paid - balance) > 0.01) {
-        throw badRequest(`Payments (${paid}) don't match the balance owing (${balance}).`, "payment_mismatch");
+    const balance = money(job.total - job.deposit);
+    const paid = money(parsed.data.payments.reduce((s, p) => s + p.amount, 0));
+    if (Math.abs(paid - balance) > 0.01) {
+      throw badRequest(`Payments (${paid}) don't match the balance owing (${balance}).`, "payment_mismatch");
+    }
+
+    // Parts may never have been issued if the job went straight to ready.
+    if (!job.partsConsumed) {
+      await consumeParts(req.ctx, job, session);
+      job.partsConsumed = true;
+    }
+
+    // The deposit is money already collected; restate it on the sale so the
+    // receipt shows the whole story and the payment split stays truthful.
+    const payments = [...parsed.data.payments.map((p) => ({ method: p.method, amount: money(p.amount) }))];
+    if (job.deposit > 0) {
+      const existing = payments.find((p) => p.method === job.depositMethod);
+      if (existing) existing.amount = money(existing.amount + job.deposit);
+      else payments.push({ method: job.depositMethod, amount: job.deposit });
+    }
+
+    const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
+    const [sale] = await Sale.create([{
+      accountId: req.ctx.accountId,
+      businessId: req.ctx.businessId,
+      branchId: job.branchId,
+      saleNo: `R-${String(seq).padStart(5, "0")}`,
+      staffId: req.ctx.userId,
+      staffName: req.ctx.actorName,
+      customerId: job.customerId,
+      customerName: job.customerName,
+      items: job.lines.map((l) => ({
+        productId: l.productId || new mongoose.Types.ObjectId(),
+        name: l.name, qty: l.qty, unitPrice: l.unitPrice,
+        lineCost: l.lineCost, lineNet: l.lineNet, returnedQty: 0,
+      })),
+      subtotal: job.subtotal, discount: job.discount, vat: job.vat, total: job.total,
+      payments,
+    }], { session });
+
+    job.stage = "collected";
+    job.collectedAt = new Date();
+    job.saleId = sale._id;
+    job.stageHistory.push({ stage: "collected", at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName });
+    await job.save({ session });
+
+    if (job.customerId) {
+      const customer = await Customer.findById(job.customerId).session(session);
+      if (customer) {
+        customer.totalSpend = money(customer.totalSpend + job.total);
+        customer.visits += 1;
+        customer.lastSeen = new Date();
+        customer.lastBranchId = job.branchId;
+        await customer.save({ session });
       }
+    }
 
-      // Parts may never have been issued if the job went straight to ready.
-      if (!job.partsConsumed) {
-        await consumeParts(req.ctx, job, session);
-        job.partsConsumed = true;
-      }
+    const totalCost = money(job.lines.reduce((s, l) => s + l.lineCost, 0));
+    const split = {};
+    for (const p of payments) split[p.method] = (split[p.method] || 0) + p.amount;
+    await bumpDailyMetric(req.ctx, job.branchId, localDay(), {
+      revenue: job.total, cost: totalCost, profit: job.total - job.vat - totalCost,
+      txns: 1, discountTotal: job.discount, vatTotal: job.vat, payments: split,
+    }, session);
 
-      // The deposit is money already collected; restate it on the sale so the
-      // receipt shows the whole story and the payment split stays truthful.
-      const payments = [...parsed.data.payments.map((p) => ({ method: p.method, amount: money(p.amount) }))];
-      if (job.deposit > 0) {
-        const existing = payments.find((p) => p.method === job.depositMethod);
-        if (existing) existing.amount = money(existing.amount + job.deposit);
-        else payments.push({ method: job.depositMethod, amount: job.deposit });
-      }
+    return { job, sale };
+  });
 
-      const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
-      const [sale] = await Sale.create([{
-        accountId: req.ctx.accountId,
-        businessId: req.ctx.businessId,
-        branchId: job.branchId,
-        saleNo: `R-${String(seq).padStart(5, "0")}`,
-        staffId: req.ctx.userId,
-        staffName: req.ctx.actorName,
-        customerId: job.customerId,
-        customerName: job.customerName,
-        items: job.lines.map((l) => ({
-          productId: l.productId || new mongoose.Types.ObjectId(),
-          name: l.name, qty: l.qty, unitPrice: l.unitPrice,
-          lineCost: l.lineCost, lineNet: l.lineNet, returnedQty: 0,
-        })),
-        subtotal: job.subtotal, discount: job.discount, vat: job.vat, total: job.total,
-        payments,
-      }], { session });
-
-      job.stage = "collected";
-      job.collectedAt = new Date();
-      job.saleId = sale._id;
-      job.stageHistory.push({ stage: "collected", at: new Date(), by: req.ctx.userId, byName: req.ctx.actorName });
-      await job.save({ session });
-
-      if (job.customerId) {
-        const customer = await Customer.findById(job.customerId).session(session);
-        if (customer) {
-          customer.totalSpend = money(customer.totalSpend + job.total);
-          customer.visits += 1;
-          customer.lastSeen = new Date();
-          customer.lastBranchId = job.branchId;
-          await customer.save({ session });
-        }
-      }
-
-      const totalCost = money(job.lines.reduce((s, l) => s + l.lineCost, 0));
-      const split = {};
-      for (const p of payments) split[p.method] = (split[p.method] || 0) + p.amount;
-      await bumpDailyMetric(req.ctx, job.branchId, localDay(), {
-        revenue: job.total, cost: totalCost, profit: job.total - job.vat - totalCost,
-        txns: 1, discountTotal: job.discount, vatTotal: job.vat, payments: split,
-      }, session);
-
-      return { job, sale };
-    });
-
-    afterStockChange(req.ctx, out.job.branchId, out.job.lines.filter((l) => l.productId).map((l) => l.productId));
-    audit(req.ctx, "job.collect", { type: "job", id: out.job._id, label: out.job.jobNo }, undefined, {
-      total: out.job.total, saleNo: out.sale.saleNo,
-    });
-    res.json({ job: shapeJob(out.job, canSeeCost(req.ctx)), saleNo: out.sale.saleNo });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  afterStockChange(req.ctx, out.job.branchId, out.job.lines.filter((l) => l.productId).map((l) => l.productId));
+  audit(req.ctx, "job.collect", { type: "job", id: out.job._id, label: out.job.jobNo }, undefined, {
+    total: out.job.total, saleNo: out.sale.saleNo,
+  });
+  res.json({ job: shapeJob(out.job, canSeeCost(req.ctx)), saleNo: out.sale.saleNo });
 });

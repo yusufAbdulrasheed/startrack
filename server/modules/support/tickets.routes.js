@@ -7,6 +7,7 @@ import { audit } from "#core/audit.js";
 import { raise, keys } from "#modules/alerts/notify.js";
 import { nextSeq } from "#core/counters.js";
 import { notFound, badRequest, HttpError } from "#core/httpError.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const ticketsRouter = Router();
 
@@ -114,7 +115,7 @@ ticketsRouter.get("/", async (req, res) => {
   if (req.query.status) filter.status = String(req.query.status);
   if (req.query.priority) filter.priority = String(req.query.priority);
   if (req.query.q) {
-    const rx = { $regex: String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+    const rx = { $regex: escapeRegex(req.query.q), $options: "i" };
     filter.$and = [...(filter.$and || []), { $or: [{ subject: rx }, { ticketNo: rx }, { customerName: rx }] }];
   }
 
@@ -212,18 +213,13 @@ ticketsRouter.post("/:id/comments", async (req, res) => {
 
 // POST /api/tickets/:id/escalate — owner/admin only, hands it to StarTrack.
 ticketsRouter.post("/:id/escalate", requirePerm("settings"), async (req, res) => {
-  try {
-    const ticket = await Ticket.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
-    if (!ticket) throw notFound("Ticket not found.");
-    if (ticket.scope === "platform") throw badRequest("This ticket is already with StarTrack support.", "already_escalated");
+  const ticket = await Ticket.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!ticket) throw notFound("Ticket not found.");
+  if (ticket.scope === "platform") throw badRequest("This ticket is already with StarTrack support.", "already_escalated");
 
-    ticket.scope = "platform";
-    ticket.escalatedAt = new Date();
-    await ticket.save();
-    audit(req.ctx, "ticket.escalate", { type: "ticket", id: ticket._id, label: ticket.ticketNo });
-    res.json({ ticket: shape(ticket) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  ticket.scope = "platform";
+  ticket.escalatedAt = new Date();
+  await ticket.save();
+  audit(req.ctx, "ticket.escalate", { type: "ticket", id: ticket._id, label: ticket.ticketNo });
+  res.json({ ticket: shape(ticket) });
 });

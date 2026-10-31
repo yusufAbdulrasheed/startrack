@@ -72,6 +72,10 @@ const productSchema = new mongoose.Schema(
     // imagePublicId is never sent to the client — it's only how a
     // replace/remove knows which Cloudinary asset to clean up.
     imageUrl: { type: String, default: "" },
+    // Archived placeholder made by a history upload for an item that is no longer (or was never) in the catalog.
+    importBatchId: { type: mongoose.Schema.Types.ObjectId },
+    // An archived stand-in for a custom invoice line (a service, a fee) so the sale has something to point at.
+    serviceItem: { type: Boolean, default: false },
     imagePublicId: { type: String, default: "" },
     // Who to credit when the photo was found online ("Photo by … on Pexels").
     imageCredit: { type: String, default: "" },

@@ -1,3 +1,4 @@
+import { toIntlPhone } from "@/lib/phone";
 import { Award, BadgeCheck, Clock, Heart, Leaf, MapPin, Phone, ShieldCheck, Sparkles, Star, Truck, Users, type LucideIcon } from "lucide-react";
 
 /** Shared by the public business page and the owner's editor that previews it. */
@@ -90,14 +91,6 @@ export function onColor(hex: string): "#ffffff" | "#111827" {
   return L > 0.42 ? "#111827" : "#ffffff";
 }
 
-/** Digits for wa.me. A leading 0 is read as a Nigerian number, the app's home market. */
-export function waDigits(raw: string): string {
-  const d = (raw || "").replace(/\D/g, "");
-  if (!d) return "";
-  if (d.startsWith("0") && d.length === 11) return `234${d.slice(1)}`;
-  return d;
-}
-
 export const telHref = (raw: string) => (raw ? `tel:${raw.replace(/[^\d+]/g, "")}` : "");
 
 const handle = (v: string) => v.trim().replace(/^@/, "").replace(/^https?:\/\/[^/]+\//i, "").replace(/[^\w.\-/]/g, "");
@@ -137,7 +130,7 @@ export function openStatus(hours: SiteHours[], now = new Date()): { open: boolea
 
 /** Where a call-to-action button points. */
 export function ctaHref(action: SiteCta["action"], c: SiteData["contact"]): string {
-  if (action === "whatsapp") return waDigits(c.whatsapp || c.phone) ? `https://wa.me/${waDigits(c.whatsapp || c.phone)}` : "";
+  if (action === "whatsapp") return toIntlPhone(c.whatsapp || c.phone) ? `https://wa.me/${toIntlPhone(c.whatsapp || c.phone)}` : "";
   if (action === "call") return telHref(c.phone || c.whatsapp);
   if (action === "email") return c.email ? `mailto:${c.email}` : "";
   return c.mapUrl || (c.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(c.address)}` : "");

@@ -14,9 +14,10 @@ import { COMPARE } from "@/lib/planCompare";
 
 type Billing = {
   plan: PlanKey; planName: string; legacy: boolean; periodEnd: string | null; trial: boolean; lapsed: boolean;
-  canManage: boolean; paymentsEnabled: boolean;
+  canManage: boolean; paymentsEnabled: boolean; paymentsOn?: boolean; trialEnded?: boolean;
+  awaitingPayment?: boolean; paidUntil?: string | null; paidPlan?: PlanKey | null;
   limits: Record<LimitName, number | null>;
-  usage: { businesses: number; perBusiness: { id: string; name: string; products: number; staff: number; branches: number }[] };
+  usage: { businesses: number; perBusiness: { id: string; name: string; products: number; staff: number; branches: number; customers: number }[] };
   payments: { reference: string; plan: string; amount: number; at: string }[];
 };
 
@@ -86,8 +87,10 @@ export function Billing() {
   }
 
   if (!data) return <div className="p-8">{error ? <ErrorBanner message={error} /> : <Spinner />}</div>;
-  const here = data.plan;
-  const biggest = data.usage.perBusiness.reduce((m, b) => ({ products: Math.max(m.products, b.products), staff: Math.max(m.staff, b.staff), branches: Math.max(m.branches, b.branches) }), { products: 0, staff: 0, branches: 0 });
+  // The plan the money has bought. During the free welcome days the account runs a bigger plan than that.
+  const bonusOn = data.trial && !!data.paidPlan && data.periodEnd !== data.paidUntil;
+  const here = bonusOn && data.paidPlan ? data.paidPlan : data.plan;
+  const biggest = data.usage.perBusiness.reduce((m, b) => ({ products: Math.max(m.products, b.products), staff: Math.max(m.staff, b.staff), branches: Math.max(m.branches, b.branches), customers: Math.max(m.customers, b.customers) }), { products: 0, staff: 0, branches: 0, customers: 0 });
   const owner = data.canManage && can("*");
 
   return (
@@ -109,11 +112,18 @@ export function Billing() {
           <div>
             <div className="text-[13px] font-semibold text-white/75">Your plan</div>
             <div className="mt-1 flex items-center gap-3">
-              <span className="text-[34px] sm:text-[40px] font-extrabold tracking-[-0.03em] leading-none">{data.lapsed ? "Plan ended" : data.planName}</span>
+              <span className="text-[34px] sm:text-[40px] font-extrabold tracking-[-0.03em] leading-none">{data.awaitingPayment ? "Not started" : data.lapsed ? "Plan ended" : data.planName}</span>
               <span className="grid place-items-center w-10 h-10 rounded-2xl bg-white/15"><Crown className="w-5 h-5" /></span>
             </div>
             <div className="mt-2.5 text-[13.5px] text-white/85">
-              {data.legacy ? "Your account has full access. Nothing to pay." : data.lapsed ? `Your plan ended${data.periodEnd ? ` on ${day(data.periodEnd)}` : ""}. You can view your data, but changes are paused until you renew.` : data.trial ? `Free trial, ends ${day(data.periodEnd)}. Choose a plan to keep going.` : `Active until ${day(data.periodEnd)}`}
+              {data.legacy ? "Your account has full access. Nothing to pay."
+                : data.awaitingPayment ? "Pick a plan and pay to start. Until then your account is view-only. Start with Freemium and you get 14 days of Pro free."
+                : data.lapsed ? `Your plan ended${data.periodEnd ? ` on ${day(data.periodEnd)}` : ""}. You can view your data, but changes are paused until you renew.`
+                : bonusOn ? `You're enjoying ${data.planName} free until ${day(data.periodEnd)}. After that you carry on with ${PLANS[data.paidPlan as PlanKey].name}, paid until ${day(data.paidUntil ?? null)}.`
+                : data.trial ? (data.paymentsOn ? `Free trial, ends ${day(data.periodEnd)}. Choose a plan to keep going.` : `Free ${data.planName} trial until ${day(data.periodEnd)}. After that you carry on free on Freemium, and nothing is deleted.`)
+                : data.trialEnded ? `Your free days are over and you're on ${data.planName}, the plan you paid for, until ${day(data.periodEnd)}. Everything you entered is still here.`
+                : data.plan === "free" ? (data.paymentsOn ? "Freemium plan." : "You're on Freemium. It's free.")
+                : data.periodEnd ? `Active until ${day(data.periodEnd)}${data.paymentsOn ? "" : ", then Freemium"}` : "Active"}
             </div>
           </div>
           {data.legacy && <span className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-white/15 text-[12.5px] font-bold"><ShieldCheck className="w-4 h-4" /> Early-access account</span>}
@@ -124,6 +134,7 @@ export function Billing() {
         <Panel title="What you've used" subtitle={data.usage.perBusiness.length > 1 ? "Your busiest business" : "Against your plan's limits"} icon={Sparkles} tone="brand">
           <div className="space-y-4">
             <Meter label="Products" used={biggest.products} cap={data.limits.products} />
+            <Meter label="Customers" used={biggest.customers} cap={data.limits.customers} />
             <Meter label="Staff accounts" used={biggest.staff} cap={data.limits.staff} />
             <Meter label="Branches" used={biggest.branches} cap={data.limits.branches} />
             <Meter label="Businesses" used={data.usage.businesses} cap={data.limits.businesses} />
@@ -131,7 +142,7 @@ export function Billing() {
           <p className="mt-4 text-[12px] text-t3 leading-relaxed">If you go over a limit after changing plan, nothing is deleted. You just can't add more until you upgrade or remove some.</p>
         </Panel>
 
-        <Panel title="Payments" subtitle="Plans are paid monthly. Nothing renews by itself." icon={ShieldCheck} tone="success">
+        <Panel title="Payments" subtitle={data.paymentsOn ? "Plans are paid monthly. Nothing renews by itself." : "Payments are switched off. Plans are free right now."} icon={ShieldCheck} tone="success">
           {data.payments.length === 0 ? (
             <div className="py-6 text-center text-[13px] text-t3">No payments yet.</div>
           ) : (
@@ -144,7 +155,7 @@ export function Billing() {
               ))}
             </ul>
           )}
-          {!data.paymentsEnabled && <p className="mt-3 text-[12px] text-warning font-semibold">Online payment isn't set up on this server yet. Plans can be switched on by the StarTrack team.</p>}
+          {data.paymentsOn && !data.paymentsEnabled && <p className="mt-3 text-[12px] text-warning font-semibold">Online payment isn't set up on this server yet. Plans can be switched on by the StarTrack team.</p>}
         </Panel>
       </div>
 
@@ -158,19 +169,28 @@ export function Billing() {
           return (
             <div key={k} className={cn("relative rounded-[24px] border bg-surface p-6 flex flex-col transition-shadow", featured ? "border-primary shadow-e3" : "border-line shadow-e1", target === k && "ring-2 ring-primary ring-offset-2 ring-offset-canvas")}>
               {featured && <span className="absolute -top-3 left-6 px-3 py-1 rounded-full text-[11px] font-bold text-white" style={{ background: "var(--st-gradient-primary)" }}>Most popular</span>}
-              <div className="flex items-center justify-between"><h3 className="text-[19px] font-extrabold text-t1">{p.name}</h3>{current && <span className="px-2 py-[3px] rounded-md bg-success-soft text-success text-[10px] font-bold uppercase tracking-wide">{data.trial ? "Trial" : "Current"}</span>}</div>
+              <div className="flex items-center justify-between"><h3 className="text-[19px] font-extrabold text-t1">{p.name}</h3>{current && <span className="px-2 py-[3px] rounded-md bg-success-soft text-success text-[10px] font-bold uppercase tracking-wide">{data.trial && !bonusOn ? "Trial" : "Current"}</span>}</div>
               <p className="mt-1 text-[13px] text-t3">{p.tagline}</p>
-              <div className="mt-4 flex items-baseline gap-1"><span className="text-[34px] font-extrabold tracking-[-0.03em] text-t1">{fmtMoney(p.price, "₦")}</span><span className="text-[13px] text-t3">/ month</span></div>
+              {k === "free" && data.paymentsOn && !data.legacy && !bonusOn && !data.paidPlan && <p className="mt-2 text-[12px] font-semibold text-primary">New here? Your first month includes 14 days of Pro, free.</p>}
+              <div className="mt-4 flex items-baseline gap-1"><span className="text-[34px] font-extrabold tracking-[-0.03em] text-t1">{data.paymentsOn ? fmtMoney(p.price, "₦") : "₦0"}</span><span className="text-[13px] text-t3">{data.paymentsOn ? "/ month" : k === "free" ? "forever" : `${14} days on sign-up`}</span></div>
               <ul className="mt-5 space-y-2 flex-1">
                 {p.highlights.map((h) => <li key={h} className="flex items-start gap-2 text-[13px] text-t2"><Check className="w-4 h-4 mt-0.5 text-success shrink-0" strokeWidth={2.4} /> {h}</li>)}
               </ul>
               <div className="mt-6">
+                {!data.paymentsOn ? (
+                  <Button variant="secondary" className="w-full" disabled>
+                    {data.legacy ? "Included in your account" : current ? "Your current plan" : planRank(k) < planRank(here) ? "Included in your plan" : k === "free" ? "Free" : "Free trial on sign-up"}
+                  </Button>
+                ) : (
+                  <>
                 {data.legacy ? <Button variant="secondary" className="w-full" disabled>Included in your account</Button>
                   : !owner ? <Button variant="secondary" className="w-full" disabled>{current ? "Your current plan" : "Ask the owner"}</Button>
-                  : current && data.trial ? <Button className="w-full" onClick={() => upgrade(k as PlanKey)} disabled={!!busy}>{busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Pay for {p.name} <ArrowRight className="w-4 h-4" /></Button>
+                  : current && data.trial && !bonusOn ? <Button className="w-full" onClick={() => upgrade(k as PlanKey)} disabled={!!busy}>{busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Pay for {p.name} <ArrowRight className="w-4 h-4" /></Button>
                   : current ? <Button variant="secondary" className="w-full" onClick={() => upgrade(k as PlanKey)} disabled={!!busy}>{busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : null} Add 30 days</Button>
                   : data.lapsed || higher || data.trial ? <Button className="w-full" onClick={() => upgrade(k as PlanKey)} disabled={!!busy}>{busy === k ? <Loader2 className="w-4 h-4 animate-spin" /> : null} {data.lapsed ? "Renew with" : higher ? "Upgrade to" : "Switch to"} {p.name} <ArrowRight className="w-4 h-4" /></Button>
                   : <Button variant="ghost" className="w-full" disabled>Included in your plan</Button>}
+                  </>
+                )}
               </div>
             </div>
           );

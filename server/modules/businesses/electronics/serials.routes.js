@@ -5,6 +5,7 @@ import { Product } from "#modules/products/product.model.js";
 import { Job } from "#modules/jobs/job.model.js";
 import { requirePerm, requireBranch } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const serialsRouter = Router();
 
@@ -32,7 +33,7 @@ serialsRouter.get("/", requirePerm("sales", "stock"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
   if (req.query.productId) filter.productId = req.query.productId;
   if (req.query.status) filter.status = req.query.status;
-  if (req.query.q) filter.serialNo = { $regex: String(req.query.q).trim(), $options: "i" };
+  if (req.query.q) filter.serialNo = { $regex: escapeRegex(req.query.q).slice(0, 60), $options: "i" };
   const serials = await Serial.find(filter).sort({ at: -1 }).limit(200);
   res.json({ serials: serials.map(shape) });
 });

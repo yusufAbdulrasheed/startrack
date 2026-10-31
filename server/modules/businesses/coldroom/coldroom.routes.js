@@ -350,138 +350,132 @@ coldroomRouter.post("/sales", requirePerm("sales"), requireBranch, async (req, r
     }
   }
 
-  try {
-    const out = await withTransaction(async (session) => {
-      const product = await Product.findOne({ _id: d.productId, businessId: req.ctx.businessId, status: "active" }).session(session);
-      if (!product) throw notFound("Product not found.");
+  const out = await withTransaction(async (session) => {
+    const product = await Product.findOne({ _id: d.productId, businessId: req.ctx.businessId, status: "active" }).session(session);
+    if (!product) throw notFound("Product not found.");
 
-      const batches = await openBatchesFifo(req.ctx.businessId, req.ctx.branchId, product._id, session);
+    const batches = await openBatchesFifo(req.ctx.businessId, req.ctx.branchId, product._id, session);
 
-      // FIFO-consume the one pool this sale type draws from, oldest lot first.
-      let remainingNeeded = d.qty;
-      const consumed = [];
-      for (const batch of batches) {
-        if (remainingNeeded <= 0.0001) break;
-        const available = d.saleType === "carton" ? batch.remainingCartons : d.saleType === "kg" ? batch.remainingKg : batch.remainingPieces;
-        if (available <= 0) continue;
-        const take = Math.min(available, remainingNeeded);
-        consumed.push({ batch, take });
-        remainingNeeded = money(remainingNeeded - take);
+    // FIFO-consume the one pool this sale type draws from, oldest lot first.
+    let remainingNeeded = d.qty;
+    const consumed = [];
+    for (const batch of batches) {
+      if (remainingNeeded <= 0.0001) break;
+      const available = d.saleType === "carton" ? batch.remainingCartons : d.saleType === "kg" ? batch.remainingKg : batch.remainingPieces;
+      if (available <= 0) continue;
+      const take = Math.min(available, remainingNeeded);
+      consumed.push({ batch, take });
+      remainingNeeded = money(remainingNeeded - take);
+    }
+    if (remainingNeeded > 0.0001) {
+      const have = money(d.qty - remainingNeeded);
+      if (d.saleType !== "carton") {
+        const unitWord = d.saleType === "kg" ? "kg" : have === 1 ? "piece" : "pieces";
+        throw conflict(
+          `Only ${have} loose ${unitWord} of ${product.name} on hand — open a carton first.`,
+          "insufficient_loose_stock"
+        );
       }
-      if (remainingNeeded > 0.0001) {
-        const have = money(d.qty - remainingNeeded);
-        if (d.saleType !== "carton") {
-          const unitWord = d.saleType === "kg" ? "kg" : have === 1 ? "piece" : "pieces";
-          throw conflict(
-            `Only ${have} loose ${unitWord} of ${product.name} on hand — open a carton first.`,
-            "insufficient_loose_stock"
-          );
-        }
-        throw conflict(`Only ${have} sealed carton(s) of ${product.name} on hand.`, "insufficient_stock");
+      throw conflict(`Only ${have} sealed carton(s) of ${product.name} on hand.`, "insufficient_stock");
+    }
+
+    let lineCost = 0;
+    for (const { batch, take } of consumed) {
+      if (d.saleType === "carton") {
+        batch.remainingCartons = money(batch.remainingCartons - take);
+        lineCost += take * batch.unitCostPerCarton;
+      } else if (d.saleType === "kg") {
+        batch.remainingKg = money(batch.remainingKg - take);
+        lineCost += take * costPerKgOfBatch(batch);
+      } else {
+        batch.remainingPieces -= take;
+        lineCost += take * costPerPieceOfBatch(batch);
       }
+      maybeCloseBatch(batch);
+      await batch.save({ session });
+    }
+    lineCost = money(lineCost);
 
-      let lineCost = 0;
-      for (const { batch, take } of consumed) {
-        if (d.saleType === "carton") {
-          batch.remainingCartons = money(batch.remainingCartons - take);
-          lineCost += take * batch.unitCostPerCarton;
-        } else if (d.saleType === "kg") {
-          batch.remainingKg = money(batch.remainingKg - take);
-          lineCost += take * costPerKgOfBatch(batch);
-        } else {
-          batch.remainingPieces -= take;
-          lineCost += take * costPerPieceOfBatch(batch);
-        }
-        maybeCloseBatch(batch);
-        await batch.save({ session });
+    const unitLabel = d.saleType;
+    const qtyLabel = d.qty % 1 === 0 ? String(d.qty) : d.qty.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+    const lineName = `${product.name} — ${qtyLabel} ${unitLabel}${d.qty === 1 ? "" : "s"}`;
+
+    const lineNet = money(d.unitPrice * d.qty);
+    const discount = money(Math.min(d.discount, lineNet));
+    const settings = req.ctx.business.settings;
+    const vat = settings.vatEnabled ? money(((lineNet - discount) * settings.vatRate) / 100) : 0;
+    const total = money(lineNet - discount + vat);
+
+    let customer = null;
+    if (d.customerId) {
+      customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
+      if (!customer) throw badRequest("That customer doesn't exist.");
+    } else if (d.customer?.name) {
+      customer =
+        (d.customer.phone && (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
+        (
+          await Customer.create(
+            [{ accountId: req.ctx.accountId, businessId: req.ctx.businessId, name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone }],
+            { session }
+          )
+        )[0];
+    }
+
+    // Mirror the sale onto the generic ledger, exactly like a normal
+    // checkout would — Products/Dashboard/low-stock alerts never need to
+    // know a sale here was measured in kg instead of a plain unit count.
+    await syncCartonEquivalentStock(req.ctx, req.ctx.branchId, product, { refType: "sale", reason: lineName, session });
+
+    const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
+    const saleNo = `R-${String(seq).padStart(5, "0")}`;
+    const [sale] = await Sale.create(
+      [{
+        accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
+        saleNo, staffId: req.ctx.userId, staffName: req.ctx.actorName,
+        customerId: customer?._id, customerName: customer?.name || "",
+        items: [{ productId: product._id, name: lineName, qty: d.qty, unitPrice: d.unitPrice, lineCost, lineNet, returnedQty: 0 }],
+        subtotal: lineNet, discount, vat, total,
+        payments: [{ method: d.paymentMethod, amount: total }],
+      }],
+      { session }
+    );
+
+    if (customer) {
+      customer.totalSpend = money(customer.totalSpend + total);
+      customer.visits += 1;
+      customer.lastSeen = new Date();
+      customer.lastBranchId = req.ctx.branchId;
+      await customer.save({ session });
+      if (d.paymentMethod === "credit") {
+        await applyCreditChange(req.ctx, {
+          customer, type: "sale", amount: total, refType: "coldroom_sale", refId: sale._id, note: `Sale ${saleNo}`, session,
+        });
       }
-      lineCost = money(lineCost);
+    }
 
-      const unitLabel = d.saleType;
-      const qtyLabel = d.qty % 1 === 0 ? String(d.qty) : d.qty.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-      const lineName = `${product.name} — ${qtyLabel} ${unitLabel}${d.qty === 1 ? "" : "s"}`;
+    // Revenue is recognised now regardless of how it was paid; the till's
+    // payment split only ever reflects money that actually moved today —
+    // a credit sale contributes neither now (it's collected later, see
+    // customers.routes.js's /ledger/payments).
+    await bumpDailyMetric(
+      req.ctx, req.ctx.branchId, localDay(),
+      {
+        revenue: total, cost: lineCost, profit: money(total - vat - lineCost), txns: 1,
+        discountTotal: discount, vatTotal: vat,
+        payments: d.paymentMethod === "credit" ? {} : { [d.paymentMethod]: total },
+      },
+      session
+    );
 
-      const lineNet = money(d.unitPrice * d.qty);
-      const discount = money(Math.min(d.discount, lineNet));
-      const settings = req.ctx.business.settings;
-      const vat = settings.vatEnabled ? money(((lineNet - discount) * settings.vatRate) / 100) : 0;
-      const total = money(lineNet - discount + vat);
+    return { sale, saleNo, product, total, lineNet, discount, vat, lineCost, lineName };
+  });
 
-      let customer = null;
-      if (d.customerId) {
-        customer = await Customer.findOne({ _id: d.customerId, businessId: req.ctx.businessId }).session(session);
-        if (!customer) throw badRequest("That customer doesn't exist.");
-      } else if (d.customer?.name) {
-        customer =
-          (d.customer.phone && (await Customer.findOne({ businessId: req.ctx.businessId, phone: d.customer.phone }).session(session))) ||
-          (
-            await Customer.create(
-              [{ accountId: req.ctx.accountId, businessId: req.ctx.businessId, name: d.customer.name, phone: d.customer.phone, whatsapp: d.customer.phone }],
-              { session }
-            )
-          )[0];
-      }
-
-      // Mirror the sale onto the generic ledger, exactly like a normal
-      // checkout would — Products/Dashboard/low-stock alerts never need to
-      // know a sale here was measured in kg instead of a plain unit count.
-      await syncCartonEquivalentStock(req.ctx, req.ctx.branchId, product, { refType: "sale", reason: lineName, session });
-
-      const seq = await nextSeq(`sale:${req.ctx.branchId}`, session);
-      const saleNo = `R-${String(seq).padStart(5, "0")}`;
-      const [sale] = await Sale.create(
-        [{
-          accountId: req.ctx.accountId, businessId: req.ctx.businessId, branchId: req.ctx.branchId,
-          saleNo, staffId: req.ctx.userId, staffName: req.ctx.actorName,
-          customerId: customer?._id, customerName: customer?.name || "",
-          items: [{ productId: product._id, name: lineName, qty: d.qty, unitPrice: d.unitPrice, lineCost, lineNet, returnedQty: 0 }],
-          subtotal: lineNet, discount, vat, total,
-          payments: [{ method: d.paymentMethod, amount: total }],
-        }],
-        { session }
-      );
-
-      if (customer) {
-        customer.totalSpend = money(customer.totalSpend + total);
-        customer.visits += 1;
-        customer.lastSeen = new Date();
-        customer.lastBranchId = req.ctx.branchId;
-        await customer.save({ session });
-        if (d.paymentMethod === "credit") {
-          await applyCreditChange(req.ctx, {
-            customer, type: "sale", amount: total, refType: "coldroom_sale", refId: sale._id, note: `Sale ${saleNo}`, session,
-          });
-        }
-      }
-
-      // Revenue is recognised now regardless of how it was paid; the till's
-      // payment split only ever reflects money that actually moved today —
-      // a credit sale contributes neither now (it's collected later, see
-      // customers.routes.js's /ledger/payments).
-      await bumpDailyMetric(
-        req.ctx, req.ctx.branchId, localDay(),
-        {
-          revenue: total, cost: lineCost, profit: money(total - vat - lineCost), txns: 1,
-          discountTotal: discount, vatTotal: vat,
-          payments: d.paymentMethod === "credit" ? {} : { [d.paymentMethod]: total },
-        },
-        session
-      );
-
-      return { sale, saleNo, product, total, lineNet, discount, vat, lineCost, lineName };
-    });
-
-    afterStockChange(req.ctx, req.ctx.branchId, [out.product._id]);
-    audit(req.ctx, "coldroom.sale", { type: "sale", id: out.sale._id, label: out.saleNo }, undefined, {
-      product: out.product.name, saleType: d.saleType, qty: d.qty, total: out.total, paymentMethod: d.paymentMethod,
-    });
-    res.status(201).json({
-      saleNo: out.saleNo,
-      sale: { id: out.sale._id, saleNo: out.saleNo, name: out.lineName, total: out.total },
-    });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  afterStockChange(req.ctx, req.ctx.branchId, [out.product._id]);
+  audit(req.ctx, "coldroom.sale", { type: "sale", id: out.sale._id, label: out.saleNo }, undefined, {
+    product: out.product.name, saleType: d.saleType, qty: d.qty, total: out.total, paymentMethod: d.paymentMethod,
+  });
+  res.status(201).json({
+    saleNo: out.saleNo,
+    sale: { id: out.sale._id, saleNo: out.saleNo, name: out.lineName, total: out.total },
+  });
 });

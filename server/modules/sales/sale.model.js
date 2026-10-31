@@ -13,6 +13,17 @@ const saleSchema = new mongoose.Schema(
     staffName: { type: String, default: "" },
     customerId: { type: mongoose.Schema.Types.ObjectId },
     customerName: { type: String, default: "" },
+    // "online" = placed on the business's web page and confirmed by the owner;
+    // everything else is a till sale. orderId/orderNo point back at the order.
+    channel: { type: String, enum: ["pos", "online", "import", "invoice"], default: "pos" },
+    // Set on the sale an issued invoice records (channel "invoice").
+    invoiceId: { type: mongoose.Schema.Types.ObjectId },
+    // Set on sales that came from an uploaded history file (see modules/imports/).
+    importBatchId: { type: mongoose.Schema.Types.ObjectId },
+    orderId: { type: mongoose.Schema.Types.ObjectId },
+    orderNo: { type: String },
+    // Flat delivery charge, already inside `total`.
+    deliveryFee: { type: Number, default: 0 },
     items: [
       {
         _id: false,
@@ -93,6 +104,8 @@ saleSchema.index({ businessId: 1, branchId: 1, at: -1 });
 saleSchema.index({ businessId: 1, saleNo: 1 });
 saleSchema.index({ businessId: 1, customerId: 1, at: -1 });
 saleSchema.index({ businessId: 1, staffId: 1, at: -1 });
+saleSchema.index({ businessId: 1, channel: 1, at: -1 });
+saleSchema.index({ importBatchId: 1 }, { sparse: true });
 saleSchema.index(
   { businessId: 1, clientSaleId: 1 },
   { unique: true, partialFilterExpression: { clientSaleId: { $type: "string" } } }

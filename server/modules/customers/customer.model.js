@@ -12,6 +12,12 @@ const customerSchema = new mongoose.Schema(
     phone: { type: String, default: "", trim: true },
     whatsapp: { type: String, default: "", trim: true },
     notes: { type: String, default: "" },
+    // "website" = registered themselves on the business's online store.
+    source: { type: String, enum: ["pos", "website", "import"], default: "pos" },
+    email: { type: String, default: "", trim: true, lowercase: true },
+    address: { type: String, default: "", trim: true },
+    // Set when an uploaded history file created this customer, so undoing it can remove them again.
+    importBatchId: { type: mongoose.Schema.Types.ObjectId },
     totalSpend: { type: Number, default: 0 },
     visits: { type: Number, default: 0 },
     firstSeen: { type: Date, default: Date.now },
@@ -39,5 +45,6 @@ const customerSchema = new mongoose.Schema(
 
 customerSchema.index({ businessId: 1, name: 1 });
 customerSchema.index({ businessId: 1, phone: 1 });
+customerSchema.index({ businessId: 1, email: 1 });
 
 export const Customer = mongoose.model("Customer", customerSchema);

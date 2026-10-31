@@ -7,8 +7,10 @@ export const COMPARE: { title: string; rows: { label: string; free: string | boo
     rows: [
       { label: "Point of sale & sales history", free: true, pro: true, business: true },
       { label: "Products", free: "Up to 50", pro: "Up to 2,000", business: "Unlimited" },
-      { label: "Customers & expenses", free: true, pro: true, business: true },
-      { label: "Stock in & basic inventory", free: true, pro: true, business: true },
+      { label: "Customers (in your customer book)", free: "Up to 100", pro: "Up to 2,000", business: "Unlimited" },
+      { label: "Expenses", free: true, pro: true, business: true },
+      { label: "Stock in, stock levels & adjustments", free: true, pro: true, business: true },
+      { label: "Inventory page: value, what's selling, reorder suggestions", free: true, pro: true, business: true },
       { label: "Dashboard", free: "Overview, Sales, Expenses", pro: "Full", business: "Full" },
     ],
   },
@@ -25,7 +27,7 @@ export const COMPARE: { title: string; rows: { label: string; free: string | boo
     title: "Smarter stock",
     rows: ([
       ["barcodes", "Barcodes & label printing"], ["expiry", "Expiry tracking"], ["transfers", "Branch transfers"],
-      ["suppliers", "Suppliers"], ["stockCount", "Stock counts"], ["returns", "Returns & refunds"], ["csvImport", "Bulk product import"], ["productPhotos", "Product photos"],
+      ["suppliers", "Suppliers & purchase orders"], ["stockCount", "Stock counts"], ["returns", "Returns & refunds"], ["csvImport", "Bulk imports: customers, stock and past sales"], ["invoices", "Invoices & part-payments"], ["productPhotos", "Product photos"],
     ] as const).map(([k, label]) => ({ label, free: planAllows("free", k), pro: planAllows("pro", k), business: planAllows("business", k) })),
   },
   {

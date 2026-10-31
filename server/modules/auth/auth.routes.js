@@ -7,9 +7,9 @@ import { Branch } from "#modules/business/branch.model.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { hashPassword, checkPassword, signToken, permsForRole } from "#modules/auth/auth.service.js";
 import { requireAuth } from "#core/middleware/requireAuth.js";
-import { rateLimit } from "#core/rateLimit.js";
+import { rateLimit, failureGuard } from "#core/rateLimit.js";
 import { config } from "#core/config.js";
-import { effectivePlan, featuresFor, isPlan, planStatus, PLANS, TRIAL_DAYS } from "#shared/plans.js";
+import { effectivePlan, featuresFor, isPlan, planStatus, PLANS, PAYMENTS_ENABLED } from "#shared/plans.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { createDemoSandbox } from "#modules/auth/demoSeed.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
@@ -36,6 +36,9 @@ const registerSchema = z.object({
 
 // POST /api/auth/register — creates user + account + business + branch + owner membership
 authRouter.post("/register", async (req, res) => {
+  if (!rateLimit(`register:${req.ip}`, { max: 10, windowMs: 60 * 60_000 })) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many sign-ups from this address. Please try again later." });
+  }
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
@@ -58,8 +61,10 @@ authRouter.post("/register", async (req, res) => {
       const startPlan = isPlan(d.plan) ? d.plan : config.defaultPlan;
       [created.account] = await Account.create([{
         name: d.businessName, ownerUserId: created.user._id, plan: startPlan,
-        // Everyone starts with a free trial of the plan they chose; after that it's paid.
-        subscription: { plan: startPlan, trial: true, currentPeriodEnd: new Date(Date.now() + TRIAL_DAYS * 86_400_000) },
+        // Starts unpaid: no period yet, so the account is read-only until the first payment.
+        // That payment (billing.routes.js applyTransaction) starts the paid month, and for a
+        // Freemium sign-up also the Pro welcome bonus. See planStatus() in shared/plans.js.
+        subscription: { plan: startPlan, trial: false, registeredPlan: startPlan },
       }], { session });
       [created.business] = await Business.create(
         [{
@@ -120,14 +125,31 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+// 8 wrong passwords per email, 60 per address, then a 15 minute wait.
+const LOGIN_BY_EMAIL = { max: 8, windowMs: 15 * 60_000 };
+const LOGIN_BY_IP = { max: 60, windowMs: 15 * 60_000 };
+
 // POST /api/auth/login
 authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: "Enter your email and password." });
 
+  // Wrong guesses are counted per email AND per address, and a locked email is refused
+  // even with the right password, otherwise the lockout would only slow a guesser down.
+  const email = parsed.data.email.toLowerCase();
+  const byEmail = failureGuard(`login:e:${email}`, LOGIN_BY_EMAIL);
+  const byIp = failureGuard(`login:ip:${req.ip}`, LOGIN_BY_IP);
+  if (byEmail.blocked() || byIp.blocked()) {
+    return res.status(429).json({ error: "rate_limited", message: "Too many failed attempts. Try again in a few minutes." });
+  }
   const user = await User.findOne({ email: parsed.data.email });
   if (!user || !(await checkPassword(parsed.data.password, user.passwordHash))) {
+    byEmail.fail(); byIp.fail();
     return res.status(401).json({ error: "bad_credentials", message: "Incorrect email or password." });
+  }
+  byEmail.clear();
+  if (user.status !== "active") {
+    return res.status(403).json({ error: "account_suspended", message: "This account is suspended. Please contact support." });
   }
 
   const membership = await Membership.findOne({ userId: user._id, role: { $in: ["owner", "admin"] } })
@@ -135,6 +157,9 @@ authRouter.post("/login", async (req, res) => {
   if (!membership) return res.status(403).json({ error: "no_business", message: "This account has no business yet." });
 
   const account = await Account.findById(membership.accountId);
+  if (account.status === "suspended") {
+    return res.status(403).json({ error: "account_suspended", message: "This account is suspended. Please contact support." });
+  }
   const businesses = await Business.find({ accountId: account._id });
   const branches = await Branch.find({ accountId: account._id });
 
@@ -193,6 +218,10 @@ authRouter.post("/till", async (req, res) => {
     return res.status(429).json({ error: "rate_limited", message: "Too many attempts. Wait a minute and try again." });
   }
 
+  // A 4-digit PIN has only 10,000 values, so beyond the per-minute throttle, wrong guesses
+  // against one business are capped over the hour as well.
+  const slowGuess = failureGuard(`till:slow:${code}`, { max: 30, windowMs: 60 * 60_000 });
+  if (slowGuess.blocked()) return res.status(429).json({ error: "rate_limited", message: "Too many wrong PINs. Try again later, or ask the owner to reset yours." });
   const business = await Business.findOne({ code });
   if (!business) return res.status(401).json({ error: "bad_credentials", message: "Business code or PIN is incorrect." });
 
@@ -210,7 +239,11 @@ authRouter.post("/till", async (req, res) => {
       break;
     }
   }
-  if (!match) return res.status(401).json({ error: "bad_credentials", message: "Business code or PIN is incorrect." });
+  if (!match) {
+    slowGuess.fail();
+    return res.status(401).json({ error: "bad_credentials", message: "Business code or PIN is incorrect." });
+  }
+  slowGuess.clear();
 
   const user = await User.findById(match.userId);
   if (!user || user.status !== "active") {
@@ -292,6 +325,11 @@ function planSummary(account) {
     trial: s.trial,
     lapsed: s.lapsed,
     periodEnd: s.periodEnd,
+    trialEnded: !!s.trialEnded,
+    awaitingPayment: !!s.awaitingPayment,
+    paidUntil: s.paidUntil || null,
+    paidPlan: s.paidPlan || null,
+    paymentsOn: PAYMENTS_ENABLED,
   };
 }
 

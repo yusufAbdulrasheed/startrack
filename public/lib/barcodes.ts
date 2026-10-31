@@ -1,12 +1,25 @@
 import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
 
 /**
  * Barcode label sheets — faithful port of the legacy printBarcodes:
- * CODE128 SVG labels (name + price + code), size presets mapping to
+ * CODE128 or QR labels (name + price + code), size presets mapping to
  * column counts, optional cut lines, A4 print window with Print /
  * Save-as-PDF buttons.
  */
-export type LabelItem = { name: string; barcode: string; priceLabel: string };
+export type LabelItem = { name: string; code: string; priceLabel: string };
+export type LabelKind = "barcode" | "qr";
+
+/**
+ * What a product's label encodes: its own barcode if it has one, else a code
+ * made from its id, so EVERY product can be labelled and scanned. The till
+ * matches a scan against this same rule (see matchesProductCode).
+ */
+export const productCode = (p: { id: string; barcode?: string }) => p.barcode || `ST:${p.id}`;
+export const matchesProductCode = (p: { id: string; barcode?: string }, scanned: string) => {
+  const c = scanned.trim();
+  return !!c && (p.barcode === c || c === `ST:${p.id}`);
+};
 export type LabelSize = "small" | "medium" | "large" | "sheet";
 
 const COLS: Record<LabelSize, string> = {
@@ -32,13 +45,22 @@ function barcodeSvg(code: string): string {
   return svg.outerHTML;
 }
 
-export function printBarcodeLabels(items: LabelItem[], opts: { size: LabelSize; copies: number; cutLines: boolean }) {
-  const { size, copies, cutLines } = opts;
+// Drawn from the QR matrix directly (no async image step), so a print window can be opened inside the click.
+function qrSvg(code: string): string {
+  const q = QRCode.create(code, { errorCorrectionLevel: "M" });
+  const n = q.modules.size;
+  let d = "";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.modules.get(r, c)) d += `M${c},${r}h1v1h-1z`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="qr" viewBox="-2 -2 ${n + 4} ${n + 4}" shape-rendering="crispEdges"><path d="${d}"/></svg><div class="bc-code">${code.replace(/</g, "&lt;")}</div>`;
+}
+
+export function printBarcodeLabels(items: LabelItem[], opts: { size: LabelSize; copies: number; cutLines: boolean; kind?: LabelKind }) {
+  const { size, copies, cutLines, kind = "barcode" } = opts;
   const cols = COLS[size] || COLS.medium;
 
   const labels: string[] = [];
   for (const item of items) {
-    const svg = barcodeSvg(item.barcode);
+    const svg = kind === "qr" ? qrSvg(item.code) : barcodeSvg(item.code);
     for (let c = 0; c < copies; c++) {
       labels.push(
         `<div class="bc-label">${svg}` +
@@ -61,6 +83,8 @@ export function printBarcodeLabels(items: LabelItem[], opts: { size: LabelSize; 
   .grid{display:grid;width:100%;grid-template-columns:${cols};gap:${cutLines ? "0" : "6px"};background:${cutLines ? "#e0e7f0" : "#fff"};padding:${cutLines ? "1px" : "0"}}
   .bc-label{background:#fff;${cutLines ? "border:1px dashed #c8d3e8;" : "border:1px solid #e8eef8;border-radius:7px;"}padding:8px 6px 6px;text-align:center;page-break-inside:avoid;break-inside:avoid;overflow:hidden;width:100%;min-width:0}
   .bc-label svg{width:100%!important;height:auto!important;max-width:100%!important;display:block}
+  .bc-label svg.qr{width:70%!important;max-width:120px!important;margin:0 auto;fill:#0a1628}
+  .bc-code{font-family:'Courier New',monospace;font-size:8px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bc-name{font-size:9.5px;font-weight:800;color:#0a1628;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bc-price{font-family:'Courier New',monospace;font-size:9.5px;font-weight:700;color:#2254e0;margin-top:2px}
   @media print{.nop{display:none!important}@page{size:A4;margin:6mm}body{padding:0}.bc-label{page-break-inside:avoid;break-inside:avoid}}

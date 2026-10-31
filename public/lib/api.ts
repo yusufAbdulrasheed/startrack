@@ -72,12 +72,8 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
   return data as T;
 }
 
-/**
- * Fetches a file (a PDF or spreadsheet report) with the same auth and tenant
- * headers as every other call, then hands it to the browser as a download. A
- * plain <a href> can't be used: the token travels in a header, not a cookie.
- */
-export async function apiDownload(path: string, fallbackName = "download"): Promise<void> {
+/** GET a file with the same auth and tenant headers as every other call. A plain <a href> can't be used: the token travels in a header, not a cookie. */
+async function fetchFile(path: string): Promise<Response> {
   let res: Response;
   try {
     res = await fetch(BASE + path, {
@@ -92,10 +88,12 @@ export async function apiDownload(path: string, fallbackName = "download"): Prom
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new ApiError(data.message || data.error || "Couldn't download that file.", res.status, data.error);
+    throw new ApiError(data.message || data.error || "Couldn't download that file.", res.status, data.error, data);
   }
-  const disposition = res.headers.get("content-disposition") || "";
-  const name = /filename="?([^";]+)"?/i.exec(disposition)?.[1] || fallbackName;
+  return res;
+}
+
+async function saveFile(res: Response, name: string) {
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
@@ -104,4 +102,15 @@ export async function apiDownload(path: string, fallbackName = "download"): Prom
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** Download a report or PDF, named by the server (falling back to `fallbackName`). */
+export async function apiDownload(path: string, fallbackName = "download"): Promise<void> {
+  const res = await fetchFile(path);
+  await saveFile(res, /filename="?([^";]+)"?/i.exec(res.headers.get("content-disposition") || "")?.[1] || fallbackName);
+}
+
+/** Download a file (CSV export, template) under exactly this name. */
+export async function downloadFile(path: string, fileName: string) {
+  await saveFile(await fetchFile(path), fileName);
 }

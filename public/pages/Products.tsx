@@ -21,7 +21,7 @@ import { parseCsv } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 import { downloadProductTemplate } from "@/lib/productTemplate";
 import { printReport, mono } from "@/lib/printReport";
-import { printBarcodeLabels, type LabelSize } from "@/lib/barcodes";
+import { printBarcodeLabels, productCode, type LabelKind, type LabelSize } from "@/lib/barcodes";
 import { fmtMoney, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -107,7 +107,7 @@ export function Products() {
         subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
         actions={
           <>
-            <Button variant="secondary" onClick={() => (hasFeature("barcodes") ? setLabeling(true) : requestUpgrade("barcodes"))} disabled={hasFeature("barcodes") && !products.some((p) => p.barcode)}><Barcode className="w-4 h-4" /> Labels <LockChip feature="barcodes" /></Button>
+            <Button variant="secondary" onClick={() => (hasFeature("barcodes") ? setLabeling(true) : requestUpgrade("barcodes"))} disabled={hasFeature("barcodes") && !products.length}><Barcode className="w-4 h-4" /> Labels <LockChip feature="barcodes" /></Button>
             <Button variant="secondary" onClick={() => setPrinting(true)} disabled={!products.length}><Printer className="w-4 h-4" /> Print</Button>
             {can("prices") && (
               <>
@@ -391,12 +391,14 @@ function RestockSuggestionsPanel() {
   );
 }
 
-// Barcode label sheets — pick products, size, copies, cut lines; prints
-// CODE128 stickers exactly like the legacy barcode page.
+// Label sheets — pick products, barcode or QR, size, copies, cut lines. Every
+// product can be labelled: one without a barcode gets a generated code, which
+// the till recognises when scanned.
 function BarcodeLabelsModal({ open, onClose, products, currency }: {
   open: boolean; onClose: () => void; products: Product[]; currency: string;
 }) {
-  const withCodes = products.filter((p) => p.barcode);
+  const withCodes = products;
+  const [kind, setKind] = useState<LabelKind>("qr");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [size, setSize] = useState<LabelSize>("medium");
   const [copies, setCopies] = useState(1);
@@ -413,9 +415,9 @@ function BarcodeLabelsModal({ open, onClose, products, currency }: {
   function run() {
     const items = withCodes
       .filter((p) => selected.has(p.id))
-      .map((p) => ({ name: p.name, barcode: p.barcode, priceLabel: fmtMoney(p.price, currency) }));
+      .map((p) => ({ name: p.name, code: productCode(p), priceLabel: fmtMoney(p.price, currency) }));
     if (!items.length) return;
-    if (!printBarcodeLabels(items, { size, copies: Math.max(1, copies), cutLines })) {
+    if (!printBarcodeLabels(items, { size, copies: Math.max(1, copies), cutLines, kind })) {
       alert("Allow pop-ups for this site to print labels.");
       return;
     }
@@ -423,7 +425,7 @@ function BarcodeLabelsModal({ open, onClose, products, currency }: {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Print barcode labels" subtitle={`${withCodes.length} products have barcodes — pick the ones to print`} wide>
+    <Modal open={open} onClose={onClose} title="Print product labels" subtitle="Pick the products. Scan a QR label with the camera at the till to add the item." wide>
       <div className="flex items-center gap-2 mb-2">
         <Button size="sm" variant="secondary" onClick={() => setSelected(new Set(withCodes.map((p) => p.id)))}>Select all</Button>
         <Button size="sm" variant="secondary" onClick={() => setSelected(new Set())}>Clear</Button>
@@ -438,11 +440,17 @@ function BarcodeLabelsModal({ open, onClose, products, currency }: {
               {selected.has(p.id) && <span className="text-[10px] font-semibold">✓</span>}
             </span>
             <span className="min-w-0 flex-1 text-[13px] font-medium text-t1 truncate">{p.name}</span>
-            <span className="font-mono text-[11px] text-t4 shrink-0">{p.barcode}</span>
+            <span className="font-mono text-[11px] text-t4 shrink-0">{p.barcode || "auto code"}</span>
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <Field label="Label type">
+          <Select value={kind} onChange={(e) => setKind(e.target.value as LabelKind)} aria-label="Label type">
+            <option value="qr">QR code</option>
+            <option value="barcode">Barcode</option>
+          </Select>
+        </Field>
         <Field label="Label size">
           <Select value={size} onChange={(e) => setSize(e.target.value as LabelSize)}>
             <option value="small">Small · 4 per row</option>

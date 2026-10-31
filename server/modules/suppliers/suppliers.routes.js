@@ -4,6 +4,7 @@ import { Supplier } from "#modules/suppliers/supplier.model.js";
 import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { requirePerm } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const suppliersRouter = Router();
 
@@ -21,7 +22,7 @@ function shape(s) {
 // GET /api/suppliers?q=
 suppliersRouter.get("/", requirePerm("stock", "dashboard_ops"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
-  if (req.query.q) filter.name = { $regex: String(req.query.q).trim(), $options: "i" };
+  if (req.query.q) filter.name = { $regex: escapeRegex(req.query.q).slice(0, 60), $options: "i" };
   const suppliers = await Supplier.find(filter).sort({ name: 1 }).limit(200);
   res.json({ suppliers: suppliers.map(shape) });
 });

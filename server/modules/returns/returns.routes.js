@@ -51,6 +51,12 @@ returnsRouter.post("/", requirePerm("returns"), requireBranch, async (req, res) 
   if (sale.service?.kind) {
     return res.status(409).json({ error: "service_payment", message: "That's a service payment, not goods — reverse it from the screen it belongs to." });
   }
+  if (sale.channel === "invoice") {
+    return res.status(409).json({ error: "invoice_sale", message: "That sale is an invoice. To cancel it, void the invoice from Invoices." });
+  }
+  if (sale.channel === "import") {
+    return res.status(409).json({ error: "imported_sale", message: "That sale came from an uploaded history file, so there's no stock to put back. Undo the upload from Import history if it was a mistake." });
+  }
 
   // The share of every net naira the customer actually paid (discount spread).
   const paidFactor = sale.subtotal > 0 ? (sale.subtotal - sale.discount) / sale.subtotal : 1;
@@ -124,84 +130,79 @@ returnsRouter.get("/", requirePerm("returns", "approve_returns"), requireBranch,
 // transaction: the stock coming back, the sale's returnedQty, the refund and
 // the customer's spend are a single decision and commit as one.
 returnsRouter.post("/:id/approve", requirePerm("approve_returns"), async (req, res) => {
-  try {
-    const ret = await withTransaction(async (session) => {
-      const ret = await Return.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
-      if (!ret) throw notFound("Return not found.");
-      if (ret.status !== "pending") throw conflict("This return was already decided.", "decided");
+  const ret = await withTransaction(async (session) => {
+    const ret = await Return.findOne({ _id: req.params.id, businessId: req.ctx.businessId }).session(session);
+    if (!ret) throw notFound("Return not found.");
+    if (ret.status !== "pending") throw conflict("This return was already decided.", "decided");
 
-      const sale = await Sale.findById(ret.saleId).session(session);
+    const sale = await Sale.findById(ret.saleId).session(session);
 
-      for (const item of ret.items) {
-        if (item.restock !== false) {
-          await applyMovement(req.ctx, {
-            branchId: ret.branchId,
-            productId: item.productId,
-            productName: item.name,
-            type: "RETURN",
-            qty: item.qty,
-            refType: "return",
-            refId: ret._id,
-            reason: ret.reason,
-            session,
-          });
-        }
-        if (sale) {
-          const line = sale.items.find((l) => String(l.productId) === String(item.productId));
-          if (line) line.returnedQty += item.qty;
-        }
+    for (const item of ret.items) {
+      if (item.restock !== false) {
+        await applyMovement(req.ctx, {
+          branchId: ret.branchId,
+          productId: item.productId,
+          productName: item.name,
+          type: "RETURN",
+          qty: item.qty,
+          refType: "return",
+          refId: ret._id,
+          reason: ret.reason,
+          session,
+        });
       }
-      if (sale) await sale.save({ session });
-
-      ret.status = "approved";
-      ret.decidedBy = req.ctx.userId;
-      ret.decidedByName = req.ctx.actorName;
-      ret.decidedAt = new Date();
-      ret.decisionNote = String(req.body?.note || "");
-      await ret.save({ session });
-
-      // Money correction: revenue and profit fall by the refund; the restocked
-      // goods return their cost to inventory (cost falls too).
-      const costBack = money(ret.items.reduce((s, i) => s + i.unitCost * i.qty, 0));
-      await bumpDailyMetric(
-        req.ctx,
-        ret.branchId,
-        localDay(),
-        {
-          revenue: -ret.refund.amount,
-          cost: -costBack,
-          profit: -(ret.refund.amount - costBack),
-          refundTotal: ret.refund.amount,
-          payments: { [ret.refund.method]: -ret.refund.amount },
-        },
-        session
-      );
-
-      if (sale?.customerId) {
-        const customer = await Customer.findById(sale.customerId).session(session);
-        if (customer) {
-          customer.totalSpend = money(Math.max(0, customer.totalSpend - ret.refund.amount));
-          await customer.save({ session });
-        }
+      if (sale) {
+        const line = sale.items.find((l) => String(l.productId) === String(item.productId));
+        if (line) line.returnedQty += item.qty;
       }
+    }
+    if (sale) await sale.save({ session });
 
-      return ret;
-    });
+    ret.status = "approved";
+    ret.decidedBy = req.ctx.userId;
+    ret.decidedByName = req.ctx.actorName;
+    ret.decidedAt = new Date();
+    ret.decisionNote = String(req.body?.note || "");
+    await ret.save({ session });
 
-    // Decided, so it no longer needs a decision; and stock came back, which
-    // may answer a low-stock alert on its own.
-    resolveReturnPending(req.ctx.businessId, ret._id);
-    afterStockChange(req.ctx, ret.branchId, ret.items.filter((i) => i.restock !== false).map((i) => i.productId));
+    // Money correction: revenue and profit fall by the refund; the restocked
+    // goods return their cost to inventory (cost falls too).
+    const costBack = money(ret.items.reduce((s, i) => s + i.unitCost * i.qty, 0));
+    await bumpDailyMetric(
+      req.ctx,
+      ret.branchId,
+      localDay(),
+      {
+        revenue: -ret.refund.amount,
+        cost: -costBack,
+        profit: -(ret.refund.amount - costBack),
+        refundTotal: ret.refund.amount,
+        payments: { [ret.refund.method]: -ret.refund.amount },
+      },
+      session
+    );
 
-    audit(req.ctx, "return.approve", { type: "return", id: ret._id, label: ret.saleNo }, undefined, {
-      amount: ret.refund.amount,
-      items: ret.items.map((i) => ({ name: i.name, qty: i.qty })),
-    });
-    res.json({ return: shape(ret) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+    if (sale?.customerId) {
+      const customer = await Customer.findById(sale.customerId).session(session);
+      if (customer) {
+        customer.totalSpend = money(Math.max(0, customer.totalSpend - ret.refund.amount));
+        await customer.save({ session });
+      }
+    }
+
+    return ret;
+  });
+
+  // Decided, so it no longer needs a decision; and stock came back, which
+  // may answer a low-stock alert on its own.
+  resolveReturnPending(req.ctx.businessId, ret._id);
+  afterStockChange(req.ctx, ret.branchId, ret.items.filter((i) => i.restock !== false).map((i) => i.productId));
+
+  audit(req.ctx, "return.approve", { type: "return", id: ret._id, label: ret.saleNo }, undefined, {
+    amount: ret.refund.amount,
+    items: ret.items.map((i) => ({ name: i.name, qty: i.qty })),
+  });
+  res.json({ return: shape(ret) });
 });
 
 // POST /api/returns/:id/reject

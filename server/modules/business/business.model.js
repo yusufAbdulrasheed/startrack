@@ -78,11 +78,50 @@ const businessSchema = new mongoose.Schema(
       order: { type: [String], default: [] },
       productMode: { type: String, enum: ["all", "featured", "none"], default: "all" },
       featuredIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+      // How many times the page was opened, and how many of those came from the
+      // printed QR code — so an owner can see whether the poster is earning its wall.
+      visits: { type: Number, default: 0 },
+      qrScans: { type: Number, default: 0 },
+      // The online store: customers register on the page, then order from it.
+      // Off by default — a page with this off is the plain public brochure it
+      // always was.
+      storefront: {
+        enabled: { type: Boolean, default: false },
+        // A pause switch: the shop stays visible but takes no new orders.
+        acceptingOrders: { type: Boolean, default: true },
+        // The branch whose stock online orders sell from. Empty = the first branch.
+        branchId: { type: mongoose.Schema.Types.ObjectId, default: null },
+        pickup: { type: Boolean, default: true },
+        delivery: { type: Boolean, default: false },
+        deliveryFee: { type: Number, default: 0, min: 0 },
+        freeDeliveryOver: { type: Number, default: 0, min: 0 }, // 0 = never free
+        minOrder: { type: Number, default: 0, min: 0 },
+        payOnDelivery: { type: Boolean, default: true },
+        payAtPickup: { type: Boolean, default: true },
+        transfer: { type: Boolean, default: false },
+        bankName: { type: String, default: "" },
+        accountName: { type: String, default: "" },
+        accountNumber: { type: String, default: "" },
+        // Shown to the customer after they order ("Ready in about 30 minutes").
+        leadTime: { type: String, default: "" },
+        instructions: { type: String, default: "" },
+        // Customers must have a delivery area on file only if the owner says so.
+        deliveryAreas: { type: String, default: "" },
+      },
     },
     settings: {
       currency: { type: String, default: "₦" },
       vatEnabled: { type: Boolean, default: false },
       vatRate: { type: Number, default: 7.5 },
+      // How this business's invoices read and when they fall due.
+      invoice: {
+        dueDays: { type: Number, default: 14, min: 0, max: 365 },
+        terms: { type: String, default: "Payment is due by the date shown above." },
+        footer: { type: String, default: "Thank you for your business." },
+        bankName: { type: String, default: "" },
+        accountName: { type: String, default: "" },
+        accountNumber: { type: String, default: "" },
+      },
       receiptFooter: { type: String, default: "Thank you for your patronage!" },
       // How the printed/shared receipt looks (see receiptDesign.js, which also
       // applies what the plan allows). Template choice needs the Business plan.

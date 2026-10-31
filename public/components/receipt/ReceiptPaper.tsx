@@ -23,6 +23,8 @@ export const DEFAULT_DESIGN: ReceiptDesign = {
 export type ReceiptData = {
   saleNo: string; businessName: string; at: string; staffName: string; customerName: string;
   customerPhone?: string;
+  /** Set on the till once the sale is saved, so the receipt can be sent on. */
+  saleId?: string;
   items: { name: string; qty: number; unitPrice: number; lineNet: number }[];
   subtotal: number; discount: number; vat: number; total: number;
   payments: { method: string; amount: number }[];

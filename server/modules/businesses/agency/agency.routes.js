@@ -9,6 +9,7 @@ import { money } from "#core/money.js";
 import { audit } from "#core/audit.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { resolveCustomer, postServicePayment, reverseServicePayment, servicePaymentsSince } from "#modules/services/servicePayment.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const agencyRouter = Router();
 agencyRouter.use(requireCapability("projects"));
@@ -101,7 +102,7 @@ agencyRouter.get("/projects", requirePerm("sales", "dashboard_ops"), async (req,
   else if (["proposal", "active", "on_hold", "completed", "cancelled"].includes(req.query.status)) filter.status = req.query.status;
   if (req.query.customerId) filter.customerId = req.query.customerId;
   if (req.query.q) {
-    const rx = new RegExp(String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    const rx = new RegExp(escapeRegex(req.query.q), "i");
     filter.$or = [{ title: rx }, { clientName: rx }, { projectNo: rx }];
   }
   const projects = await Project.find(filter).sort({ createdAt: -1 }).limit(200);

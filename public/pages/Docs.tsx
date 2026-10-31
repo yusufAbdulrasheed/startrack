@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { BrandMark } from "@/components/brand/BrandMark";
-import { PLANS, PLAN_ORDER, FEATURES, TRIAL_DAYS } from "#shared/plans.js";
+import { PAYMENTS_ENABLED, PLANS, PLAN_ORDER, FEATURES, TRIAL_DAYS } from "#shared/plans.js";
 import { BUSINESS_TYPES, CAPABILITIES, TOGGLEABLE_MODULES } from "#shared/businessTypes.js";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -240,7 +240,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           <ThemeToggle />
           <Link to="/" className="hidden sm:inline-flex h-10 px-4 items-center text-[14px] font-semibold text-t2 hover:text-t1">Home</Link>
           <Link to="/login" className="hidden sm:inline-flex h-10 px-4 items-center text-[14px] font-semibold text-t2 hover:text-t1">Sign in</Link>
-          <Link to="/register" className="inline-flex items-center h-10 px-5 rounded-full text-[14px] font-bold text-white" style={{ background: GRADIENT }}>Start free trial</Link>
+          <Link to="/register" className="inline-flex items-center h-10 px-5 rounded-full text-[14px] font-bold text-white" style={{ background: GRADIENT }}>{PAYMENTS_ENABLED ? "Start free trial" : "Start free"}</Link>
         </div>
       </div>
     </header>
@@ -296,7 +296,7 @@ export function Docs() {
               [String(types.length), "industry setups"],
               [String(capEntries.length), "trade capabilities"],
               [String(PLAN_ORDER.length), "plans"],
-              [`${TRIAL_DAYS} days`, "free trial"],
+              [`${TRIAL_DAYS} days`, PAYMENTS_ENABLED ? "of Pro with your first month" : "of Pro, free"],
             ].map(([v, l]) => (
               <div key={l} className="rounded-2xl bg-white/8 border border-white/12 px-4 py-3.5 backdrop-blur-sm" style={{ background: "rgba(255,255,255,0.07)" }}>
                 <div className="font-extrabold text-[24px] tracking-[-0.02em]">{v}</div>
@@ -360,7 +360,7 @@ export function Docs() {
             id="getting-started"
             eyebrow="Start here"
             title="Getting started"
-            intro={`You can look around before committing anything. Every new account also starts with a ${TRIAL_DAYS}-day free trial, no card needed.`}
+            intro={PAYMENTS_ENABLED ? `You can look around before committing anything. Pay for Freemium to start and your first month includes ${TRIAL_DAYS} days of Pro, free.` : `You can look around before committing anything. Every new account also starts with ${TRIAL_DAYS} days of Pro, free and with no card, then carries on free on Freemium.`}
           >
             <H3>Try the live demo (no sign-up)</H3>
             <P>
@@ -816,7 +816,7 @@ export function Docs() {
             id="plans"
             eyebrow="Brand & admin"
             title="Plans & billing"
-            intro={`Every plan is paid; Freemium is simply the lightest. Each starts with ${TRIAL_DAYS} days free and no card.`}
+            intro={PAYMENTS_ENABLED ? `Every plan is paid; Freemium is simply the lightest. Start on Freemium and your first month includes ${TRIAL_DAYS} days of Pro, free; when they end you carry on with Freemium.` : `Nobody is being charged right now. A new account gets ${TRIAL_DAYS} days of Pro (or the plan it picked), then carries on free on Freemium. Nothing is deleted when the trial ends.`}
           >
             <div className="grid gap-4 md:grid-cols-3">
               {PLAN_ORDER.map((k) => {
@@ -828,7 +828,7 @@ export function Docs() {
                       {k === "pro" && <span className="text-[10.5px] font-bold uppercase px-2 py-0.5 rounded-full text-white" style={{ background: GRADIENT }}>Popular</span>}
                     </div>
                     <div className="text-[13.5px] text-t3 mt-0.5">{p.tagline}</div>
-                    <div className="mt-4 font-extrabold text-[28px] tracking-[-0.03em] text-t1">{fmtMoney(p.price, "₦")}<span className="text-[13px] font-semibold text-t4"> / month</span></div>
+                    <div className="mt-4 font-extrabold text-[28px] tracking-[-0.03em] text-t1">{PAYMENTS_ENABLED ? fmtMoney(p.price, "₦") : "Free"}{PAYMENTS_ENABLED && <span className="text-[13px] font-semibold text-t4"> / month</span>}</div>
                     <ul className="mt-4 space-y-2">
                       {p.highlights.map((h) => (
                         <li key={h} className="flex gap-2 text-[13.5px] text-t2"><Check className="w-4 h-4 text-success shrink-0 mt-0.5" strokeWidth={3} /> {h}</li>
@@ -948,16 +948,18 @@ export function Docs() {
                 ["The internet went down mid-sale.", "Keep selling. Sales queue on the device and sync when the connection returns; the till shows how many are waiting."],
                 ["A dashboard number looks wrong.", "Settings → Advanced → Recalculate this period rewrites the summary from your sales, returns and expenses. Nothing is deleted."],
                 ["Can I change my business type later?", "Business types set the starting vocabulary, categories and tools. For a different trade, add another business under My Businesses (Business plan allows several)."],
-                ["What happens when my trial ends?", `After ${TRIAL_DAYS} days, pick a plan and pay. If you don't, the account becomes read-only until you renew; nothing is deleted.`],
+                !PAYMENTS_ENABLED
+                  ? ["What happens when my trial ends?", `After ${TRIAL_DAYS} days you carry on free on Freemium. Nothing is deleted: your data stays, features from Pro lock, and if you're over a limit you simply can't add more.`]
+                  : ["What happens when my free Pro days end?", `You carry on with the plan you paid for (Freemium), until your paid month ends. Pro features pause and Freemium limits apply; nothing is deleted. When a paid month ends and isn't renewed, the account becomes read-only until you renew.`],
                 ["Can I try it before signing up?", "Yes — open the live demo from the landing page, pick your kind of business and explore a stocked sandbox."],
               ]}
             />
 
             <div className="rounded-3xl text-white p-8 sm:p-10 relative overflow-hidden" style={{ background: "radial-gradient(700px 360px at 85% 0%, #4a3be8 0%, transparent 60%), #0a1045" }}>
               <h3 className="text-[26px] sm:text-[32px] font-extrabold tracking-[-0.03em] leading-tight max-w-[520px]">Ready to run your business on StarTrack?</h3>
-              <p className="mt-3 text-white/70 text-[15.5px] max-w-[520px]">{TRIAL_DAYS} days free. No card needed. Set up in minutes.</p>
+              <p className="mt-3 text-white/70 text-[15.5px] max-w-[520px]">{PAYMENTS_ENABLED ? `${TRIAL_DAYS} days of Pro with your first month.` : `${TRIAL_DAYS} days of Pro, free. No card needed.`} Set up in minutes.</p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <Link to="/register" className="inline-flex items-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold bg-white text-[#0a1045] hover:-translate-y-0.5 transition-transform">Start free trial <ArrowRight className="w-4 h-4" /></Link>
+                <Link to="/register" className="inline-flex items-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold bg-white text-[#0a1045] hover:-translate-y-0.5 transition-transform">{PAYMENTS_ENABLED ? "Start free trial" : "Start free"} <ArrowRight className="w-4 h-4" /></Link>
                 <Link to="/" className="inline-flex items-center gap-2 h-12 px-6 rounded-full text-[15px] font-bold text-white border border-white/25 bg-white/5 hover:bg-white/10 transition-colors">Back to home</Link>
               </div>
             </div>

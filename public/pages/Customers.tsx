@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Users, Plus, Search, Phone, ChevronRight, Coins, Truck, HandCoins, QrCode, Copy, Check, MessageCircle, Mail } from "lucide-react";
+import { Users, Plus, Upload, Search, Phone, ChevronRight, Coins, Truck, HandCoins, QrCode, Copy, Check, MessageCircle, Mail } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input, Select, TextArea } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { SpreadsheetImport } from "@/components/import/SpreadsheetImport";
+import { requestUpgrade } from "@/components/plan/PlanUi";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
@@ -19,6 +21,7 @@ type Customer = {
   id: string; name: string; phone: string; whatsapp: string; notes: string;
   totalSpend: number; visits: number; firstSeen: string; lastSeen: string;
   creditBalance: number;
+  source?: "pos" | "website"; email?: string; address?: string;
 };
 type LedgerEntry = {
   id: string; type: "sale" | "payment" | "adjustment"; amount: number; balanceAfter: number;
@@ -34,19 +37,21 @@ export function Customers() {
   const [searchParams] = useSearchParams();
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [debtorsOnly, setDebtorsOnly] = useState(false);
+  const [websiteOnly, setWebsiteOnly] = useState(false);
 
   // The header's global search lands here with ?q= — keep the box in sync.
   useEffect(() => {
     const fromUrl = searchParams.get("q");
     if (fromUrl !== null) setQ(fromUrl);
   }, [searchParams]);
-  const query = [q && `q=${encodeURIComponent(q)}`, debtorsOnly && "debtorsOnly=1"].filter(Boolean).join("&");
-  const { data, loading, reload } = useApi<{ customers: Customer[]; totalOutstanding: number }>(
+  const query = [q && `q=${encodeURIComponent(q)}`, debtorsOnly && "debtorsOnly=1", websiteOnly && "source=website"].filter(Boolean).join("&");
+  const { data, loading, reload } = useApi<{ customers: Customer[]; totalOutstanding: number; usage?: { count: number; cap: number | null } }>(
     `/customers${query ? `?${query}` : ""}`,
-    [q, debtorsOnly]
+    [q, debtorsOnly, websiteOnly]
   );
   const customers = data?.customers || [];
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState<Customer | null>(null);
   const paged = usePaged(customers);
 
@@ -55,7 +60,35 @@ export function Customers() {
       <PageHeader
         title="Customers"
         subtitle="Everyone who's bought from you — built automatically from sales"
-        actions={<Button onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add customer</Button>}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => (hasFeature("csvImport") ? setImporting(true) : requestUpgrade("csvImport"))}><Upload className="w-4 h-4" /> Import</Button>
+            <Button onClick={() => setAdding(true)}><Plus className="w-4 h-4" /> Add customer</Button>
+          </>
+        }
+      />
+
+      {data?.usage && data.usage.cap !== null && (
+        <div className={cn("mb-4 flex items-center gap-3 rounded-xl border px-4 py-2.5 text-[12.5px]", data.usage.count >= data.usage.cap ? "border-warning/40 bg-warning-soft text-warning" : data.usage.count >= data.usage.cap * 0.9 ? "border-warning/30 bg-warning-soft/60 text-t2" : "border-line bg-surface-2 text-t3")}>
+          <Users className="w-4 h-4 shrink-0" />
+          <span className="flex-1"><b className="text-t1">{data.usage.count.toLocaleString()}</b> of {data.usage.cap.toLocaleString()} customers on your plan{data.usage.count >= data.usage.cap ? ". You can't add more, but nobody is removed." : "."}</span>
+        </div>
+      )}
+
+      <SpreadsheetImport
+        open={importing} onClose={() => setImporting(false)} onDone={reload}
+        title="Import customers" subtitle="Upload a list from Excel or CSV. You'll see what happens before anything is saved."
+        endpoint="/customers/import"
+        fields={[{ key: "name", label: "Name" }, { key: "phone", label: "Phone" }, { key: "email", label: "Email" }, { key: "address", label: "Address" }, { key: "notes", label: "Notes" }]}
+        tiles={(r) => [
+          { label: "Will be added", value: r.totals.add ?? 0, tone: "good" },
+          { label: "Already in your book", value: r.totals.duplicate ?? 0 },
+          { label: "Skipped (problems)", value: r.totals.invalid ?? 0, tone: r.totals.invalid ? "warn" : undefined },
+          { label: "Over your plan's limit", value: r.totals.overLimit ?? 0, tone: r.totals.overLimit ? "bad" : undefined },
+        ]}
+        columns={[{ label: "Name", cell: (c) => c.name }, { label: "Phone", cell: (c) => c.phone || "—" }, { label: "Email", cell: (c) => c.email || "—" }]}
+        saveLabel={(r) => `Add ${(r.totals.add ?? 0).toLocaleString()} customer${r.totals.add === 1 ? "" : "s"}`}
+        done={(r) => <>{(r.created ?? 0).toLocaleString()} customer{r.created === 1 ? "" : "s"} added to your book.</>}
       />
 
       {creditOn && !!data?.totalOutstanding && (
@@ -80,6 +113,16 @@ export function Customers() {
           </button>
         </Card>
       )}
+
+      <div className="flex items-center gap-2 mb-3">
+        <button
+          onClick={() => setWebsiteOnly((v) => !v)}
+          aria-pressed={websiteOnly}
+          className={cn("h-8 px-3 rounded-ctl text-[12px] font-semibold border transition-colors", websiteOnly ? "bg-primary text-white border-primary" : "border-line-2 text-t2 hover:bg-surface-2")}
+        >
+          {websiteOnly ? "Showing website sign-ups" : "Website sign-ups only"}
+        </button>
+      </div>
 
       <div className="relative max-w-sm mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
@@ -110,7 +153,7 @@ export function Customers() {
                   {c.name[0]?.toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-t1 truncate">{c.name}</div>
+                  <div className="text-[13px] font-semibold text-t1 truncate flex items-center gap-1.5">{c.name}{c.source === "website" && <Badge tone="brand">website</Badge>}</div>
                   <div className="text-[11px] text-t3 flex items-center gap-1">
                     {c.phone && <><Phone className="w-3 h-3" /> {c.phone} · </>}last seen {fmtDate(c.lastSeen)}
                   </div>
@@ -118,7 +161,7 @@ export function Customers() {
                 <div className="text-right shrink-0">
                   <div className="font-mono text-[13px] font-semibold text-t1 tabular-nums">{fmtMoney(c.totalSpend, currency)}</div>
                   <div className="text-[11px] text-t4">{c.visits} visit{c.visits === 1 ? "" : "s"}</div>
-                  {creditOn && c.creditBalance > 0 && (
+                  {c.creditBalance > 0 && (
                     <Badge tone="warning" className="mt-0.5">owes {fmtMoney(c.creditBalance, currency)}</Badge>
                   )}
                 </div>
@@ -210,6 +253,13 @@ function CustomerDetail({ customer, currency, showLoyalty, showLoyaltyCard, show
           </div>
         ))}
       </div>
+      {(c.email || c.address || c.source === "website") && (
+        <div className="text-[12px] text-t2 px-3 py-2 rounded-ctl bg-surface-2 border border-line mb-4 space-y-0.5">
+          {c.source === "website" && <div><Badge tone="brand">signed up on your website</Badge></div>}
+          {c.email && <div>Email: <span className="text-t1">{c.email}</span></div>}
+          {c.address && <div>Address: <span className="text-t1">{c.address}</span></div>}
+        </div>
+      )}
       {c.notes && <div className="text-[12px] text-t2 px-3 py-2 rounded-ctl bg-surface-2 border border-line mb-4">{c.notes}</div>}
       {showLoyaltyCard && <LoyaltyCardPanel customerId={customer.id} customerPhone={c.phone || c.whatsapp} />}
       {showLoyalty && <LoyaltySection customerId={customer.id} onChanged={onChanged} />}

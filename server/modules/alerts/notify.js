@@ -1,4 +1,5 @@
 import { Notification } from "#modules/alerts/notification.model.js";
+import { escapeRegex } from "#core/regex.js";
 
 // A dismissed alert should not pop back the moment the same condition ticks
 // again — but it MUST come back if things got worse. Ranking severity lets
@@ -66,7 +67,7 @@ export async function resolve(businessId, dedupeKey) {
 /** Closes every open condition whose key starts with a prefix. */
 export async function resolveByPrefix(businessId, prefix) {
   await Notification.updateMany(
-    { businessId, dedupeKey: { $regex: `^${prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` }, status: { $ne: "resolved" } },
+    { businessId, dedupeKey: { $regex: `^${escapeRegex(prefix)}` }, status: { $ne: "resolved" } },
     { $set: { status: "resolved", resolvedAt: new Date() } }
   );
 }

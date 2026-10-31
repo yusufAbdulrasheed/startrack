@@ -56,6 +56,9 @@ function startKeepAwake() {
 async function start() {
   try {
     await connectDb();
+    // Accounts that existed before the trial rules keep full access (runs once).
+    const { migrateExistingAccounts } = await import("#modules/auth/accountMigration.js");
+    await migrateExistingAccounts().catch((e) => console.error("account migration failed:", e.message));
     // Sweep expired demo sandboxes on boot and hourly thereafter.
     const { cleanupSandboxes } = await import("#modules/auth/demoSeed.js");
     cleanupSandboxes().catch((e) => console.error("sandbox sweep failed:", e.message));

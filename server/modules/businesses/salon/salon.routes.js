@@ -10,12 +10,12 @@ import { money } from "#core/money.js";
 import { audit } from "#core/audit.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
 import { resolveCustomer, postServicePayment, cleanPayments, servicePaymentsSince } from "#modules/services/servicePayment.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const salonRouter = Router();
 salonRouter.use(requireCapability("appointments"));
 
 const sendHttp = (res, err) => res.status(err.status).json({ error: err.code, message: err.message });
-const escapeRx = (s) => String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const OPEN = ["booked", "in_progress"]; // statuses that actually hold a provider's time
 
 // ── Service menu ─────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ salonRouter.get("/services", requirePerm("sales", "dashboard_ops", "prices"), as
 salonRouter.post("/services", requirePerm("prices"), async (req, res) => {
   const parsed = serviceSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
-  const dupe = await SalonService.findOne({ businessId: req.ctx.businessId, name: new RegExp(`^${escapeRx(parsed.data.name)}$`, "i") });
+  const dupe = await SalonService.findOne({ businessId: req.ctx.businessId, name: new RegExp(`^${escapeRegex(parsed.data.name)}$`, "i") });
   if (dupe) return res.status(409).json({ error: "duplicate", message: `"${dupe.name}" is already on your menu.` });
   const service = await SalonService.create({ accountId: req.ctx.accountId, businessId: req.ctx.businessId, ...parsed.data });
   audit(req.ctx, "salon.service.create", { type: "salonService", id: service._id, label: service.name });
@@ -79,7 +79,7 @@ async function findClash(businessId, provider, start, end, ignoreId = null, sess
   if (!provider) return null;
   return Appointment.findOne({
     businessId,
-    provider: new RegExp(`^${escapeRx(provider)}$`, "i"),
+    provider: new RegExp(`^${escapeRegex(provider)}$`, "i"),
     status: { $in: OPEN },
     startsAt: { $lt: end },
     endsAt: { $gt: start },

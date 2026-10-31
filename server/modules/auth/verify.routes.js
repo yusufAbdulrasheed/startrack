@@ -99,33 +99,28 @@ verifyRouter.post("/confirm", async (req, res) => {
     return res.status(429).json({ error: "rate_limited", message: "Too many attempts. Wait a bit and try again." });
   }
 
-  try {
-    const entry = await VerificationCode.findOne({
-      userId: req.auth.userId,
-      purpose: purposeFor(channel),
-      consumedAt: null,
-    }).sort({ createdAt: -1 });
-    if (!entry) throw notFound("No pending code — request a new one.", "no_code");
-    if (entry.expiresAt < new Date()) throw conflict("That code has expired — request a new one.", "expired");
-    if (entry.attempts >= entry.maxAttempts) throw conflict("Too many wrong attempts — request a new code.", "too_many_attempts");
+  const entry = await VerificationCode.findOne({
+    userId: req.auth.userId,
+    purpose: purposeFor(channel),
+    consumedAt: null,
+  }).sort({ createdAt: -1 });
+  if (!entry) throw notFound("No pending code — request a new one.", "no_code");
+  if (entry.expiresAt < new Date()) throw conflict("That code has expired — request a new one.", "expired");
+  if (entry.attempts >= entry.maxAttempts) throw conflict("Too many wrong attempts — request a new code.", "too_many_attempts");
 
-    const ok = await checkPassword(code, entry.codeHash);
-    if (!ok) {
-      entry.attempts += 1;
-      await entry.save();
-      throw badRequest("Incorrect code.", "bad_code");
-    }
-
-    entry.consumedAt = new Date();
+  const ok = await checkPassword(code, entry.codeHash);
+  if (!ok) {
+    entry.attempts += 1;
     await entry.save();
-    await User.updateOne(
-      { _id: req.auth.userId },
-      { $set: channel === "email" ? { emailVerified: true } : { phoneVerified: true } }
-    );
-
-    res.json({ ok: true, channel });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
+    throw badRequest("Incorrect code.", "bad_code");
   }
+
+  entry.consumedAt = new Date();
+  await entry.save();
+  await User.updateOne(
+    { _id: req.auth.userId },
+    { $set: channel === "email" ? { emailVerified: true } : { phoneVerified: true } }
+  );
+
+  res.json({ ok: true, channel });
 });

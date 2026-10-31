@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { VoidSaleModal } from "@/components/sales/VoidSaleModal";
+import { WhatsAppReceipt } from "@/components/receipt/WhatsAppReceipt";
 import { ReceiptText, Download, Search, Ban } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
-import { Input, Select, TextArea, ErrorBanner } from "@/components/ui/Field";
+import { Input, Select } from "@/components/ui/Field";
+import { Pager } from "@/components/ui/Pager";
 import { Modal } from "@/components/ui/Modal";
 import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { api } from "@/lib/api";
@@ -22,6 +25,7 @@ type Sale = {
   subtotal: number; discount: number; vat: number; total: number;
   payments: { method: string; amount: number }[];
   status: string;
+  channel?: "pos" | "online" | "import" | "invoice"; orderNo?: string | null; deliveryFee?: number;
   voidInfo?: { byName?: string; reason?: string; at?: string };
 };
 type Totals = {
@@ -56,6 +60,7 @@ export function SalesHistoryView() {
   const [from, setFrom] = useState(() => todayStr().slice(0, 8) + "01"); // this month
   const [to, setTo] = useState(todayStr);
   const [status, setStatus] = useState("");
+  const [channel, setChannel] = useState("");
   const [saleNo, setSaleNo] = useState(searchParams.get("saleNo") || "");
   const [page, setPage] = useState(1);
 
@@ -65,7 +70,7 @@ export function SalesHistoryView() {
     const fromUrl = searchParams.get("saleNo");
     if (fromUrl) { setSaleNo(fromUrl); setFrom("2000-01-01"); setPage(1); }
   }, [searchParams]);
-  const filters = `from=${from}&to=${to}${status ? `&status=${status}` : ""}${saleNo ? `&saleNo=${encodeURIComponent(saleNo)}` : ""}`;
+  const filters = `from=${from}&to=${to}${status ? `&status=${status}` : ""}${channel ? `&channel=${channel}` : ""}${saleNo ? `&saleNo=${encodeURIComponent(saleNo)}` : ""}`;
   const query = `/sales?${filters}&page=${page}&limit=${PAGE_SIZE}`;
   const { data, loading, reload } = useApi<{ sales: Sale[]; totals: Totals; page: number; pages: number }>(
     query,
@@ -123,6 +128,13 @@ export function SalesHistoryView() {
           <option value="">All statuses</option>
           <option value="completed">Completed</option>
           <option value="voided">Voided</option>
+        </Select>
+        <Select value={channel} onChange={(e) => setFilter(setChannel)(e.target.value)} className="!w-36" aria-label="Where the sale was made">
+          <option value="">All channels</option>
+          <option value="pos">In person</option>
+          <option value="online">Online</option>
+          <option value="invoice">Invoices</option>
+          <option value="import">Imported history</option>
         </Select>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-t4 pointer-events-none" />
@@ -183,7 +195,7 @@ export function SalesHistoryView() {
                     className={cn("cursor-pointer", s.status === "voided" && "opacity-50")}
                   >
                     <TD>
-                      <div className="font-mono text-[12px] font-semibold text-primary">{s.saleNo}</div>
+                      <div className="font-mono text-[12px] font-semibold text-primary flex items-center gap-1.5">{s.saleNo}{s.channel === "online" && <Badge tone="brand">online</Badge>}{s.channel === "import" && <Badge tone="neutral">imported</Badge>}{s.channel === "invoice" && <Badge tone="warning">invoice</Badge>}</div>
                       <div className="text-[11px] text-t4">{fmtDateTime(s.at)}</div>
                     </TD>
                     <TD className="!text-t2 max-w-[220px] truncate">
@@ -206,33 +218,8 @@ export function SalesHistoryView() {
             </Table>
           </div>
 
-          {/* Pager. The totals bar above always covers the WHOLE period, not
-              this page — so paging never changes the figures being read. */}
-          {pages > 1 && (
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-line">
-              <div className="text-[12px] text-t3">
-                Showing <span className="font-semibold text-t2">{(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + sales.length}</span>
-                {" "}of <span className="font-semibold text-t2">{t?.count ?? 0}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page <= 1 || loading}
-                  className="h-8 px-3 rounded-lg border border-line-2 bg-surface text-[12px] font-semibold text-t2 hover:text-primary hover:border-brand-400 disabled:opacity-40 disabled:hover:text-t2 disabled:hover:border-line-2 transition-colors"
-                >
-                  Previous
-                </button>
-                <span className="px-2 text-[12px] font-mono text-t3 tabular-nums">{page} / {pages}</span>
-                <button
-                  onClick={() => setPage((p) => Math.min(pages, p + 1))}
-                  disabled={page >= pages || loading}
-                  className="h-8 px-3 rounded-lg border border-line-2 bg-surface text-[12px] font-semibold text-t2 hover:text-primary hover:border-brand-400 disabled:opacity-40 disabled:hover:text-t2 disabled:hover:border-line-2 transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+          {/* The totals bar above always covers the WHOLE period, not this page, so paging never changes the figures being read. */}
+          <Pager page={page} pages={pages} total={t?.count ?? 0} from={(page - 1) * PAGE_SIZE + 1} to={(page - 1) * PAGE_SIZE + sales.length} onPage={setPage} noun="sales" />
         </Card>
       )}
 
@@ -243,7 +230,7 @@ export function SalesHistoryView() {
         onClose={() => setSelected(null)}
         onVoid={(s) => { setSelected(null); setVoiding(s); }}
       />
-      <VoidSale sale={voiding} currency={currency} onClose={() => setVoiding(null)} onDone={() => { setVoiding(null); reload(); }} />
+      <VoidSaleModal sale={voiding} currency={currency} onClose={() => setVoiding(null)} onDone={() => { setVoiding(null); reload(); }} />
     </div>
   );
 }
@@ -274,47 +261,12 @@ function SaleDetail({ sale, currency, canVoid, onClose, onVoid }: {
           <div className="text-[11px] text-t3">Paid via {sale.payments.map((p) => `${p.method.toUpperCase()} ${fmtMoney(p.amount, currency)}`).join(" + ")}</div>
         </div>
       </div>
+      <WhatsAppReceipt saleId={sale.id} className="mt-4" />
       {canVoid && sale.status === "completed" && (
         <Button variant="danger" className="w-full mt-4" onClick={() => onVoid(sale)}>
           <Ban className="w-4 h-4" /> Void this sale
         </Button>
       )}
-    </Modal>
-  );
-}
-
-function VoidSale({ sale, currency, onClose, onDone }: { sale: Sale | null; currency: string; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setError("");
-    try {
-      await api(`/sales/${sale!.id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
-      setReason("");
-      onDone();
-    } catch (err: any) {
-      setError(err.message);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={!!sale}
-      onClose={onClose}
-      title={`Void ${sale?.saleNo}?`}
-      subtitle={`${fmtMoney(sale?.total || 0, currency)} — stock returns to the shelf, the sale stays on record flagged as void`}
-    >
-      <form onSubmit={submit} className="space-y-3">
-        <ErrorBanner message={error} />
-        <TextArea autoFocus required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this sale being voided?" />
-        <Button type="submit" variant="danger" className="w-full" disabled={busy}>
-          <Ban className="w-4 h-4" /> {busy ? "Voiding…" : "Void this sale"}
-        </Button>
-      </form>
     </Modal>
   );
 }

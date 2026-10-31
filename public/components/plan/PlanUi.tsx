@@ -39,7 +39,7 @@ export function LockChip({ feature, className }: { feature: string; className?: 
  */
 export function UpgradePrompt() {
   const navigate = useNavigate();
-  const { can } = useSession();
+  const { can, plan: current } = useSession();
   const [info, setInfo] = useState<{ message: string; requiredPlan: PlanKey; lapsed?: boolean } | null>(null);
 
   useEffect(() => {
@@ -84,10 +84,10 @@ export function UpgradePrompt() {
           ))}
         </ul>
         <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="text-[13px] text-t3"><b className="text-t1 text-[16px]">{fmtMoney(plan.price, "₦")}</b> / month</div>
+          <div className="text-[13px] text-t3">{current.paymentsOn ? <><b className="text-t1 text-[16px]">{fmtMoney(plan.price, "₦")}</b> / month</> : <>Included in the free {plan.name} trial</>}</div>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={close}>Not now</Button>
-            {can("*") ? <Button onClick={() => { close(); navigate(`/app/billing?plan=${info.requiredPlan}`); }}>See plans <ArrowRight className="w-4 h-4" /></Button>
+            {can("*") ? <Button onClick={() => { close(); navigate(`/app/billing?plan=${info.requiredPlan}`); }}>{current.paymentsOn ? "See plans" : "See what's included"} <ArrowRight className="w-4 h-4" /></Button>
               : <span className="text-[12px] text-t3 self-center max-w-[170px]">Ask the account owner to upgrade.</span>}
           </div>
         </div>
@@ -116,7 +116,7 @@ export function LockedPage({ feature }: { feature: string }) {
           <p className="mt-2 text-[13px] text-t4">You're on {current.name}.</p>
           <div className="mt-7 flex flex-wrap gap-3 justify-center">
             {can("*")
-              ? <Button size="lg" onClick={() => navigate(`/app/billing?plan=${need.key}`)}><Sparkles className="w-4 h-4" /> Upgrade to {need.name} · {fmtMoney(need.price, "₦")}/mo</Button>
+              ? <Button size="lg" onClick={() => navigate(`/app/billing?plan=${need.key}`)}><Sparkles className="w-4 h-4" /> {current.paymentsOn ? `Upgrade to ${need.name} · ${fmtMoney(need.price, "₦")}/mo` : `See what ${need.name} includes`}</Button>
               : <span className="text-[13px] text-t3">Ask the account owner to upgrade the plan.</span>}
             <Button size="lg" variant="secondary" onClick={() => navigate("/app/dashboard")}>Back to dashboard</Button>
           </div>

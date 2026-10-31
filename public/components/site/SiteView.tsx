@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { ArrowRight, ChevronDown, Clock, Mail, MapPin, MessageCircle, Navigation, Phone, Quote, Star, X } from "lucide-react";
 import { fmtMoney } from "@/lib/format";
+import { toIntlPhone } from "@/lib/phone";
 import {
-  DAYS, DAY_ORDER, FEATURE_ICONS, ctaHref, hoursLabel, onColor, openStatus, socialLinks, telHref, waDigits,
+  DAYS, DAY_ORDER, FEATURE_ICONS, ctaHref, hoursLabel, onColor, openStatus, socialLinks, telHref,
   type SectionKey, type SiteData, type SiteProduct,
 } from "@/lib/site";
 import { cn } from "@/lib/utils";
@@ -69,7 +70,14 @@ function Heading({ eyebrow, title, sub, t, center }: { eyebrow: string; title: s
   );
 }
 
-export function SiteView({ data: d, preview = false }: { data: SiteData; preview?: boolean }) {
+export function SiteView({ data: d, preview = false, storeHeader, shopLink = false }: {
+  data: SiteData;
+  preview?: boolean;
+  /** An online store supplies its own header (basket, account) in place of the page's. */
+  storeHeader?: React.ReactNode;
+  /** Point the hero's second button at the shop instead of the product list. */
+  shopLink?: boolean;
+}) {
   const t = themeFor(d);
   const [cat, setCat] = useState("All");
   const [open, setOpen] = useState<number | null>(0);
@@ -77,7 +85,7 @@ export function SiteView({ data: d, preview = false }: { data: SiteData; preview
   const status = useMemo(() => (d.show.hours ? openStatus(d.hours) : null), [d.hours, d.show.hours]);
   const cats = useMemo(() => ["All", ...Array.from(new Set(d.products.map((p) => p.category).filter(Boolean)))], [d.products]);
   const shown = cat === "All" || !cats.includes(cat) ? d.products : d.products.filter((p) => p.category === cat);
-  const wa = waDigits(d.contact.whatsapp);
+  const wa = toIntlPhone(d.contact.whatsapp);
   const call = telHref(d.contact.phone);
   const directions = ctaHref("directions", d.contact);
   const socials = socialLinks(d.social);
@@ -104,7 +112,7 @@ export function SiteView({ data: d, preview = false }: { data: SiteData; preview
   const order = d.order.filter((k) => have[k]);
   const navLinks = order.filter((k) => LABELS[k]);
   const go = (k: string) => (preview ? undefined : `#sec-${k}`);
-  const secondary = have.products ? { href: go("products"), label: "See what we offer" } : directions ? { href: directions, label: "Get directions" } : null;
+  const secondary = shopLink ? { href: "#shop", label: "Start shopping" } : have.products ? { href: go("products"), label: "See what we offer" } : directions ? { href: directions, label: "Get directions" } : null;
   const popular = d.products.slice(0, 3);
   const band = minimal ? undefined : t.band;
 
@@ -324,6 +332,7 @@ export function SiteView({ data: d, preview = false }: { data: SiteData; preview
       )}
 
       {/* Navigation */}
+      {storeHeader ?? (
       <header className="sticky top-0 z-30" style={{ background: t.dark ? "rgba(11,14,31,0.82)" : "rgba(255,255,255,0.86)", backdropFilter: "blur(14px)", borderBottom: `1px solid ${t.line}` }}>
         <div className="flex items-center gap-3 px-5 @3xl:px-10 h-[68px] max-w-[1240px] mx-auto">
           {d.logoUrl
@@ -337,6 +346,7 @@ export function SiteView({ data: d, preview = false }: { data: SiteData; preview
           {primary && <Btn href={primary.href} t={t} preview={preview} className="!h-10 !px-5 !text-[13.5px]"><primary.icon className="w-4 h-4" /><span className="hidden @md:inline">{primary.label}</span><span className="@md:hidden">Contact</span></Btn>}
         </div>
       </header>
+      )}
 
       {/* Hero */}
       <section className={cn("relative px-4 @3xl:px-8", minimal ? "pt-10 @3xl:pt-16" : "pt-4 @3xl:pt-6")}>

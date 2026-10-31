@@ -2,9 +2,11 @@ import express from "express";
 import "express-async-errors"; // async route errors reach the error handler
 import cors from "cors";
 import multer from "multer";
+import { HttpError } from "#core/httpError.js";
 import { config } from "#core/config.js";
-import { requireAuth } from "#core/middleware/requireAuth.js";
-import { tenantContext } from "#core/middleware/tenant.js";
+import { requireAuth, requireLive, requireOwner } from "#core/middleware/requireAuth.js";
+import { securityHeaders } from "#core/securityHeaders.js";
+import { tenantContext, requirePerm } from "#core/middleware/tenant.js";
 import { InsufficientStockError } from "#modules/inventory/inventory.service.js";
 
 // Shared core + generic feature modules — every business type uses these
@@ -62,6 +64,15 @@ import { requireFeature } from "#core/middleware/tenant.js";
 import { billingRouter, billingWebhook } from "#modules/billing/billing.routes.js";
 import { siteRouter } from "#modules/site/site.routes.js";
 import { sitePublicRouter } from "#modules/site/site.public.routes.js";
+import { ordersRouter } from "#modules/storefront/orders.routes.js";
+import { inventoryHubRouter } from "#modules/inventory/inventory.hub.routes.js";
+import { salesHistoryRouter } from "#modules/imports/salesHistory.routes.js";
+import { invoicesRouter } from "#modules/invoices/invoices.routes.js";
+import { invoicesPublicRouter } from "#modules/invoices/invoices.public.routes.js";
+import { receiptPublicRouter } from "#modules/sales/receipt.public.routes.js";
+import { purchaseOrdersRouter } from "#modules/inventory/purchaseOrders.routes.js";
+import { customersImportRouter } from "#modules/customers/customers.import.routes.js";
+import { storefrontPublicRouter } from "#modules/storefront/storefront.public.routes.js";
 
 /**
  * The whole API, and nothing else — no static-file serving, no app.listen(),
@@ -72,6 +83,8 @@ import { sitePublicRouter } from "#modules/site/site.public.routes.js";
  * hand-maintained copies drifting apart.
  */
 export const app = express();
+app.disable("x-powered-by");
+app.use(securityHeaders);
 app.set("trust proxy", 1); // real client IPs behind Render/Netlify/railway proxies (rate limits)
 // One app on one origin, so there is normally nothing to negotiate. CORS is
 // switched on only when WEB_ORIGIN names a separately hosted client.
@@ -99,22 +112,31 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, service: "startrack-a
 app.use("/api/auth", authRouter);
 // Identity-scoped, not business-scoped — knows WHO via the JWT, not which
 // business they're acting in, so it sits behind requireAuth alone.
-app.use("/api/verify", requireAuth, verifyRouter);
+app.use("/api/verify", requireAuth, requireLive, verifyRouter);
 // Account-level too: the plan belongs to the person paying, not to one business.
-app.use("/api/billing", requireAuth, billingRouter);
+app.use("/api/billing", requireAuth, requireLive, requireOwner, billingRouter);
 
 // Business-data routes: auth → tenant context → module
 const tenant = [requireAuth, tenantContext];
 // Spans every business of the account, so it resolves access itself (no tenantContext).
-app.use("/api/overview", requireAuth, overviewRouter);
+app.use("/api/overview", requireAuth, requireLive, overviewRouter);
 app.use("/api/staff", tenant, staffRouter);
 app.use("/api/products", tenant, productsRouter);
 app.use("/api/production", tenant, requireFeature("verticals"), productionRouter);
 app.use("/api/suppliers", tenant, requireFeature("suppliers"), suppliersRouter);
 app.use("/api/stock-counts", tenant, requireFeature("stockCount"), stockCountRouter);
 app.use("/api/inventory", tenant, inventoryRouter);
+// The inventory hub: overview, valuation, movers, reorder suggestions, opening-stock import.
+app.use("/api/inventory", tenant, inventoryHubRouter);
+app.use("/api/purchase-orders", tenant, requireFeature("suppliers"), purchaseOrdersRouter);
+// Upload past sales so reports start with the business's real history.
+app.use("/api/history-import", tenant, requireFeature("csvImport"), salesHistoryRouter);
+// Invoices: bill customers, track what they owe, take part-payments.
+// Invoices put money on a customer's account, so till staff (who only have "sales") are kept out.
+app.use("/api/invoices", tenant, requirePerm("customers", "dashboard_ops"), requireFeature("invoices"), invoicesRouter);
 app.use("/api/sales", tenant, salesRouter);
 app.use("/api/returns", tenant, requireFeature("returns"), returnsRouter);
+app.use("/api/customers/import", tenant, requireFeature("csvImport"), customersImportRouter);
 app.use("/api/customers", tenant, customersRouter);
 app.use("/api/expenses", tenant, expensesRouter);
 app.use("/api/attendance", tenant, requireFeature("attendance"), attendanceRouter);
@@ -146,10 +168,17 @@ app.use("/api/salon", tenant, requireFeature("verticals"), salonRouter);
 app.use("/api/agency", tenant, requireFeature("verticals"), agencyRouter);
 app.use("/api/loyalty-cards", tenant, requireFeature("loyalty"), loyaltyCardRouter);
 app.use("/api/site", tenant, requireFeature("sitePage"), siteRouter);
+// Online orders placed on the business's page, handled by its owner and staff.
+app.use("/api/orders", tenant, requireFeature("sitePage"), ordersRouter);
 
 // Public: a customer opening their card link isn't logged into anything.
 app.use("/api/public/loyalty-cards", loyaltyCardPublicRouter);
 app.use("/api/public/sites", sitePublicRouter);
+// A customer opening the invoice link they were sent.
+app.use("/api/public/invoices", invoicesPublicRouter);
+app.use("/api/public/receipts", receiptPublicRouter);
+// The customer side of a business's page: register, sign in, browse, order.
+app.use("/api/public/store/:slug", storefrontPublicRouter);
 
 // StarTrack's own staff, looking across every tenant. Deliberately NOT behind
 // `tenant` — it carries its own gate (see platform.routes.js).
@@ -165,6 +194,13 @@ app.use("/api", (_req, res) => res.status(404).json({ error: "not_found" }));
 // catch-all) falls back to Express's default error handling for those —
 // acceptable, since neither serves anything that throws these domain errors.
 app.use((err, _req, res, _next) => {
+  // A business rule saying no (see core/httpError.js): routes just throw it.
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ error: err.code, message: err.message });
+  }
+  // Bad bodies are the caller's mistake, not ours.
+  if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "invalid", message: "That request wasn't valid JSON." });
+  if (err?.type === "entity.too.large") return res.status(413).json({ error: "too_large", message: "That request is too large." });
   if (err instanceof InsufficientStockError) {
     return res.status(409).json({ error: err.code, message: err.message });
   }

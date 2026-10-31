@@ -113,23 +113,18 @@ cohortsRouter.post("/:id/feed", requirePerm("stock"), requireBranch, async (req,
   const product = await Product.findOne({ _id: productId, businessId: req.ctx.businessId, status: "active" });
   if (!product) return res.status(404).json({ error: "not_found", message: "Feed product not found." });
 
-  try {
-    const balance = await applyMovement(req.ctx, {
-      branchId: req.ctx.branchId,
-      productId: product._id,
-      productName: product.name,
-      type: "OUT",
-      qty: -qty,
-      refType: "cohort_feed",
-      refId: cohort._id,
-      reason: note || `Fed to ${cohort.name}`,
-    });
-    afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
-    res.status(201).json({ stock: balance });
-  } catch (err) {
-    if (err instanceof InsufficientStockError) return res.status(409).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  const balance = await applyMovement(req.ctx, {
+    branchId: req.ctx.branchId,
+    productId: product._id,
+    productName: product.name,
+    type: "OUT",
+    qty: -qty,
+    refType: "cohort_feed",
+    refId: cohort._id,
+    reason: note || `Fed to ${cohort.name}`,
+  });
+  afterStockChange(req.ctx, req.ctx.branchId, [product._id]);
+  res.status(201).json({ stock: balance });
 });
 
 const mortalitySchema = z.object({

@@ -3,10 +3,9 @@ import { History, Ban } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
-import { Input, TextArea, ErrorBanner } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
-import { api } from "@/lib/api";
+import { Input } from "@/components/ui/Field";
 import { useApi } from "@/lib/useApi";
+import { VoidSaleModal } from "@/components/sales/VoidSaleModal";
 import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
 import { fmtMoney, fmtTime, todayStr } from "@/lib/format";
@@ -75,43 +74,7 @@ export function Activity() {
         </Card>
       )}
 
-      <VoidModal sale={voiding} currency={currency} onClose={() => setVoiding(null)} onDone={() => { setVoiding(null); reload(); }} />
+      <VoidSaleModal sale={voiding} currency={currency} onClose={() => setVoiding(null)} onDone={() => { setVoiding(null); reload(); }} />
     </div>
-  );
-}
-
-function VoidModal({ sale, currency, onClose, onDone }: { sale: Sale | null; currency: string; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setError("");
-    try {
-      await api(`/sales/${sale!.id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
-      setReason("");
-      onDone();
-    } catch (err: any) {
-      setError(err.message);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={!!sale}
-      onClose={onClose}
-      title={`Void ${sale?.saleNo}?`}
-      subtitle={`${fmtMoney(sale?.total || 0, currency)} — stock returns to the shelf, the sale stays on record flagged as void`}
-    >
-      <form onSubmit={submit} className="space-y-3">
-        <ErrorBanner message={error} />
-        <TextArea autoFocus required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why is this sale being voided?" />
-        <Button type="submit" variant="danger" className="w-full" disabled={busy}>
-          <Ban className="w-4 h-4" /> {busy ? "Voiding…" : "Void this sale"}
-        </Button>
-      </form>
-    </Modal>
   );
 }

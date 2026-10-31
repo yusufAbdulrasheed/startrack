@@ -6,10 +6,12 @@ import { Membership } from "#modules/auth/membership.model.js";
 import { User } from "#modules/auth/user.model.js";
 import { Business } from "#modules/business/business.model.js";
 import { Branch } from "#modules/business/branch.model.js";
+import { Customer } from "#modules/customers/customer.model.js";
 import { Product } from "#modules/products/product.model.js";
 import { config } from "#core/config.js";
+import { publicBase } from "#core/share.js";
 import { rateLimit } from "#core/rateLimit.js";
-import { isLegacyAccount, planStatus, PLANS, planRank } from "#shared/plans.js";
+import { PAYMENTS_ENABLED, isLegacyAccount, planStatus, PLANS, planRank, TRIAL_DAYS, bonusPlanFor } from "#shared/plans.js";
 
 /**
  * Subscriptions. Payment goes through Paystack (cards, bank transfer, USSD).
@@ -76,10 +78,18 @@ export async function applyTransaction(tx) {
 
   // The reference is claimed in the same write that grants the plan, so two
   // simultaneous callers (return page + webhook) can't both extend it.
+  // Someone who signed up for Freemium and pays for it for the first time gets Pro free for
+  // TRIAL_DAYS, inside this paid month. Once only: renewing never repeats it.
+  const bonusPlan = plan === "free" && current?.registeredPlan === "free" && !current?.bonusUsed ? bonusPlanFor("free") : null;
+  const bonusUntil = bonusPlan ? new Date(Math.min(now.getTime() + TRIAL_DAYS * DAY, end.getTime())) : null;
+
   const claimed = await Account.updateOne(
     { _id: account._id, "subscription.payments.reference": { $ne: tx.reference } },
     {
-      $set: { plan, "subscription.plan": plan, "subscription.trial": false, "subscription.currentPeriodEnd": end },
+      $set: {
+        plan, "subscription.plan": plan, "subscription.trial": false, "subscription.currentPeriodEnd": end,
+        ...(bonusPlan ? { "subscription.bonus": { plan: bonusPlan, until: bonusUntil }, "subscription.bonusUsed": true } : {}),
+      },
       $push: { "subscription.payments": { reference: tx.reference, plan, amount: PLANS[plan].price, at: now } },
     }
   );
@@ -95,13 +105,14 @@ billingRouter.get("/", async (req, res) => {
   const plan = status.plan;
   const businesses = await Business.find({ accountId: account._id }).select("name").sort({ createdAt: 1 });
   const ids = businesses.map((b) => b._id);
-  const [products, staff, branches] = await Promise.all([
+  const [products, staff, branches, customers] = await Promise.all([
     Product.aggregate([{ $match: { businessId: { $in: ids }, status: "active" } }, { $group: { _id: "$businessId", n: { $sum: 1 } } }]),
     Membership.aggregate([{ $match: { businessId: { $in: ids }, status: "active", role: { $ne: "owner" } } }, { $group: { _id: "$businessId", n: { $sum: 1 } } }]),
     Branch.aggregate([{ $match: { businessId: { $in: ids } } }, { $group: { _id: "$businessId", n: { $sum: 1 } } }]),
+    Customer.aggregate([{ $match: { businessId: { $in: ids } } }, { $group: { _id: "$businessId", n: { $sum: 1 } } }]),
   ]);
   const by = (rows) => new Map(rows.map((r) => [String(r._id), r.n]));
-  const [pm, sm, bm] = [by(products), by(staff), by(branches)];
+  const [pm, sm, bm, cm] = [by(products), by(staff), by(branches), by(customers)];
   res.json({
     plan,
     planName: PLANS[plan].name,
@@ -110,11 +121,16 @@ billingRouter.get("/", async (req, res) => {
     lapsed: status.lapsed,
     periodEnd: status.periodEnd,
     canManage: !!(await ownerOf(req)),
-    paymentsEnabled: paystackReady(),
+    paymentsEnabled: paystackReady() && PAYMENTS_ENABLED,
+    paymentsOn: PAYMENTS_ENABLED,
+    trialEnded: !!status.trialEnded,
+    awaitingPayment: !!status.awaitingPayment,
+    paidUntil: status.paidUntil || null,
+    paidPlan: status.paidPlan || null,
     limits: PLANS[plan].limits,
     usage: {
       businesses: businesses.length,
-      perBusiness: businesses.map((b) => ({ id: b._id, name: b.name, products: pm.get(String(b._id)) || 0, staff: sm.get(String(b._id)) || 0, branches: bm.get(String(b._id)) || 0 })),
+      perBusiness: businesses.map((b) => ({ id: b._id, name: b.name, products: pm.get(String(b._id)) || 0, staff: sm.get(String(b._id)) || 0, branches: bm.get(String(b._id)) || 0, customers: cm.get(String(b._id)) || 0 })),
     },
     payments: (account.subscription?.payments || []).slice(-10).reverse(),
   });
@@ -124,6 +140,7 @@ const checkoutSchema = z.object({ plan: z.enum(["free", "pro", "business"]), ret
 
 // POST /api/billing/checkout — start paying for a plan; returns where to send the browser
 billingRouter.post("/checkout", async (req, res) => {
+  if (!PAYMENTS_ENABLED) return res.status(400).json({ error: "payments_off", message: "Plans are free right now and payments are switched off, so there's nothing to buy." });
   if (!(await ownerOf(req))) return res.status(403).json({ error: "forbidden", message: "Only the account owner can change the plan." });
   const parsed = checkoutSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: "Choose a plan." });
@@ -146,7 +163,7 @@ billingRouter.post("/checkout", async (req, res) => {
   if (!user?.email) return res.status(400).json({ error: "invalid", message: "Add an email address to your profile first." });
 
   // Where Paystack sends them back: this app, never a caller-chosen site.
-  const base = (config.appUrl || (req.headers.origin && new URL(req.headers.origin).origin) || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  const base = publicBase(req);
   const reference = `st_${account._id}_${crypto.randomBytes(6).toString("hex")}`;
   const data = await paystack("POST", "/transaction/initialize", {
     email: user.email,

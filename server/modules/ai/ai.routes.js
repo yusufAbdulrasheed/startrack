@@ -285,40 +285,35 @@ aiRouter.post("/restock-suggestions/:id/approve", requirePerm("stock"), requireB
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
 
-  try {
-    const suggestion = await RestockSuggestion.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
-    if (!suggestion) throw notFound("Suggestion not found.");
-    if (suggestion.status !== "pending") throw conflict("This suggestion was already decided.", "already_decided");
+  const suggestion = await RestockSuggestion.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!suggestion) throw notFound("Suggestion not found.");
+  if (suggestion.status !== "pending") throw conflict("This suggestion was already decided.", "already_decided");
 
-    const product = await Product.findOne({ _id: suggestion.productId, businessId: req.ctx.businessId });
-    if (!product) throw badRequest("That product no longer exists.");
+  const product = await Product.findOne({ _id: suggestion.productId, businessId: req.ctx.businessId });
+  if (!product) throw badRequest("That product no longer exists.");
 
-    if (d.action === "raise_reorder_level") {
-      product.reorderLevel = d.qty ?? suggestion.suggestedQty;
-      await product.save();
-    } else {
-      const qty = d.qty ?? suggestion.suggestedQty;
-      await applyMovement(req.ctx, {
-        branchId: req.ctx.branchId, productId: product._id, productName: product.name,
-        type: "IN", qty, refType: "ai_restock", reason: "AI restock suggestion approved",
-      });
-    }
-
-    suggestion.status = "approved";
-    suggestion.decidedById = req.ctx.userId;
-    suggestion.decidedByName = req.ctx.actorName;
-    suggestion.decidedAt = new Date();
-    suggestion.appliedAs = d.action === "raise_reorder_level" ? "reorder_level" : "stock_in";
-    await suggestion.save();
-
-    audit(req.ctx, "ai.restock.approve", { type: "product", id: product._id, label: product.name }, undefined, {
-      action: d.action, qty: d.qty ?? suggestion.suggestedQty,
+  if (d.action === "raise_reorder_level") {
+    product.reorderLevel = d.qty ?? suggestion.suggestedQty;
+    await product.save();
+  } else {
+    const qty = d.qty ?? suggestion.suggestedQty;
+    await applyMovement(req.ctx, {
+      branchId: req.ctx.branchId, productId: product._id, productName: product.name,
+      type: "IN", qty, refType: "ai_restock", reason: "AI restock suggestion approved",
     });
-    res.json({ suggestion: shapeSuggestion(suggestion) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
   }
+
+  suggestion.status = "approved";
+  suggestion.decidedById = req.ctx.userId;
+  suggestion.decidedByName = req.ctx.actorName;
+  suggestion.decidedAt = new Date();
+  suggestion.appliedAs = d.action === "raise_reorder_level" ? "reorder_level" : "stock_in";
+  await suggestion.save();
+
+  audit(req.ctx, "ai.restock.approve", { type: "product", id: product._id, label: product.name }, undefined, {
+    action: d.action, qty: d.qty ?? suggestion.suggestedQty,
+  });
+  res.json({ suggestion: shapeSuggestion(suggestion) });
 });
 
 // POST /api/ai/restock-suggestions/:id/dismiss
@@ -363,46 +358,41 @@ aiRouter.get("/actions", requirePerm("dashboard_ops"), async (req, res) => {
 
 // POST /api/ai/actions/:id/approve
 aiRouter.post("/actions/:id/approve", requirePerm("dashboard_ops"), requireBranch, async (req, res) => {
-  try {
-    const action = await AiAction.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
-    if (!action) throw notFound("That proposal no longer exists.");
-    if (action.status !== "pending") throw conflict("This was already decided.", "already_decided");
+  const action = await AiAction.findOne({ _id: req.params.id, businessId: req.ctx.businessId });
+  if (!action) throw notFound("That proposal no longer exists.");
+  if (action.status !== "pending") throw conflict("This was already decided.", "already_decided");
 
-    const requiredPerm = ACTION_PERM[action.type];
-    if (!req.ctx.perms.includes("*") && !req.ctx.perms.includes(requiredPerm)) {
-      throw new HttpError(403, "forbidden", "You don't have permission to approve this kind of action.");
-    }
-    // Highest-risk category — confirmed by the user's own design decision:
-    // staff/permission changes always require the owner specifically, no
-    // exceptions, regardless of who else holds the staff_mgmt permission.
-    if (action.type === "create_staff" && !req.ctx.perms.includes("*")) {
-      throw new HttpError(403, "forbidden", "Only the owner can approve creating a staff account.");
-    }
-
-    let resultRef;
-    try {
-      resultRef = await executeAction(req.ctx, action);
-    } catch (err) {
-      action.error = err instanceof HttpError ? err.message : "Couldn't complete this action.";
-      await action.save();
-      throw err instanceof HttpError ? err : new HttpError(500, "server", "Couldn't complete this action.");
-    }
-
-    action.status = "approved";
-    action.decidedById = req.ctx.userId;
-    action.decidedByName = req.ctx.actorName;
-    action.decidedAt = new Date();
-    action.resultRef = resultRef;
-    action.error = "";
-    await action.save();
-
-    audit(req.ctx, `ai.action.approve.${action.type}`, resultRef, undefined,
-      action.type === "import_catalog" ? { target: action.payload.target, fileName: action.payload.fileName, added: resultRef.count, skipped: resultRef.skipped } : { payload: action.payload });
-    res.json({ action: shapeActionRow(action) });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
+  const requiredPerm = ACTION_PERM[action.type];
+  if (!req.ctx.perms.includes("*") && !req.ctx.perms.includes(requiredPerm)) {
+    throw new HttpError(403, "forbidden", "You don't have permission to approve this kind of action.");
   }
+  // Highest-risk category — confirmed by the user's own design decision:
+  // staff/permission changes always require the owner specifically, no
+  // exceptions, regardless of who else holds the staff_mgmt permission.
+  if (action.type === "create_staff" && !req.ctx.perms.includes("*")) {
+    throw new HttpError(403, "forbidden", "Only the owner can approve creating a staff account.");
+  }
+
+  let resultRef;
+  try {
+    resultRef = await executeAction(req.ctx, action);
+  } catch (err) {
+    action.error = err instanceof HttpError ? err.message : "Couldn't complete this action.";
+    await action.save();
+    throw err instanceof HttpError ? err : new HttpError(500, "server", "Couldn't complete this action.");
+  }
+
+  action.status = "approved";
+  action.decidedById = req.ctx.userId;
+  action.decidedByName = req.ctx.actorName;
+  action.decidedAt = new Date();
+  action.resultRef = resultRef;
+  action.error = "";
+  await action.save();
+
+  audit(req.ctx, `ai.action.approve.${action.type}`, resultRef, undefined,
+    action.type === "import_catalog" ? { target: action.payload.target, fileName: action.payload.fileName, added: resultRef.count, skipped: resultRef.skipped } : { payload: action.payload });
+  res.json({ action: shapeActionRow(action) });
 });
 
 // POST /api/ai/actions/:id/reject

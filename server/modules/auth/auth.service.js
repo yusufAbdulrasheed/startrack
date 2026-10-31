@@ -29,7 +29,22 @@ export const ROLE_PERMS = {
   staff: ["sales", "returns", "activity"],
 };
 
+// Every permission a person can be individually given. "*" (everything) is
+// deliberately not here: only the owner role has it, and it can never be handed out.
+export const GRANTABLE_PERMS = new Set([
+  "activity", "approve_returns", "audit", "customers", "dashboard_finance", "dashboard_ops", "expenses",
+  "prices", "returns", "sales", "settings", "staff_mgmt", "stock", "support", "void_sales",
+]);
+
+/** Why `wanted` can't be given to someone by `actorPerms`, or null if it can. */
+export function overridesProblem(actorPerms, wanted) {
+  if (wanted.some((p) => !GRANTABLE_PERMS.has(p))) return "That isn't a permission that can be given.";
+  if (!actorPerms.includes("*") && wanted.some((p) => !actorPerms.includes(p))) return "You can't give someone a permission you don't have yourself.";
+  return null;
+}
+
 export function permsForRole(role, overrides = []) {
   const base = ROLE_PERMS[role] || ROLE_PERMS.staff;
-  return Array.from(new Set([...base, ...overrides]));
+  // Filtered on the way out as well, so an override stored before this rule existed can't carry "*".
+  return Array.from(new Set([...base, ...overrides.filter((p) => GRANTABLE_PERMS.has(p))]));
 }

@@ -6,10 +6,10 @@ import { Expense } from "#modules/expenses/expense.model.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { User } from "#modules/auth/user.model.js";
 import { scopedToBranch } from "#core/branchScope.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const searchRouter = Router();
 
-const escapeRegex = (s) => String(s).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * One box, everything in it. Each domain is queried only if the caller

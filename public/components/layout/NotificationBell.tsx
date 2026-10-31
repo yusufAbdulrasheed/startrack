@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bell, PackageX, PackageSearch, CalendarClock, CalendarX2, Undo2, ShieldCheck,
-  Check, CheckCheck, Loader2, LifeBuoy,
+  Check, CheckCheck, Loader2, LifeBuoy, ShoppingBag,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export type Notification = {
   id: string;
-  type: "stock_out" | "stock_low" | "expired" | "expiry_soon" | "return_pending" | "perm_changed" | "ticket_update";
+  type: "stock_out" | "stock_low" | "expired" | "expiry_soon" | "return_pending" | "perm_changed" | "ticket_update" | "online_order";
   severity: "info" | "warning" | "critical";
   title: string;
   body: string;
@@ -30,6 +30,7 @@ const ICONS = {
   return_pending: Undo2,
   perm_changed: ShieldCheck,
   ticket_update: LifeBuoy,
+  online_order: ShoppingBag,
 } as const;
 
 // Where each kind of alert wants you to go to actually deal with it. An alert
@@ -42,6 +43,7 @@ const DESTINATION: Record<Notification["type"], string> = {
   return_pending: "/app/returns",
   perm_changed: "/app/activity",
   ticket_update: "/app/tickets",
+  online_order: "/app/orders",
 };
 
 // A ticket update should open that exact ticket, not just the list.

@@ -1,33 +1,20 @@
 /**
- * Which plan each seeded showcase business sits on, so every plan can be tried
- * with a real login. Spread across trades on purpose: a tight Freemium shop, a
- * mid-size Pro business and a Business-plan operation with everything on.
+ * The seeded showcase: EVERY business type on EVERY plan, so any trade can be
+ * tried as Freemium, Pro or Business with a real login. One owner account each
+ * (13 trades x 3 plans), no staff: add your own once you are signed in.
  *
- * Used by seedShowcase.js (new accounts get their plan at creation) and by
- * assignPlans.js (existing accounts are moved onto it).
+ * Used by seedShowcase.js (accounts get their plan at creation) and by
+ * assignPlans.js (existing accounts are moved onto their plan).
  */
 export const SHOWCASE_OWNER_PASSWORD = "Demo@1234";
 
-export const SHOWCASE_PLANS = {
-  // Freemium: the light, single-shop experience
-  supermarket: "free",
-  laundry: "free",
-  water: "free",
-  blinds: "free",
-  // Pro: AI, barcodes, loyalty, transfers, expiry, suppliers, custom receipt
-  restaurant: "pro",
-  electronics: "pro",
-  gym: "pro",
-  salon: "pro",
-  poultry: "pro",
-  // Business: everything, including receipt templates and the landing page
-  hotel: "business",
-  academy: "business",
-  agency: "business",
-  coldroom: "business",
-};
+/** The plans each trade is seeded on, in the order they are listed. */
+export const SHOWCASE_PLAN_KEYS = ["free", "pro", "business"];
 
-/** A paid-up subscription that stays valid for testing. */
+/** The login for a trade on a plan, e.g. salon.pro@startrack.demo. */
+export const showcaseEmail = (typeKey, plan) => `${typeKey}.${plan}@startrack.demo`;
+
+/** A paid-up subscription that stays valid for testing (no Pro bonus: Freemium stays Freemium). */
 export function showcaseSubscription(plan, days = 365) {
-  return { plan, trial: false, currentPeriodEnd: new Date(Date.now() + days * 86_400_000), payments: [] };
+  return { plan, trial: false, registeredPlan: plan, currentPeriodEnd: new Date(Date.now() + days * 86_400_000), payments: [] };
 }

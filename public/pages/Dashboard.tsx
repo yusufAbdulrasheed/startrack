@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Wallet, ShoppingCart, TrendingUp, AlertTriangle, RefreshCw, Package,
   Boxes, CalendarClock, Receipt, Users, UserCog, ArrowDownToLine, ArrowUpFromLine, History,
-  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, Compass, Lock,
-} from "lucide-react";
+  ReceiptText, ArrowLeftRight, Undo2, Wrench, RotateCcw, Sparkles, Compass, Lock, ShoppingBag } from "lucide-react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -63,9 +63,14 @@ const TAB_FEATURE: Partial<Record<string, string>> = {
 };
 
 export function Dashboard() {
-  const { session, activeBusiness, activeBranch, currency, hasModule, hasFeature } = useSession();
+  const { session, activeBusiness, activeBranch, currency, hasModule, hasFeature, can } = useSession();
   const [tab, setTab] = useState<Tab>("overview");
   const { data: m, loading, error, reload } = useApi<Metrics>("/metrics/dashboard", [activeBranch?.id]);
+  // Online orders waiting on you, if the business runs an online store. Only asked
+  // when the plan includes it, so it never trips an upgrade prompt.
+  const { data: web } = useApi<{ waiting: number; storeEnabled: boolean; onlineToday: { revenue: number; orders: number } }>(
+    hasFeature("sitePage") && can("sales") ? "/orders/summary" : null, [activeBranch?.id]
+  );
 
   const firstName = session?.user.name.split(" ")[0] || "there";
   const hour = new Date().getHours();
@@ -104,6 +109,17 @@ export function Dashboard() {
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
+      {web?.storeEnabled && web.waiting > 0 && (
+        <Link to="/app/orders" className="mb-5 flex items-center gap-3 rounded-card border border-warning/30 bg-warning-soft px-5 py-3.5 hover:brightness-95 transition">
+          <span className="grid place-items-center w-9 h-9 rounded-xl bg-warning text-white"><ShoppingBag className="w-[18px] h-[18px]" /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13.5px] font-semibold text-t1">{web.waiting} online order{web.waiting === 1 ? "" : "s"} waiting for you</div>
+            <div className="text-[12px] text-t3">Confirm them to record the sale and take the stock off.</div>
+          </div>
+          <span className="text-[12.5px] font-bold text-warning">Open orders →</span>
+        </Link>
+      )}
+
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
         <div>

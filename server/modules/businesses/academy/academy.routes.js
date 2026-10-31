@@ -10,6 +10,7 @@ import { localDay } from "#modules/metrics/metrics.service.js";
 import { money } from "#core/money.js";
 import { audit } from "#core/audit.js";
 import { HttpError, badRequest, conflict, notFound } from "#core/httpError.js";
+import { escapeRegex } from "#core/regex.js";
 import {
   resolveCustomer, postServicePayment, reverseServicePayment, servicePaymentsSince,
 } from "#modules/services/servicePayment.js";
@@ -83,7 +84,7 @@ academyRouter.get("/courses", requirePerm("sales", "dashboard_ops", "prices"), a
 academyRouter.post("/courses", requirePerm("prices"), async (req, res) => {
   const parsed = courseSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
-  const dupe = await Course.findOne({ businessId: req.ctx.businessId, name: new RegExp(`^${parsed.data.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") });
+  const dupe = await Course.findOne({ businessId: req.ctx.businessId, name: new RegExp(`^${escapeRegex(parsed.data.name)}$`, "i") });
   if (dupe) return res.status(409).json({ error: "duplicate", message: `"${dupe.name}" is already in your course list.` });
   const course = await Course.create({ accountId: req.ctx.accountId, businessId: req.ctx.businessId, ...parsed.data });
   audit(req.ctx, "academy.course.create", { type: "course", id: course._id, label: course.name });
@@ -289,7 +290,7 @@ academyRouter.get("/enrollments", requirePerm("sales", "dashboard_ops"), async (
   if (req.query.intakeId) filter.intakeId = req.query.intakeId;
   if (req.query.customerId) filter.customerId = req.query.customerId;
   if (["enrolled", "completed", "dropped"].includes(req.query.status)) filter.status = req.query.status;
-  if (req.query.q) filter.studentName = new RegExp(String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  if (req.query.q) filter.studentName = new RegExp(escapeRegex(req.query.q), "i");
   if (req.query.owing === "1") {
     filter.status = { $in: ["enrolled", "completed"] };
     filter.$expr = { $gt: ["$fee", "$amountPaid"] };

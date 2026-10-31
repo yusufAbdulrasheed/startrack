@@ -1,13 +1,14 @@
 import { Router } from "express";
 import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { requirePerm } from "#core/middleware/tenant.js";
+import { escapeRegex } from "#core/regex.js";
 
 export const auditRouter = Router();
 
 // GET /api/audit?action=&limit= — the owner's timeline of sensitive actions
 auditRouter.get("/", requirePerm("audit"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
-  if (req.query.action) filter.action = { $regex: `^${String(req.query.action)}` };
+  if (req.query.action) filter.action = { $regex: `^${escapeRegex(req.query.action)}` };
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const rows = await AuditLog.find(filter).sort({ at: -1 }).limit(limit);
   res.json({

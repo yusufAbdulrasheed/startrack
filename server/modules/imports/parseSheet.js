@@ -36,7 +36,7 @@ function cellValue(v) {
 const isBlank = (v) => v === "" || v === null || v === undefined;
 const isText = (v) => typeof v === "string" && v.length > 0 && Number.isNaN(Number(v.replace(/[,₦$£€\s]/g, "")));
 
-function sheetToTable(ws) {
+function sheetToTable(ws, maxRows = MAX_ROWS) {
   const width = ws.actualColumnCount || ws.columnCount || 0;
   const raw = [];
   ws.eachRow({ includeEmpty: true }, (row) => {
@@ -76,7 +76,7 @@ function sheetToTable(ws) {
     // Footer lines like "Total" / "Grand total" aren't items.
     if (typeof first === "string" && /^(grand\s+)?total\b/i.test(first) && r.filter((v) => !isBlank(v)).length <= 3) continue;
     total++;
-    if (rows.length >= MAX_ROWS) continue;
+    if (rows.length >= maxRows) continue;
     const obj = {};
     for (const c of cols) obj[c.label] = r[c.idx] ?? "";
     obj.__row = i + 1; // the row number as Excel shows it
@@ -85,7 +85,7 @@ function sheetToTable(ws) {
   return { headers: cols.map((c) => c.label), rows, total, truncated: total > rows.length };
 }
 
-export async function parseUpload(buffer, fileName) {
+export async function parseUpload(buffer, fileName, { maxRows = MAX_ROWS } = {}) {
   const ext = path.extname(String(fileName || "")).toLowerCase();
   if (ext === ".xls") throw new UploadError("That's an old .xls file. Open it in Excel and choose Save As → Excel Workbook (.xlsx), or save it as CSV, then upload it again.");
   if (!EXTENSIONS.has(ext)) throw new UploadError("I can read Excel (.xlsx) and CSV (.csv) files.");
@@ -94,7 +94,10 @@ export async function parseUpload(buffer, fileName) {
 
   const wb = new ExcelJS.Workbook();
   try {
-    if (ext === ".csv") await wb.csv.read(Readable.from(buffer));
+    // No automatic date conversion: the CSV reader would otherwise read 05-03-2025 as
+    // May 3rd (month first) and shift dates by the server's timezone. Dates stay text
+    // here and are read day-first, the way these spreadsheets are written, by parseDate().
+    if (ext === ".csv") await wb.csv.read(Readable.from(buffer), { dateFormats: [] });
     else await wb.xlsx.load(buffer);
   } catch {
     throw new UploadError("I couldn't open that file — it may be damaged or password-protected.");
@@ -102,7 +105,7 @@ export async function parseUpload(buffer, fileName) {
 
   const tables = wb.worksheets
     .filter((ws) => ws.state !== "hidden" && ws.state !== "veryHidden")
-    .map((ws) => ({ name: ext === ".csv" ? "CSV" : ws.name, ...sheetToTable(ws) }))
+    .map((ws) => ({ name: ext === ".csv" ? "CSV" : ws.name, ...sheetToTable(ws, maxRows) }))
     .filter((t) => t.headers.length && t.total > 0);
   if (!tables.length) throw new UploadError("I couldn't find a table in that file. It needs a header row (Name, Price…) with items underneath.");
 

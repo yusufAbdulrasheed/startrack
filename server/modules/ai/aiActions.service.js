@@ -19,6 +19,7 @@ import { badRequest, notFound } from "#core/httpError.js";
 import { executeImport } from "#modules/imports/catalogTargets.js";
 import { archiveProducts, archivableFilter } from "#modules/products/archive.service.js";
 import { scopedToBranch } from "#core/branchScope.js";
+import { escapeRegex } from "#core/regex.js";
 
 /**
  * Seven actions the AI can propose, deliberately narrower than full feature
@@ -212,7 +213,7 @@ export const TOOLS = [
 // later is deterministic and never has to re-interpret free text. ──────
 
 async function findProductByName(businessId, name) {
-  const escaped = String(name).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = escapeRegex(name);
   return Product.findOne({ businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } });
 }
 
@@ -261,7 +262,7 @@ export async function resolveAction(ctx, name, args) {
       }
       let customerName = "";
       if (args.customerName?.trim()) {
-        const customer = await Customer.findOne({ businessId: ctx.businessId, name: { $regex: `^${args.customerName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } });
+        const customer = await Customer.findOne({ businessId: ctx.businessId, name: { $regex: `^${escapeRegex(args.customerName)}$`, $options: "i" } });
         if (!customer) throw notFound(`No customer called "${args.customerName}" — leave it out to sell as a walk-in, or propose creating them first.`);
         customerName = customer.name;
       }
@@ -270,7 +271,7 @@ export async function resolveAction(ctx, name, args) {
     }
 
     case "archive_products": {
-      const esc = (v) => String(v).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const esc = escapeRegex;
       let found = [];
       if (args.all === true) {
         found = await Product.find(archivableFilter(ctx)).select("name");
@@ -325,7 +326,7 @@ export async function resolveAction(ctx, name, args) {
       if (!/^\d{4}$/.test(String(args.pin || ""))) throw badRequest("Give a 4-digit PIN.");
       let branchId = null, branchName = "";
       if (args.branchName?.trim()) {
-        const branch = await Branch.findOne({ businessId: ctx.businessId, name: { $regex: `^${args.branchName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, $options: "i" } });
+        const branch = await Branch.findOne({ businessId: ctx.businessId, name: { $regex: `^${escapeRegex(args.branchName)}$`, $options: "i" } });
         if (!branch) throw notFound(`No branch called "${args.branchName}".`);
         branchId = String(branch._id);
         branchName = branch.name;
@@ -376,7 +377,7 @@ export async function executeAction(ctx, action) {
     }
 
     case "create_product": {
-      const escaped = p.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escaped = escapeRegex(p.name);
       const dupe = await Product.findOne({ businessId: ctx.businessId, status: "active", name: { $regex: `^${escaped}$`, $options: "i" } });
       if (dupe) throw badRequest(`"${dupe.name}" is already in your catalog.`);
       const product = await Product.create({

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
-import { SHOWCASE_OWNER_PASSWORD, SHOWCASE_PLANS, showcaseSubscription } from "./showcasePlans.js";
+import { SHOWCASE_OWNER_PASSWORD, SHOWCASE_PLAN_KEYS, showcaseEmail, showcaseSubscription } from "./showcasePlans.js";
+import { PLANS } from "#shared/plans.js";
 import { connectDb } from "#core/db.js";
 import { hashPassword } from "#modules/auth/auth.service.js";
 import { User } from "#modules/auth/user.model.js";
@@ -52,7 +53,7 @@ import { GymSubscription } from "#modules/businesses/gym/gymSubscription.model.j
 import { GymCheckIn } from "#modules/businesses/gym/gymCheckIn.model.js";
 
 /**
- * Seeds seven permanent, demonstrable businesses — one independent owner
+ * Seeds permanent, demonstrable businesses: every trade on every plan (Freemium, Pro, Business) — one independent owner
  * account per vertical, each on its own Account with its own Membership, the
  * way separate real tenants would be. Logging in as one owner shows only
  * their business, never the other six. Unlike server/modules/auth/demoSeed.js
@@ -64,10 +65,8 @@ import { GymCheckIn } from "#modules/businesses/gym/gymCheckIn.model.js";
  */
 
 const OWNER_PASSWORD = SHOWCASE_OWNER_PASSWORD;
-const STAFF_PIN_STAFF = "1111";
-const STAFF_PIN_MANAGER = "2222";
 
-const ownerEmailFor = (typeKey) => `${typeKey}.owner@startrack.demo`;
+const ownerEmailFor = showcaseEmail;
 
 const CUSTOMERS = [
   { name: "Mama Nkechi", phone: "08031112233" },
@@ -83,16 +82,15 @@ const daysAgo = (n) => new Date(Date.now() - n * 24 * 3600 * 1000);
 
 // ── Owner + account (one independent tenant per business) ──────────────
 
-async function getOrCreateOwner(typeKey, shop) {
-  const email = ownerEmailFor(typeKey);
+async function getOrCreateOwner(typeKey, plan, shop) {
+  const email = ownerEmailFor(typeKey, plan);
   let user = await User.findOne({ email });
   if (user) {
     const account = await Account.findOne({ ownerUserId: user._id });
     return { user, account };
   }
-  user = await User.create({ name: `${shop.business} Owner`, email, passwordHash: await hashPassword(OWNER_PASSWORD) });
-  const plan = SHOWCASE_PLANS[typeKey] || "business";
-  const account = await Account.create({ name: shop.business, ownerUserId: user._id, isSandbox: false, plan, subscription: showcaseSubscription(plan) });
+  user = await User.create({ name: `${shop.business} Owner`, email, passwordHash: await hashPassword(OWNER_PASSWORD), emailVerified: true, phoneVerified: true });
+  const account = await Account.create({ name: `${shop.business} (${PLANS[plan].name})`, ownerUserId: user._id, isSandbox: false, plan, subscription: showcaseSubscription(plan) });
   return { user, account };
 }
 
@@ -144,24 +142,12 @@ async function wipeAllShowcaseData() {
   const legacyUsers = await User.find({ email: { $regex: /@startrack\.demo$/i } }).select("_id");
   const userIds = legacyUsers.map((u) => u._id);
   if (!userIds.length) return;
-  const ownedAccountIds = (await Account.find({ ownerUserId: { $in: userIds } }).select("_id")).map((a) => a._id);
-  const memberAccountIds = await Membership.find({ userId: { $in: userIds } }).distinct("accountId");
-  const accountIds = [...new Map([...ownedAccountIds, ...memberAccountIds].map((id) => [String(id), id])).values()];
+  // Only accounts OWNED by a seeded user are purged: a real account that happened to
+  // list a seeded email as a member can never be swept up with them.
+  const accountIds = (await Account.find({ ownerUserId: { $in: userIds } }).select("_id")).map((a) => a._id);
   if (!accountIds.length) return;
   const wiped = await purgeAccounts(accountIds);
   console.log(`Wiped ${accountIds.length} previous showcase account(s), ${wiped} business(es) — starting clean.\n`);
-}
-
-// ── One staff member, with a till PIN ───────────────────────────────
-
-async function makeStaff({ account, business, branch, name, role, pin, tag }) {
-  const email = `${name.split(" ")[0].toLowerCase()}.${tag}@startrack.demo`;
-  const user = await User.create({ name, email, passwordHash: await hashPassword(`unused-${Math.random().toString(36).slice(2)}`) });
-  await Membership.create({
-    userId: user._id, accountId: account._id, businessId: business._id, branchId: branch._id,
-    role, pinHash: await hashPassword(pin), status: "active",
-  });
-  return user;
 }
 
 // ── Catalog + opening stock ──────────────────────────────────────────
@@ -561,19 +547,18 @@ async function seedCreditCustomer(ctx, customers) {
 
 // ── Orchestration ────────────────────────────────────────────────────
 
-async function seedBusiness(typeKey, owner, account) {
+async function seedBusiness(typeKey, plan, owner, account) {
   const shop = DEMOS[typeKey];
   const template = typeTemplate(typeKey);
 
   const business = await Business.create({
-    accountId: account._id, name: shop.business, typeKey,
+    accountId: account._id, name: `${shop.business} (${PLANS[plan].name})`, typeKey,
     settings: { currency: "₦", vatEnabled: true, vatRate: 7.5, modules: template.modules },
   });
   const branch = await Branch.create({ accountId: account._id, businessId: business._id, name: shop.branch.name, address: shop.branch.address });
   await Membership.create({ userId: owner._id, accountId: account._id, businessId: business._id, branchId: branch._id, role: "owner" });
 
-  const amaka = await makeStaff({ account, business, branch, name: "Amaka Obi", role: "staff", pin: STAFF_PIN_STAFF, tag: typeKey });
-  const chidi = await makeStaff({ account, business, branch, name: "Chidi Eze", role: "manager", pin: STAFF_PIN_MANAGER, tag: typeKey });
+  // No staff are seeded: the owner adds their own once signed in.
 
   const ctx = { accountId: account._id, businessId: business._id, branchId: branch._id, userId: owner._id, actorName: "Demo Owner", business };
 
@@ -624,7 +609,7 @@ async function seedBusiness(typeKey, owner, account) {
   const svcSeed = { academy: seedAcademyDemo, salon: seedSalonDemo, agency: seedAgencyDemo }[typeKey];
   if (svcSeed) await svcSeed({ base: { accountId: account._id, businessId: business._id }, branch, ctx });
 
-  const lastSale = await seedTradingHistory(ctx, byName, customers, [amaka, chidi, owner]);
+  const lastSale = await seedTradingHistory(ctx, byName, customers, [owner]);
   if (typeKey === "restaurant") await seedKitchenQueue(ctx, lastSale);
 
   // Two days of expenses + today's clock-in, same shape as the sandbox demo.
@@ -636,8 +621,6 @@ async function seedBusiness(typeKey, owner, account) {
       { $inc: { expenses: amount }, $setOnInsert: { accountId: account._id } }, { upsert: true }
     );
   }
-  const clockIn = new Date(); clockIn.setHours(8, randInt(0, 10), 0, 0);
-  await Attendance.create({ accountId: account._id, businessId: business._id, branchId: branch._id, userId: amaka._id, staffName: "Amaka Obi", date: localDay(), clockIn });
 
   // Every sandbox's "raise alerts now" step, so the bell isn't empty on login.
   try {
@@ -648,7 +631,7 @@ async function seedBusiness(typeKey, owner, account) {
     console.error(`  alert seeding failed for ${typeKey}:`, err.message);
   }
 
-  return { business, branch, staffPins: { "Amaka Obi (staff)": STAFF_PIN_STAFF, "Chidi Eze (manager)": STAFF_PIN_MANAGER } };
+  return { business, branch };
 }
 
 async function main() {
@@ -664,10 +647,10 @@ async function main() {
   await connectDb();
 
   if (reset && only) {
-    console.log(`Resetting the ${only} showcase only…`);
-    const email = ownerEmailFor(only);
-    const owner = await User.findOne({ email });
-    if (owner) {
+    console.log(`Resetting the ${only} showcases only…`);
+    for (const plan of SHOWCASE_PLAN_KEYS) {
+      const owner = await User.findOne({ email: ownerEmailFor(only, plan) });
+      if (!owner) continue;
       const accounts = await Account.find({ ownerUserId: owner._id }).select("_id");
       await purgeAccounts(accounts.map((a) => a._id));
       await User.deleteOne({ _id: owner._id }); // the owner may have no membership to be swept up by the purge
@@ -681,28 +664,39 @@ async function main() {
   for (const typeKey of Object.keys(DEMOS)) {
     if (only && typeKey !== only) continue;
     const shop = DEMOS[typeKey];
-    const { user: owner, account } = await getOrCreateOwner(typeKey, shop);
+    for (const plan of SHOWCASE_PLAN_KEYS) {
+      let { user: owner, account } = await getOrCreateOwner(typeKey, plan, shop);
 
-    const existingBusiness = await Business.findOne({ accountId: account._id, typeKey });
-    if (existingBusiness) {
-      console.log(`Skipping ${typeKey} — already seeded (business ${existingBusiness._id}). Run with --reset to rebuild.`);
-      results.push({ typeKey, business: existingBusiness, ownerEmail: owner.email });
-      continue;
+      let existingBusiness = await Business.findOne({ accountId: account._id, typeKey });
+      // A run that was cut off (network, Ctrl-C) can leave a half-built business. Seeding always
+      // ends by writing the expenses, so a business without any is unfinished: rebuild it.
+      if (existingBusiness && !(await Expense.exists({ accountId: account._id }))) {
+        console.log(`Rebuilding ${typeKey} / ${plan} — an earlier run didn't finish it.`);
+        await purgeAccounts([account._id]);
+        await User.deleteOne({ _id: owner._id });
+        ({ user: owner, account } = await getOrCreateOwner(typeKey, plan, shop));
+        existingBusiness = null;
+      }
+      if (existingBusiness) {
+        console.log(`Skipping ${typeKey} / ${plan} — already seeded (business ${existingBusiness._id}). Run with --reset to rebuild.`);
+        results.push({ typeKey, plan, business: existingBusiness, ownerEmail: owner.email });
+        continue;
+      }
+
+      console.log(`Seeding ${typeKey} / ${PLANS[plan].name}…`);
+      const { business } = await seedBusiness(typeKey, plan, owner, account);
+      results.push({ typeKey, plan, business, ownerEmail: owner.email });
     }
-
-    console.log(`Seeding ${typeKey}…`);
-    const { business } = await seedBusiness(typeKey, owner, account);
-    results.push({ typeKey, business, ownerEmail: owner.email });
   }
 
   console.log("\n" + "=".repeat(72));
-  console.log("StarTrack showcase — one independent owner login per business");
+  console.log(`StarTrack showcase — ${results.length} owner logins (every trade on every plan), all with password ${OWNER_PASSWORD}`);
   console.log("=".repeat(72));
-  for (const r of results) {
-    const shop = DEMOS[r.typeKey];
-    console.log(`— ${shop.label} (${shop.business})`);
-    console.log(`    Owner login  →  ${r.ownerEmail}  /  ${OWNER_PASSWORD}`);
-    console.log(`    Till login   →  business code ${r.business.code}, PIN ${STAFF_PIN_STAFF} (staff) or ${STAFF_PIN_MANAGER} (manager)`);
+  for (const plan of SHOWCASE_PLAN_KEYS) {
+    console.log(`\n${PLANS[plan].name.toUpperCase()}`);
+    for (const r of results.filter((x) => x.plan === plan)) {
+      console.log(`  ${DEMOS[r.typeKey].label.padEnd(26)} ${r.ownerEmail.padEnd(36)} business code ${r.business.code}`);
+    }
   }
   console.log("=".repeat(72));
 

@@ -13,7 +13,9 @@ export type Business = {
 export type PlanSummary = {
   key: PlanKey; name: string; features: string[];
   limits: { businesses: number | null; branches: number | null; staff: number | null; products: number | null };
-  legacy: boolean; periodEnd: string | null; trial: boolean; lapsed: boolean;
+  legacy: boolean; periodEnd: string | null; trial: boolean; lapsed: boolean; trialEnded?: boolean; paymentsOn?: boolean;
+  /** Signed up but hasn't paid yet. `paidUntil`/`paidPlan` are what the money has bought (the welcome bonus can sit above it). */
+  awaitingPayment?: boolean; paidUntil?: string | null; paidPlan?: PlanKey | null;
 };
 export type Branch = { id: string; businessId: string; name: string };
 export type Session = {
@@ -75,6 +77,19 @@ type Ctx = {
 
 const SessionContext = createContext<Ctx | null>(null);
 
+// Which business/branch this tab is looking at. Per tab (sessionStorage) so two
+// tabs can work in two businesses, and gone when the tab closes.
+const ACTIVE_KEY = "startrack.active";
+function readActive(): { businessId: string | null; branchId: string | null } | null {
+  try { return JSON.parse(sessionStorage.getItem(ACTIVE_KEY) || "null"); } catch { return null; }
+}
+function writeActive(businessId: string, branchId: string | null) {
+  try { sessionStorage.setItem(ACTIVE_KEY, JSON.stringify({ businessId, branchId })); } catch { /* private mode: just don't remember */ }
+}
+function clearActive() {
+  try { sessionStorage.removeItem(ACTIVE_KEY); } catch { /* nothing to clear */ }
+}
+
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,21 +97,28 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
 
-  // Bootstrap from a stored token on first load
+  // Bootstrap from a stored token on first load. A reload keeps the business and
+  // branch you were in (several screens reload to re-read the session); a fresh
+  // sign-in starts on the first business.
   useEffect(() => {
     const stored = localStorage.getItem("startrack.token");
     if (!stored) { setLoading(false); return; }
     api<Session>("/auth/me")
-      .then((s) => applySession(s))
+      .then((s) => applySession(s, true))
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
   }, []);
 
-  function applySession(s: Session) {
+  function applySession(s: Session, restore = false) {
     if (s.token) setToken(s.token);
     setSession(s);
-    const biz = s.businesses[0] || null;
-    const branch = s.branches.find((b) => b.businessId === biz?.id) || s.branches[0] || null;
+    // Only honour the remembered choice if it is still one of this session's own.
+    const saved = restore ? readActive() : null;
+    const biz = s.businesses.find((b) => b.id === saved?.businessId) || s.businesses[0] || null;
+    const branch =
+      s.branches.find((b) => b.id === saved?.branchId && b.businessId === biz?.id) ||
+      s.branches.find((b) => b.businessId === biz?.id) ||
+      null;
     setActiveBusinessId(biz?.id ?? null);
     setActiveBranchId(branch?.id ?? null);
     setTenant(biz?.id ?? null, branch?.id ?? null); // headers ready before pages fetch
@@ -105,6 +127,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // Keep the API client's tenant headers in lockstep with the switcher.
   useEffect(() => {
     setTenant(activeBusinessId, activeBranchId);
+    if (activeBusinessId) writeActive(activeBusinessId, activeBranchId);
   }, [activeBusinessId, activeBranchId]);
 
   const value = useMemo<Ctx>(() => {
@@ -124,6 +147,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setActiveBusinessId(id);
         setActiveBranchId(first?.id ?? null);
         setTenant(id, first?.id ?? null);
+        writeActive(id, first?.id ?? null); // written now, not after render: some callers reload straight away
       },
       setActiveBranch: (id) => {
         setActiveBranchId(id);
@@ -154,6 +178,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       },
       logout: () => {
         setToken(null);
+        clearActive();
         setTenant(null, null);
         setSession(null);
         setActiveBusinessId(null);

@@ -6,7 +6,7 @@ import { Membership } from "#modules/auth/membership.model.js";
 import { Branch } from "#modules/business/branch.model.js";
 import { Shift } from "#modules/staff/shift.model.js";
 import { RosterEntry } from "#modules/staff/rosterEntry.model.js";
-import { hashPassword, permsForRole } from "#modules/auth/auth.service.js";
+import { hashPassword, permsForRole, overridesProblem } from "#modules/auth/auth.service.js";
 import { requirePerm, requireBranch, limitProblem } from "#core/middleware/tenant.js";
 import { audit } from "#core/audit.js";
 import { localDay } from "#modules/metrics/metrics.service.js";
@@ -152,6 +152,8 @@ staffRouter.post("/", requirePerm("staff_mgmt"), async (req, res) => {
   if ((d.role === "manager" || d.role === "staff") && !d.branchId) {
     return res.status(400).json({ error: "invalid", message: "Managers and staff must be assigned to a branch." });
   }
+  const problem = overridesProblem(req.ctx.perms, d.permsOverride);
+  if (problem) return res.status(403).json({ error: "forbidden", message: problem });
   if (d.branchId) {
     const branch = await Branch.findOne({ _id: d.branchId, businessId: req.ctx.businessId });
     if (!branch) return res.status(400).json({ error: "invalid", message: "That branch doesn't exist." });
@@ -241,6 +243,14 @@ staffRouter.patch("/:id", requirePerm("staff_mgmt"), async (req, res) => {
   }
   if ((d.role === "admin" || membership.role === "admin") && !req.ctx.perms.includes("*")) {
     return res.status(403).json({ error: "forbidden", message: "Only the owner can manage admins." });
+  }
+  // Nobody widens their own access: that is the owner's call.
+  if (String(membership.userId) === String(req.ctx.userId) && !req.ctx.perms.includes("*")) {
+    return res.status(403).json({ error: "forbidden", message: "You can't change your own access." });
+  }
+  if (d.permsOverride) {
+    const problem = overridesProblem(req.ctx.perms, d.permsOverride);
+    if (problem) return res.status(403).json({ error: "forbidden", message: problem });
   }
   if (d.branchId) {
     const branch = await Branch.findOne({ _id: d.branchId, businessId: req.ctx.businessId });

@@ -21,30 +21,25 @@ loyaltyCardRouter.post("/scan", requirePerm("sales"), async (req, res) => {
   const parsed = scanSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: "That doesn't look like a loyalty code." });
 
-  try {
-    const card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, code: parsed.data.code, status: "active" });
-    if (!card) throw notFound("That loyalty card isn't recognised here.", "not_found");
+  const card = await LoyaltyCard.findOne({ businessId: req.ctx.businessId, code: parsed.data.code, status: "active" });
+  if (!card) throw notFound("That loyalty card isn't recognised here.", "not_found");
 
-    const customer = await Customer.findById(card.customerId);
-    if (!customer) throw notFound("The customer for this card no longer exists.", "not_found");
+  const customer = await Customer.findById(card.customerId);
+  if (!customer) throw notFound("The customer for this card no longer exists.", "not_found");
 
-    card.lastScannedAt = new Date();
-    card.scanCount += 1;
-    await card.save();
+  card.lastScannedAt = new Date();
+  card.scanCount += 1;
+  await card.save();
 
-    const rule = req.ctx.business.settings?.loyaltyRule;
-    audit(req.ctx, "loyaltyCard.scan", { type: "loyaltyCard", id: card._id, label: customer.name });
+  const rule = req.ctx.business.settings?.loyaltyRule;
+  audit(req.ctx, "loyaltyCard.scan", { type: "loyaltyCard", id: card._id, label: customer.name });
 
-    res.json({
-      customerId: customer._id,
-      customerName: customer.name,
-      discountType: rule?.discountType || "percent",
-      discountValue: rule?.discountValue || 0,
-    });
-  } catch (err) {
-    if (err instanceof HttpError) return res.status(err.status).json({ error: err.code, message: err.message });
-    throw err;
-  }
+  res.json({
+    customerId: customer._id,
+    customerName: customer.name,
+    discountType: rule?.discountType || "percent",
+    discountValue: rule?.discountValue || 0,
+  });
 });
 
 // GET /api/loyalty-cards/:customerId — card detail for a customer profile view.

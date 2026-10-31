@@ -28,3 +28,7 @@ dist-ssr
 .env.*.local
 .data
 .mongodb-binaries
+
+# Playwright
+test-results
+playwright-report

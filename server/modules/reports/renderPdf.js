@@ -31,6 +31,8 @@ function fontsDirectory() {
   return fontDir;
 }
 const file = (subset, weight) => path.join(fontsDirectory(), `inter-${subset}-${weight}-normal.woff`);
+/** The bundled Inter font files, for other documents (invoices) that draw the same way. */
+export const fontFile = file;
 
 // Palette — the same indigo/violet the app uses.
 const C = {

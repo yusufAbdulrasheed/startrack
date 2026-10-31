@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Banknote, CreditCard, Smartphone,
-  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, MessageCircle, CloudOff, RefreshCw, Ruler,
+  CheckCircle2, ScanLine, Package, UserPlus, Printer, X, CloudOff, RefreshCw, Ruler,
   Split as SplitIcon, ScanBarcode,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -16,8 +16,9 @@ import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale } from "@/lib/outbox";
 import { onOutboxSynced } from "@/lib/outboxDb";
-import { fmtMoney, fmtDateTime } from "@/lib/format";
-import { toIntlPhone } from "@/lib/phone";
+import { fmtMoney } from "@/lib/format";
+import { matchesProductCode } from "@/lib/barcodes";
+import { WhatsAppReceipt } from "@/components/receipt/WhatsAppReceipt";
 import { QrScanModal } from "@/components/loyalty/QrScanModal";
 import { QrCode } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -89,6 +90,7 @@ export function POS() {
   const [customer, setCustomer] = useState<{ id?: string; name: string; phone: string } | null>(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanProductOpen, setScanProductOpen] = useState(false);
   const [cardMsg, setCardMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -140,7 +142,7 @@ export function POS() {
       products.filter(
         (p) =>
           (cat === "All" || p.category === cat) &&
-          (p.name.toLowerCase().includes(q.toLowerCase()) || (q && p.barcode === q))
+          (p.name.toLowerCase().includes(q.toLowerCase()) || matchesProductCode(p, q))
       ),
     [products, cat, q]
   );
@@ -148,7 +150,7 @@ export function POS() {
   // Barcode scanners are keyboards: exact barcode match + Enter adds instantly.
   function onSearchKey(e: React.KeyboardEvent) {
     if (e.key !== "Enter" || !q) return;
-    const exact = products.find((p) => p.barcode && p.barcode === q.trim());
+    const exact = products.find((p) => matchesProductCode(p, q));
     if (exact) {
       add(exact);
       setQ("");
@@ -156,6 +158,13 @@ export function POS() {
       add(filtered[0]);
       setQ("");
     }
+  }
+
+  // Camera scan of a product's QR label (or barcode): straight into the basket.
+  function onScanProduct(code: string) {
+    setScanProductOpen(false);
+    const hit = products.find((p) => matchesProductCode(p, code));
+    if (hit) { add(hit); setError(""); } else setError(`No product matches “${code.trim()}”.`);
   }
 
   const [mtoFor, setMtoFor] = useState<Product | null>(null);
@@ -299,8 +308,8 @@ export function POS() {
       clientSaleId: crypto.randomUUID(),
     };
     try {
-      const res = await api<{ receipt: Receipt }>("/sales", { method: "POST", body: JSON.stringify(body) });
-      setReceipt(res.receipt);
+      const res = await api<{ receipt: Receipt; sale: { id: string } }>("/sales", { method: "POST", body: JSON.stringify(body) });
+      setReceipt({ ...res.receipt, saleId: res.sale.id });
       setCart([]);
       setDiscount(0);
       setCustomer(null);
@@ -344,9 +353,9 @@ export function POS() {
       {/* LEFT: products */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="p-4 border-b border-line bg-surface flex items-center gap-3">
-          <div className="w-12 h-12 rounded-ctl border border-line-2 bg-surface-2 flex items-center justify-center text-t3 shrink-0" title="Scan barcode — scanners type into search">
+          <button type="button" onClick={() => setScanProductOpen(true)} aria-label="Scan a product QR code or barcode with the camera" className="w-12 h-12 rounded-ctl border border-line-2 bg-surface-2 flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 shrink-0 transition-colors" title="Scan a product with the camera (a handheld scanner can just type into search)">
             <ScanLine className="w-5 h-5" />
-          </div>
+          </button>
           <div className="relative flex-1">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-t4 pointer-events-none" />
             <input
@@ -747,6 +756,7 @@ export function POS() {
       {/* customer modal */}
       <CustomerQuickAdd open={customerOpen} onClose={() => setCustomerOpen(false)} onPick={(c) => { setCustomer(c); setCustomerOpen(false); }} />
       <QrScanModal open={scanOpen} onClose={() => setScanOpen(false)} onCode={onScanCode} />
+      <QrScanModal open={scanProductOpen} onClose={() => setScanProductOpen(false)} onCode={onScanProduct} title="Scan a product" />
 
       {/* receipt modal */}
       <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} />
@@ -884,38 +894,6 @@ function CustomerQuickAdd({ open, onClose, onPick }: { open: boolean; onClose: (
   );
 }
 
-function receiptText(r: Receipt) {
-  const money = (n: number) => `${r.currency}${n.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
-  const lines = [
-    `*${r.businessName}*`,
-    r.design?.headerNote || "",
-    r.design?.address || "",
-    r.design?.phone || "",
-    r.design?.taxId ? `Tax ID: ${r.design.taxId}` : "",
-    `Receipt ${r.saleNo} · ${fmtDateTime(r.at)}`,
-    r.customerName ? `Customer: ${r.customerName}` : "",
-    "-----------------------------",
-    ...r.items.map((i) => `${i.name} ×${i.qty} — ${money(i.lineNet)}`),
-    "-----------------------------",
-    r.discount > 0 ? `Discount: -${money(r.discount)}` : "",
-    r.vat > 0 ? `VAT: ${money(r.vat)}` : "",
-    `*Total: ${money(r.total)}*`,
-    r.payments.length > 1
-      ? r.payments.map((p) => `${p.method.toUpperCase()}: ${money(p.amount)}`).join("\n")
-      : `Paid via ${r.payments[0]?.method.toUpperCase() || "CASH"}`,
-    r.change ? `Change: ${money(r.change)}` : "",
-    "",
-    r.footer,
-  ].filter(Boolean);
-  return lines.join("\n");
-}
-
-function whatsappUrl(r: Receipt) {
-  const digits = toIntlPhone(r.customerPhone || "");
-  const text = encodeURIComponent(receiptText(r));
-  return digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
-}
-
 export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; onClose: () => void }) {
   if (!receipt) return null;
   // Portalled for the same reason as Modal: a transformed ancestor would
@@ -928,16 +906,12 @@ export function ReceiptModal({ receipt, onClose }: { receipt: Receipt | null; on
         <div className="p-4 max-h-[55vh] overflow-y-auto print:max-h-none print:overflow-visible print:p-0">
           <ReceiptPaper receipt={receipt} />
         </div>
-        <div className="p-4 border-t border-line grid grid-cols-1 sm:grid-cols-3 gap-2 print:hidden">
-          <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>
-          <Button
-            variant="secondary"
-            onClick={() => window.open(whatsappUrl(receipt), "_blank")}
-            title={receipt.customerPhone ? `Send to ${receipt.customerPhone}` : "Opens WhatsApp — pick the contact"}
-          >
-            <MessageCircle className="w-4 h-4" /> WhatsApp
-          </Button>
-          <Button onClick={onClose}>New Sale</Button>
+        <div className="p-4 border-t border-line space-y-2 print:hidden">
+          {receipt.saleId && <WhatsAppReceipt saleId={receipt.saleId} phone={receipt.customerPhone} />}
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="secondary" onClick={() => window.print()}><Printer className="w-4 h-4" /> Print</Button>
+            <Button onClick={onClose}>New Sale</Button>
+          </div>
         </div>
       </div>
     </div>,
