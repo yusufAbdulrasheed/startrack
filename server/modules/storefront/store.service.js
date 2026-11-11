@@ -21,9 +21,12 @@ import { escapeRegex } from "#core/regex.js";
  * in one file (the same promise site.service.js makes for the brochure page).
  */
 
-// Trades whose product is not a shelf item: rooms, classes, appointments,
-// memberships, projects. They have nothing to put in a basket.
-const NOT_SHOPPABLE = ["rooms", "folio", "memberships", "programs", "appointments", "projects", "coldChain", "weighing"];
+// Only a trade whose product is a room has nothing to put in a basket. Every
+// other trade — a restaurant with open bills, a cold room that sells by weight,
+// a salon or gym that also retails products — can run a store: the shop only
+// ever offers real stock items (see offeredFilter), so a business with none
+// simply shows an empty shop, which the settings page warns about.
+const NOT_SHOPPABLE = ["rooms"];
 export const storefrontEligible = (typeKey) => !NOT_SHOPPABLE.some((c) => hasCapability(typeKey, c));
 
 export const DEFAULT_STOREFRONT = {

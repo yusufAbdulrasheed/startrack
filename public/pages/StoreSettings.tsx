@@ -16,7 +16,7 @@ type Store = {
   payOnDelivery: boolean; payAtPickup: boolean; transfer: boolean;
   bankName: string; accountName: string; accountNumber: string; leadTime: string; instructions: string; deliveryAreas: string;
 };
-type Payload = { store: Store; eligible: boolean; pageLive: boolean; slug: string; visits: number; qrScans: number; branches: { id: string; name: string }[]; currency: string };
+type Payload = { store: Store; eligible: boolean; sellable: number; pageLive: boolean; slug: string; visits: number; qrScans: number; branches: { id: string; name: string }[]; currency: string };
 
 function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -94,7 +94,10 @@ export function StoreSettings() {
     <div className="space-y-5 max-w-[860px]">
       <ErrorBanner message={error} />
       {!data.eligible && (
-        <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">This kind of business sells rooms, classes or appointments rather than items from a basket, so it can't run an online store.</div>
+        <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">This kind of business sells rooms rather than items from a basket, so it can't run an online store.</div>
+      )}
+      {data.eligible && data.sellable === 0 && (
+        <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">You have no products to sell online yet. The shop only lists products you've added (not services), so add some under Products first.</div>
       )}
       {data.eligible && !data.pageLive && (
         <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">Your business page isn't published yet. Publish it under Setup first — the online store lives on that page.</div>

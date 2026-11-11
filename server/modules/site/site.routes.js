@@ -246,9 +246,12 @@ siteRouter.get("/storefront", async (req, res) => {
   const b = await Business.findById(req.ctx.businessId);
   const branches = await Branch.find({ businessId: b._id }).sort({ createdAt: 1 }).select("name");
   const site = siteOf(b);
+  // How many real items the shop could show right now, so the settings page can warn about an empty shop.
+  const sellable = await Product.countDocuments({ businessId: b._id, status: "active", archetype: "stock" });
   res.json({
     store: { ...storeOf(b), branchId: storeOf(b).branchId ? String(storeOf(b).branchId) : null },
     eligible: storefrontEligible(b.typeKey),
+    sellable,
     pageLive: !!site.enabled && !!site.slug,
     slug: site.slug || "",
     visits: site.visits || 0,
@@ -265,7 +268,7 @@ siteRouter.put("/storefront", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
   if (d.enabled && !storefrontEligible(b.typeKey)) {
-    return res.status(400).json({ error: "not_available", message: "This kind of business doesn't sell items from a basket, so it can't run an online store." });
+    return res.status(400).json({ error: "not_available", message: "This kind of business sells rooms rather than items from a basket, so it can't run an online store." });
   }
   if (d.branchId && !(await Branch.exists({ _id: d.branchId, businessId: b._id }))) {
     return res.status(400).json({ error: "invalid", message: "Pick one of your own branches." });
