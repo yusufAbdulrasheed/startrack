@@ -57,7 +57,8 @@ export function Products() {
   const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability, hasFeature } = useSession();
   const term = typeMeta(activeBusiness?.typeKey).products;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
-  const products = useMemo(() => data?.products ?? [], [data]);
+  // A–Z whatever the server sends: a product just added slots into place, not at the end.
+  const products = useMemo(() => [...(data?.products ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true })), [data]);
   const showCost = products.some((p) => p.cost !== undefined);
   // Presentation-only aggregate for the KPI tiles — derived from the same
   // list already on screen, no extra request.
@@ -203,7 +204,7 @@ export function Products() {
                       </TD>
                       <TD className="text-right whitespace-nowrap">
                         {(can("products_edit") || can("products_delete")) && (
-                          <div className="inline-flex opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="inline-flex [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 transition-opacity">
                             {can("products_edit") && (
                               <button onClick={() => setEditing(p)} className="p-1.5 rounded-lg text-t3 hover:text-primary hover:bg-primary-soft transition-colors" title="Edit">
                                 <Pencil className="w-4 h-4" />
@@ -1007,6 +1008,7 @@ function ProductModal({
           <div>
             <div className="text-[11px] font-medium text-t3 mb-1.5">Components — your own recipe</div>
             <div className="text-[11px] text-t4 mb-2">Cost and stock deduction come from these. Quantities are calculated from each order's size.</div>
+            {componentChoices.length === 0 && (<div className="mb-2 px-3 py-2 rounded-ctl bg-warning-soft text-warning text-[12px] font-semibold">There are no stock items to build from yet. Add the materials first (fabric, rails, fittings) as normal products, then come back and pick them here.</div>)}
             <div className="space-y-2">
               {bom.map((line, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">

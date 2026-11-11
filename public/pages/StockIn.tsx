@@ -703,6 +703,9 @@ function WasteForm({ products, onDone }: { products: Product[]; onDone: () => vo
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!productId || qty <= 0) { setError("Choose a product and a quantity."); return; }
+    if (!Number.isInteger(qty)) { setError("Quantity must be a whole number."); return; }
+    const onHand = products.find((p) => p.id === productId)?.stock;
+    if (typeof onHand === "number" && qty > onHand) { setError(`Only ${onHand} in stock here — you can't write off more than that.`); return; }
     setBusy(true); setError(""); setDone("");
     try {
       await api("/inventory/waste", {
@@ -728,11 +731,12 @@ function WasteForm({ products, onDone }: { products: Product[]; onDone: () => vo
         <Field label="Product" className="flex-1">
           <Select value={productId} onChange={(e) => setProductId(e.target.value)} required>
             <option value="">Choose product…</option>
-            {products.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.stock} now)</option>)}
+            {/* Only things actually on the shelf can be written off. */}
+            {products.filter((p) => (p.stock ?? 0) > 0).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.stock} now)</option>)}
           </Select>
         </Field>
         <Field label="Qty" className="w-20">
-          <Input type="number" min="1" value={qty} onChange={(e) => setQty(Number(e.target.value))} />
+          <Input type="number" min="1" step="1" max={products.find((p) => p.id === productId)?.stock ?? undefined} value={qty || ""} onChange={(e) => setQty(Number(e.target.value))} />
         </Field>
       </div>
       <Field label="Reason">

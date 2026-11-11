@@ -302,7 +302,7 @@ async function inventoryReport(ctx) {
 
   // The full stock list, at this branch (or summed across branches).
   const products = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }))
-    .sort({ name: 1 }).limit(1000).select("name category unit price cost reorderLevel");
+    .sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true }).limit(1000).select("name category unit price cost reorderLevel");
   const inv = await Inventory.find({ ...(ctx.branchId ? { branchId: ctx.branchId } : { businessId: ctx.businessId }), productId: { $in: products.map((p) => p._id) } });
   const stockBy = new Map();
   for (const i of inv) stockBy.set(String(i.productId), (stockBy.get(String(i.productId)) || 0) + i.stock);

@@ -179,7 +179,7 @@ inventoryRouter.post("/adjust", requirePerm("stock_adjust"), requireBranch, asyn
 
 const wasteSchema = z.object({
   productId: z.string(),
-  qty: z.number().int().positive("Quantity must be positive"),
+  qty: z.number("Enter a quantity").int("Quantity must be a whole number").positive("Quantity must be positive"),
   wasteReason: z
     .enum([
       "spoilage", "staff_meal", "damage", "expired", "broken", "cracked", "rotten", "contaminated",

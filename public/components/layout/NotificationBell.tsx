@@ -229,7 +229,7 @@ export function NotificationBell() {
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); dismiss(n.id); }}
-                      className="shrink-0 self-start w-6 h-6 rounded-md text-t4 opacity-0 group-hover:opacity-100 hover:bg-surface-3 hover:text-success flex items-center justify-center transition-all"
+                      className="shrink-0 self-start w-6 h-6 rounded-md text-t4 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 hover:bg-surface-3 hover:text-success flex items-center justify-center transition-all"
                       title="I've dealt with this"
                     >
                       <Check className="w-3.5 h-3.5" />

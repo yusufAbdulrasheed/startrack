@@ -157,7 +157,7 @@ export function ChatHistory({
                           <button
                             onClick={() => setConfirming(c.id)}
                             aria-label={`Delete “${c.title}”`}
-                            className="w-7 h-7 rounded-lg text-t4 hover:text-danger hover:bg-danger-soft grid place-items-center shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                            className="w-7 h-7 rounded-lg text-t4 hover:text-danger hover:bg-danger-soft grid place-items-center shrink-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 focus:opacity-100 transition-opacity"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

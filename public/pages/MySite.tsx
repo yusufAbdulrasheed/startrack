@@ -10,6 +10,7 @@ import { ErrorBanner, Field, Input, Select, TextArea } from "@/components/ui/Fie
 import { SiteView } from "@/components/site/SiteView";
 import { StoreSettings } from "@/pages/StoreSettings";
 import { api } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
 import { qrDataUrl } from "@/lib/qrcode";
 import { useSession } from "@/lib/session";
 import {
@@ -114,6 +115,34 @@ function Repeater<T>({ items, max, addLabel, onChange, blank, children }: {
  * The owner's editor for the business's public page. Owner-only: the server
  * refuses everyone else, and the menu entry is hidden from them too.
  */
+/**
+ * The brochure page can't take orders by itself: ordering is the separate
+ * "Online store" switch, which starts off. Say so right on the setup screen,
+ * so nobody publishes a page and then wonders where the order button is.
+ */
+function OrderNudge({ live, onOpen }: { live: boolean; onOpen: () => void }) {
+  const { data } = useApi<{ eligible: boolean; store: { enabled: boolean; acceptingOrders: boolean } }>(live ? "/site/storefront" : null, [live]);
+  if (!live || !data?.eligible) return null;
+  const { enabled, acceptingOrders } = data.store;
+  if (enabled && acceptingOrders) return null;
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-warning/40 bg-warning-soft px-4 py-3.5">
+      <ShoppingBag className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13.5px] font-bold text-t1">{enabled ? "Orders are paused" : "Customers can't place orders yet"}</div>
+        <div className="text-[12.5px] text-t2 mt-0.5">
+          {enabled
+            ? "Your online store is on but not taking orders. Turn \"Taking orders\" back on in the Online store tab."
+            : "Your page is live, but ordering is a separate switch. Turn on the Online store so customers can register, shop and order from this page."}
+        </div>
+        <button type="button" onClick={onOpen} className="mt-2 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[10px] bg-primary text-on-primary text-[12.5px] font-bold">
+          {enabled ? "Open store settings" : "Set up online store"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MySite() {
   const { activeBusiness, refreshData } = useSession();
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -353,6 +382,7 @@ export function MySite() {
                   </div>
                 )}
               </Panel>
+              <OrderNudge live={!!saved?.enabled} onOpen={() => animateSwitch("tab", () => setTab("store"))} />
 
               <Panel title="Look & feel" subtitle="Template, colour and pictures" icon={Palette} tone="brand">
                 <div className="grid grid-cols-3 gap-3">
@@ -473,7 +503,7 @@ export function MySite() {
                   {gallery.map((g) => (
                     <div key={g.id || g.url} className="relative aspect-square rounded-xl overflow-hidden border border-line group">
                       <img src={g.url} alt="" className="w-full h-full object-cover" />
-                      <button type="button" onClick={() => removeGallery(g.id)} disabled={uploading === "gallery"} aria-label="Remove photo" className="absolute top-1.5 right-1.5 w-7 h-7 grid place-items-center rounded-full bg-black/60 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"><X className="w-4 h-4" /></button>
+                      <button type="button" onClick={() => removeGallery(g.id)} disabled={uploading === "gallery"} aria-label="Remove photo" className="absolute top-1.5 right-1.5 w-7 h-7 grid place-items-center rounded-full bg-black/60 text-white [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100 focus:opacity-100 transition-opacity"><X className="w-4 h-4" /></button>
                     </div>
                   ))}
                   {gallery.length < 8 && (

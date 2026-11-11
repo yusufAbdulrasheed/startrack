@@ -61,7 +61,7 @@ stockCountRouter.post("/", requirePerm("stock_count"), requireBranch, async (req
 
   const filter = { businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } };
   if (category) filter.category = category;
-  const products = await Product.find(filter).sort({ name: 1 });
+  const products = await Product.find(filter).sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true });
   if (!products.length) return res.status(400).json({ error: "invalid", message: "No stock products to count." });
 
   const inv = await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: products.map((p) => p._id) } });

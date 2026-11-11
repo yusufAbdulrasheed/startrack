@@ -32,7 +32,7 @@ const readPerm = requirePerm("stock", "sales", "dashboard_ops");
 // GET /api/coldroom/stock — one row per stock product, whether or not it has
 // ever had a batch — an empty row is exactly the prompt to record a purchase.
 coldroomRouter.get("/stock", readPerm, requireBranch, async (req, res) => {
-  const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: "stock" }).sort({ name: 1 });
+  const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: "stock" }).sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true });
   const batches = await ColdRoomBatch.find({ businessId: req.ctx.businessId, branchId: req.ctx.branchId, status: "open" }).sort({ purchaseDate: 1 });
   const byProduct = new Map();
   for (const b of batches) {

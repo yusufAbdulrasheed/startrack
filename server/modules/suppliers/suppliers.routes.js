@@ -23,7 +23,7 @@ function shape(s) {
 suppliersRouter.get("/", requirePerm("stock", "dashboard_ops"), async (req, res) => {
   const filter = { businessId: req.ctx.businessId };
   if (req.query.q) filter.name = { $regex: escapeRegex(req.query.q).slice(0, 60), $options: "i" };
-  const suppliers = await Supplier.find(filter).sort({ name: 1 }).limit(200);
+  const suppliers = await Supplier.find(filter).sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true }).limit(200);
   res.json({ suppliers: suppliers.map(shape) });
 });
 

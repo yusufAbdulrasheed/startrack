@@ -122,7 +122,7 @@ productsRouter.get("/", async (req, res) => {
   if (req.query.category && req.query.category !== "All") filter.category = req.query.category;
   if (req.query.q) filter.name = { $regex: escapeRegex(req.query.q).slice(0, 60), $options: "i" };
 
-  const products = await Product.find(scopedToBranch(req.ctx, filter)).sort({ name: 1 }).limit(1000);
+  const products = await Product.find(scopedToBranch(req.ctx, filter)).sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true }).limit(1000);
   let stockByProduct = null;
   if (req.ctx.branchId) {
     const inv = await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: products.map((p) => p._id) } });
