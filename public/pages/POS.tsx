@@ -103,6 +103,7 @@ export function POS() {
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [cartOpen, setCartOpen] = useState(false); // mobile slide-over
+  const [checkoutOpen, setCheckoutOpen] = useState(false); // payment details, opened by "Complete Sale"
   const [queued, setQueued] = useState<QueuedSale[]>([]);
   const [savedOffline, setSavedOffline] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -342,6 +343,7 @@ export function POS() {
     try {
       const res = await api<{ receipt: Receipt; sale: { id: string } }>("/sales", { method: "POST", body: JSON.stringify(body) });
       setReceipt({ ...res.receipt, saleId: res.sale.id });
+      setCheckoutOpen(false);
       setCart([]);
       setDiscount(0);
       setCustomer(null);
@@ -365,6 +367,7 @@ export function POS() {
         setCustomer(null);
         setCardMsg("");
         resetPayment();
+        setCheckoutOpen(false);
         setSavedOffline(true);
         setTimeout(() => setSavedOffline(false), 4000);
       } else {
@@ -375,6 +378,9 @@ export function POS() {
       setBusy(false);
     }
   }
+
+  // Nothing left to pay for: the payment dialog has no purpose.
+  useEffect(() => { if (!cart.length) setCheckoutOpen(false); }, [cart.length]);
 
   useEffect(() => {
     searchRef.current?.focus();
@@ -485,7 +491,7 @@ export function POS() {
       {/* RIGHT: cart — desktop column, mobile slide-over */}
       <aside
         className={cn(
-          "lg:w-[320px] xl:w-[360px] shrink-0 border-l border-line bg-surface flex-col",
+          "lg:w-[380px] xl:w-[440px] shrink-0 border-l border-line bg-surface flex-col",
           "max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:w-full max-lg:border-l-0 max-lg:overflow-y-auto max-lg:overscroll-contain",
           cartOpen ? "flex" : "max-lg:hidden lg:flex"
         )}
@@ -592,6 +598,38 @@ export function POS() {
             </div>
           )}
 
+          {/* the cart's own summary — payment details open in a dialog */}
+          <div className="bg-surface-2 rounded-xl border border-line p-3 space-y-1">
+            {safeDiscount > 0 && (
+              <div className="flex justify-between text-[12px] text-danger">
+                <span>Discount</span>
+                <span className="font-mono tabular-nums">−{fmtMoney(safeDiscount, currency)}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-center">
+              <span className="font-display text-[14px] font-semibold text-t1">Total <span className="text-[12px] font-normal text-t3">· {count} item{count === 1 ? "" : "s"}</span></span>
+              <span className="font-mono font-semibold text-[20px] text-primary tabular-nums">{fmtMoney(total, currency)}</span>
+            </div>
+          </div>
+
+          {!checkoutOpen && error && <div className="px-3 py-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
+
+          <Button variant="success" size="lg" className="w-full font-display max-lg:sticky max-lg:bottom-3 max-lg:z-10 max-lg:shadow-e2" onClick={() => { setError(""); setCheckoutOpen(true); }} disabled={!cart.length}>
+            <CheckCircle2 className="w-5 h-5" />
+            {`Complete Sale · ${fmtMoney(total, currency)}`}
+          </Button>
+          <UndoLastSale refresh={receipt?.saleId} currency={currency} onUndone={reload} />
+        </div>
+      </aside>
+
+      {/* checkout dialog: customer, how it's paid, discount — then the receipt */}
+      <Modal
+        open={checkoutOpen}
+        onClose={() => setCheckoutOpen(false)}
+        title="Complete sale"
+        subtitle={`${count} item${count === 1 ? "" : "s"} · ${fmtMoney(total, currency)}`}
+      >
+        <div className="space-y-3">
           {/* customer */}
           {customer ? (
             <div className="flex items-center gap-2 px-3 py-2 rounded-ctl bg-primary-softer border border-line text-[12px]">
@@ -772,15 +810,15 @@ export function POS() {
             </div>
           </div>
 
+
           {error && <div className="px-3 py-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
 
-          <Button variant="success" size="lg" className="w-full font-display max-lg:sticky max-lg:bottom-3 max-lg:z-10 max-lg:shadow-e2" onClick={checkout} disabled={!cart.length || busy || shortTender}>
+          <Button variant="success" size="lg" className="w-full font-display" onClick={checkout} disabled={!cart.length || busy || shortTender}>
             <CheckCircle2 className="w-5 h-5" />
-            {busy ? "Processing…" : `Complete Sale · ${fmtMoney(total, currency)}`}
+            {busy ? "Processing…" : `Confirm payment · ${fmtMoney(total, currency)}`}
           </Button>
-          <UndoLastSale refresh={receipt?.saleId} currency={currency} onUndone={reload} />
         </div>
-      </aside>
+      </Modal>
 
       {/* made-to-order dimensions modal */}
       <MtoModal key={mtoFor?.id ?? "mto-closed"} product={mtoFor} currency={currency} onClose={() => setMtoFor(null)} onAdd={addMtoLine} />

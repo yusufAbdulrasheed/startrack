@@ -87,7 +87,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       <GlobalSearch />
 
       {/* Workspace: which business, which branch. */}
-      <div className="flex items-center min-w-0 shrink max-xl:hidden">
+      <div className="flex items-center min-w-0 shrink max-[1439px]:hidden">
         <div className="relative">
           <button onClick={() => { setBizOpen((v) => !v); setBranchOpen(false); setUserOpen(false); }} className={cn(chip, !multiBiz && "cursor-default hover:bg-transparent")}>
             {businessLogoUrl(activeBusiness)
