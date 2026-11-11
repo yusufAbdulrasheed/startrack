@@ -384,8 +384,8 @@ export function POS() {
     <div className="h-full flex">
       {/* LEFT: products */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-4 border-b border-line bg-surface flex items-center gap-3">
-          <button type="button" onClick={() => setScanProductOpen(true)} aria-label="Scan a product QR code or barcode with the camera" className="w-12 h-12 rounded-ctl border border-line-2 bg-surface-2 flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 shrink-0 transition-colors" title="Scan a product with the camera (a handheld scanner can just type into search)">
+        <div className="p-4 [@media(max-height:500px)]:py-2 border-b border-line bg-surface flex items-center gap-3">
+          <button type="button" onClick={() => setScanProductOpen(true)} aria-label="Scan a product QR code or barcode with the camera" className="w-12 h-12 [@media(max-height:500px)]:w-10 [@media(max-height:500px)]:h-10 rounded-ctl border border-line-2 bg-surface-2 flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 shrink-0 transition-colors" title="Scan a product with the camera (a handheld scanner can just type into search)">
             <ScanLine className="w-5 h-5" />
           </button>
           <div className="relative flex-1">
@@ -396,12 +396,12 @@ export function POS() {
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={onSearchKey}
               placeholder="Search or scan…"
-              className="w-full h-12 pl-11 pr-4 rounded-full bg-surface-2 border border-line text-[14px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer transition-colors"
+              className="w-full h-12 [@media(max-height:500px)]:h-10 pl-11 pr-4 rounded-full bg-surface-2 border border-line text-[14px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-primary-softer transition-colors"
             />
           </div>
         </div>
 
-        <div className="px-4 py-3 border-b border-line bg-surface flex gap-2 overflow-x-auto">
+        <div className="px-4 py-3 [@media(max-height:500px)]:py-1.5 border-b border-line bg-surface flex gap-2 overflow-x-auto">
           {cats.map((c) => (
             <button
               key={c}
@@ -485,12 +485,12 @@ export function POS() {
       {/* RIGHT: cart — desktop column, mobile slide-over */}
       <aside
         className={cn(
-          "w-[360px] shrink-0 border-l border-line bg-surface flex-col",
-          "max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:w-full max-lg:border-l-0",
+          "lg:w-[320px] xl:w-[360px] shrink-0 border-l border-line bg-surface flex-col",
+          "max-lg:fixed max-lg:inset-0 max-lg:z-50 max-lg:w-full max-lg:border-l-0 max-lg:overflow-y-auto max-lg:overscroll-contain",
           cartOpen ? "flex" : "max-lg:hidden lg:flex"
         )}
       >
-        <div className="p-4 border-b border-line flex items-center gap-2">
+        <div className="p-4 border-b border-line flex items-center gap-2 max-lg:sticky max-lg:top-0 max-lg:z-10 max-lg:bg-surface">
           <ShoppingCart className="w-4 h-4 text-primary" />
           <span className="font-semibold text-[14px] text-t1">Current Sale</span>
           {count > 0 && <span className="ml-auto"><Badge tone="brand">{count} items</Badge></span>}
@@ -502,7 +502,7 @@ export function POS() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 max-lg:flex-none lg:overflow-y-auto p-3 max-lg:min-h-[160px]">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-6">
               <div className="w-14 h-14 rounded-xl bg-surface-3 text-t4 flex items-center justify-center mb-3">
@@ -556,7 +556,7 @@ export function POS() {
           )}
         </div>
 
-        <div className="border-t border-line p-4 space-y-3">
+        <div className="border-t border-line p-4 space-y-3 max-lg:shrink-0">
           {/* offline queue */}
           {savedOffline && (
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-ctl bg-warning-soft text-warning text-[12px] font-semibold">
@@ -774,7 +774,7 @@ export function POS() {
 
           {error && <div className="px-3 py-2 rounded-ctl bg-danger-soft text-danger text-[12px] font-semibold">{error}</div>}
 
-          <Button variant="success" size="lg" className="w-full font-display" onClick={checkout} disabled={!cart.length || busy || shortTender}>
+          <Button variant="success" size="lg" className="w-full font-display max-lg:sticky max-lg:bottom-3 max-lg:z-10 max-lg:shadow-e2" onClick={checkout} disabled={!cart.length || busy || shortTender}>
             <CheckCircle2 className="w-5 h-5" />
             {busy ? "Processing…" : `Complete Sale · ${fmtMoney(total, currency)}`}
           </Button>

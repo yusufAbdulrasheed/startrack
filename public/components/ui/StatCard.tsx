@@ -73,16 +73,16 @@ export function StatCard({
     >
       <div className="flex items-start justify-between gap-2 sm:gap-3">
         <div className="min-w-0">
-          <div className="text-[12px] sm:text-[12.5px] font-semibold text-t3 truncate">{label}</div>
+          <div className="text-[12px] sm:text-[12.5px] font-semibold text-t3 truncate max-sm:pr-8">{label}</div>
           <div
-            className={cn("mt-2 leading-none font-bold font-mono truncate tracking-[-0.02em]", value.length > 12 ? "text-[17px] sm:text-[21px]" : value.length > 9 ? "text-[19px] sm:text-[24px]" : "text-[22px] sm:text-[28px]")}
+            className={cn("mt-2 max-sm:mt-4 leading-none font-bold font-mono truncate tracking-[-0.02em]", value.length > 12 ? "text-[15px] min-[420px]:text-[17px] sm:text-[21px]" : value.length > 9 ? "text-[18px] min-[420px]:text-[19px] sm:text-[24px]" : "text-[22px] sm:text-[28px]")}
             style={{ color: valueTone ? TONES[valueTone].text : "var(--st-text-1)" }}
           >
             {value}
           </div>
         </div>
         <span
-          className="grid place-items-center w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl text-white shrink-0"
+          className="grid place-items-center w-8 h-8 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl text-white shrink-0 max-sm:absolute max-sm:top-3 max-sm:right-3"
           style={{ background: t.chip, boxShadow: `0 10px 18px -10px ${t.glow}` }}
         >
           <Icon className="w-4 h-4 sm:w-5 sm:h-5" strokeWidth={1.9} />

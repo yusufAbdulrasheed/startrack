@@ -100,7 +100,7 @@ export function AppShell() {
           <main ref={mainRef} key={`${activeBusiness?.id}:${activeBranch?.id}:${version}`} className="st-vt-page content-bg flex-1 min-h-0 overflow-y-auto">
             {/* Keyed by page so each tab change plays a short fade-in rather
                 than cutting hard from one screen to the next. */}
-            <div key={pathname} className="st-page-enter">
+            <div key={pathname} className="st-page-enter h-full">
               {/* A page opened for the first time loads its code: the frame
                   stays put and the page area shows a skeleton meanwhile. */}
               <Suspense fallback={<div className="p-4 sm:p-6 lg:p-8 max-w-[1200px] mx-auto"><SkeletonList rows={6} /></div>}>

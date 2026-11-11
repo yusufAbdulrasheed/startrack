@@ -247,7 +247,7 @@ function RevenueHero({ value, delta, series, currency, className }: {
       <div className="relative px-7 pt-6 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[13px] font-semibold text-white/75">Revenue today</div>
-          <div className="mt-2 font-mono font-bold text-[44px] leading-none tracking-[-0.03em] truncate">{value}</div>
+          <div className={`mt-2 font-mono font-bold leading-none tracking-[-0.03em] truncate ${value.length > 11 ? "text-[26px] min-[420px]:text-[32px] sm:text-[44px]" : "text-[32px] min-[420px]:text-[38px] sm:text-[44px]"}`}>{value}</div>
           <div className="mt-3 flex items-center gap-2 text-[12.5px] text-white/75">
             <DeltaChip value={delta} onDark />
             <span>{delta === 0 ? "same as yesterday" : "vs yesterday"}</span>

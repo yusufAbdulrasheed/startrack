@@ -87,7 +87,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       <GlobalSearch />
 
       {/* Workspace: which business, which branch. */}
-      <div className="flex items-center min-w-0 shrink max-md:hidden">
+      <div className="flex items-center min-w-0 shrink max-xl:hidden">
         <div className="relative">
           <button onClick={() => { setBizOpen((v) => !v); setBranchOpen(false); setUserOpen(false); }} className={cn(chip, !multiBiz && "cursor-default hover:bg-transparent")}>
             {businessLogoUrl(activeBusiness)
@@ -145,14 +145,14 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             to="/app/pos"
             data-tour="new-sale-btn"
             aria-label="New sale"
-            className="inline-flex items-center justify-center gap-1.5 h-10 max-sm:w-10 sm:px-4 rounded-xl bg-primary text-white text-[13px] font-bold"
+            className="inline-flex max-[339px]:hidden items-center justify-center gap-1.5 h-10 max-sm:w-10 sm:px-4 rounded-xl bg-primary text-white text-[13px] font-bold"
           >
-            <Plus className="w-4 h-4" /> <span className="max-sm:hidden">New sale</span>
+            <Plus className="w-4 h-4" /> <span className="max-xl:hidden">New sale</span>
           </Link>
         )}
         <CurrencySwitcher />
         {/* Very narrow phones: the refresh button gives way so the bar never overflows. */}
-        <span className="contents max-[359px]:hidden"><RefreshButton /></span>
+        <span className="contents max-[479px]:hidden"><RefreshButton /></span>
         <span data-tour="topbar-notifications" className="flex">
           <NotificationBell />
         </span>
@@ -161,7 +161,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             <Lock className="w-3.5 h-3.5" /> AI <PlanChip plan="pro" />
           </Link>
         )}
-        <ThemeToggle className="max-sm:hidden" />
+        <ThemeToggle className="max-md:hidden" />
         <span className="hidden sm:block w-px h-8 bg-line mx-1" />
 
         <div className="relative">
@@ -172,7 +172,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             >
               {session.user.name[0]?.toUpperCase()}
             </span>
-            <span className="hidden md:flex flex-col leading-[1.3] text-left">
+            <span className="hidden xl:flex flex-col leading-[1.3] text-left">
               <span className="text-[13px] font-bold text-t1 max-w-[140px] truncate">{session.user.name}</span>
               <span className="text-[12px] text-t3 capitalize">{session.role}</span>
             </span>
