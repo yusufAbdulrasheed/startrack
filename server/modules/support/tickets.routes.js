@@ -101,6 +101,10 @@ ticketsRouter.post("/", requirePerm("sales"), async (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
   const d = parsed.data;
+  // Writing to StarTrack's own desk is for owners and admins; everyone else uses the business's own queue and team chat.
+  if (d.toStarTrack && !req.ctx.perms.includes("*") && !req.ctx.perms.includes("startrack_help")) {
+    return res.status(403).json({ error: "forbidden", message: "Ask the business owner to contact StarTrack support." });
+  }
 
   let customerName = d.customerName;
   let customerPhone = d.customerPhone;

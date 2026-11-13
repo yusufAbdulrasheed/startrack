@@ -25,7 +25,7 @@ export function verifyToken(token) {
 export const ROLE_PERMS = {
   owner: ["*"],
   admin: ["sales", "returns", "approve_returns", "void_sales", "stock", "prices", "expenses",
-          "dashboard_ops", "dashboard_finance", "staff_mgmt", "settings", "customers", "activity", "audit", "support"],
+          "dashboard_ops", "dashboard_finance", "staff_mgmt", "settings", "customers", "activity", "audit", "support", "startrack_help"],
   manager: ["sales", "returns", "approve_returns", "void_sales", "stock", "prices", "expenses",
             "dashboard_ops", "customers", "activity", "support"],
   staff: ["sales", "returns", "activity"],

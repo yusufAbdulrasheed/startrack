@@ -22,7 +22,10 @@ const productSchema = new mongoose.Schema(
     category: { type: String, default: "General", trim: true },
     // "stock": normal shelf good. "made_to_order": built per order from
     // BOM components (blinds, curtains, tailoring) — carries no stock itself.
-    archetype: { type: String, enum: ["stock", "made_to_order"], default: "stock" },
+    archetype: { type: String, enum: ["stock", "made_to_order", "service"], default: "stock" },
+    // A service (haircut, course fee, website build) is sold, never counted: no stock, no
+    // reorder level, nothing to restock on a return. Minutes, optional, shown where it helps (salons).
+    durationMin: { type: Number, default: 0, min: 0 },
     price: { type: Number, required: true, min: 0 }, // stock: unit price · MTO: price per m²
     cost: { type: Number, default: 0, min: 0 }, // unit cost — NEVER sent to staff roles
     reorderLevel: { type: Number, default: 5, min: 0 },

@@ -490,7 +490,7 @@ export async function executeAction(ctx, action) {
         const already = pendingOrReturned[0]?.qty || 0;
         const returnable = line.qty - already;
         if (item.qty > returnable) throw badRequest(`Only ${returnable} × ${line.name} can still be returned.`);
-        const isCustom = !!line.components?.length;
+        const isCustom = !!line.components?.length || !!line.service;
         const unitNet = money((line.lineNet / line.qty) * paidFactor);
         const unitCost = isCustom ? 0 : line.qty > 0 ? money(line.lineCost / line.qty) : 0;
         items.push({ productId: line.productId, name: line.name, qty: item.qty, unitPrice: unitNet, unitCost, restock: !isCustom });

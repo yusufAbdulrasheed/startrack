@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { KeyRound, LifeBuoy, Keyboard, Copy, Check, ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
+import { KeyRound, LifeBuoy, Keyboard, Copy, Check, ExternalLink, MessageCircle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
@@ -96,23 +97,42 @@ export function HelpPanel({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         </div>
 
-        <div className="rounded-card border border-line p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <LifeBuoy className="w-4 h-4 text-primary" />
-            <span className="text-[13px] font-semibold text-t1">Still stuck?</span>
+        {can("startrack_help") ? (
+          <div className="rounded-card border border-line p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <LifeBuoy className="w-4 h-4 text-primary" />
+              <span className="text-[13px] font-semibold text-t1">Still stuck?</span>
+            </div>
+            <p className="text-[12px] text-t3 mb-3">
+              Send us what happened and which screen you were on — we read every one.
+            </p>
+            <a
+              href={`mailto:support@startrack.app?subject=${encodeURIComponent(`Help — ${activeBusiness?.name || "StarTrack"}`)}&body=${encodeURIComponent(
+                `\n\n—\nBusiness: ${activeBusiness?.name || ""}\nSigned in as: ${session?.user.name || ""} (${session?.role || ""})`
+              )}`}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-ctl bg-primary text-white text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Email support
+            </a>
           </div>
-          <p className="text-[12px] text-t3 mb-3">
-            Send us what happened and which screen you were on — we read every one.
-          </p>
-          <a
-            href={`mailto:support@startrack.app?subject=${encodeURIComponent(`Help — ${activeBusiness?.name || "StarTrack"}`)}&body=${encodeURIComponent(
-              `\n\n—\nBusiness: ${activeBusiness?.name || ""}\nSigned in as: ${session?.user.name || ""} (${session?.role || ""})`
-            )}`}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-ctl bg-primary text-white text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
-          >
-            <ExternalLink className="w-3.5 h-3.5" /> Email support
-          </a>
-        </div>
+        ) : (
+          <div className="rounded-card border border-line p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <MessageCircle className="w-4 h-4 text-primary" />
+              <span className="text-[13px] font-semibold text-t1">Still stuck?</span>
+            </div>
+            <p className="text-[12px] text-t3 mb-3">
+              Ask your manager or the business owner — they're in Team chat.
+            </p>
+            <Link
+              to="/app/chat"
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-ctl bg-primary text-white text-[12.5px] font-semibold hover:opacity-90 transition-opacity"
+            >
+              <MessageCircle className="w-3.5 h-3.5" /> Open Team chat
+            </Link>
+          </div>
+        )}
       </div>
     </Modal>
   );

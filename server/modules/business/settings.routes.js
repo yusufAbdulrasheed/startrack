@@ -244,6 +244,34 @@ settingsRouter.delete("/logo", requirePerm("settings"), async (req, res) => {
   res.json({ logoUrl: "" });
 });
 
+// PATCH /api/settings/till-code — the business's till login code (the "business PIN" staff
+// type once on a till device, before their own PIN). Owner only: changing it signs every
+// till device out of the old code, so it is deliberate. 4-10 letters or digits, and unique
+// across StarTrack because a staff login looks the business up by this code alone.
+const tillCodeSchema = z.object({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,10}$/, "Use 4 to 10 letters or numbers, no spaces."),
+});
+settingsRouter.patch("/till-code", requirePerm("*"), async (req, res) => {
+  const parsed = tillCodeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });
+  const { code } = parsed.data;
+  const business = await Business.findOne({ _id: req.ctx.businessId });
+  if (!business) return res.status(404).json({ error: "not_found", message: "Business not found." });
+  if (business.code === code) return res.json({ code });
+  const taken = await Business.exists({ code, _id: { $ne: business._id } });
+  if (taken) return res.status(409).json({ error: "code_taken", message: "That code is already used by another business. Try a different one." });
+  const before = business.code;
+  business.code = code;
+  try {
+    await business.save();
+  } catch (err) {
+    if (err?.code === 11000) return res.status(409).json({ error: "code_taken", message: "That code is already used by another business. Try a different one." });
+    throw err;
+  }
+  audit(req.ctx, "settings.till_code", { type: "business", id: business._id, label: business.name }, { code: before }, { code });
+  res.json({ code });
+});
+
 settingsRouter.post("/branches", requirePerm("*"), async (req, res) => {
   const parsed = branchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "invalid", message: parsed.error.issues[0].message });

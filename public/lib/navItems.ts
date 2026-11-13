@@ -1,3 +1,4 @@
+import type { ServiceMeta } from "@/lib/businessTypes";
 import {
   LayoutDashboard, ShoppingCart, Package, Settings, LifeBuoy, ClipboardList, Truck, Users, Wallet, UserCog,
 } from "lucide-react";
@@ -27,8 +28,8 @@ export type NavGroup = {
  * Sidebar and the header's global search (GlobalSearch.tsx, "jump to a
  * page/module" results) read from this, so they can never drift apart.
  */
-export function buildNav(t: { products: string; pos: string }): NavGroup[] {
-  return [
+export function buildNav(t: { products: string; pos: string; service?: ServiceMeta | null }): NavGroup[] {
+  const groups: NavGroup[] = [
     {
       to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard,
       children: [
@@ -103,7 +104,9 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
     {
       to: "/app/help", label: "Support", icon: LifeBuoy,
       children: [
-        { to: "/app/help", label: "Help from StarTrack", perm: "sales" },
+        // Owners and admins only: managers and sales reps raise things with their own team (chat, tickets).
+        { to: "/app/help", label: "Help from StarTrack", perm: "startrack_help" },
+        { to: "/app/chat", label: "Team chat" },
         { to: "/app/tickets", label: "Internal tickets", perm: "sales" },
       ],
     },
@@ -120,6 +123,34 @@ export function buildNav(t: { products: string; pos: string }): NavGroup[] {
       ],
     },
   ];
+  return t.service ? forService(groups, t.service) : groups;
+}
+
+/**
+ * A trade that sells services, not stock: the Inventory section becomes the
+ * Services catalogue, and the stock machinery (levels, counts, transfers,
+ * purchasing, online ordering) only stays where the trade also sells a few
+ * physical goods (a salon's hair products).
+ */
+function forService(groups: NavGroup[], svc: ServiceMeta): NavGroup[] {
+  const stockPages = new Set(["/app/inventory", "/app/stock-count", "/app/transfers", "/app/serials", "/app/production", "/app/cohorts"]);
+  return groups
+    .filter((g) => svc.physical || g.to !== "/app/stock-in") // no stock to buy
+    .map((g) => {
+      if (g.to === "/app/products") {
+        return {
+          ...g,
+          label: "Services",
+          children: g.children
+            ?.filter((c) => svc.physical || !stockPages.has(c.to))
+            .map((c) => (c.to === "/app/inventory" ? { ...c, label: "Retail stock" } : c)),
+        };
+      }
+      if (g.to === "/app/pos" && !svc.physical) {
+        return { ...g, children: g.children?.filter((c) => c.to !== "/app/orders") };
+      }
+      return g;
+    });
 }
 
 /** Every group and child, flattened to one list of jump-able destinations. */

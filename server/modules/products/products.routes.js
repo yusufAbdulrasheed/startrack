@@ -62,6 +62,7 @@ async function generateSku(businessId, prefix) {
 
 function shape(p, stockByProduct, showCost) {
   const mto = p.archetype === "made_to_order";
+  const svc = p.archetype === "service";
   const hasBom = (p.bom || []).length > 0;
   const out = {
     id: p._id,
@@ -70,6 +71,7 @@ function shape(p, stockByProduct, showCost) {
     barcode: p.barcode,
     category: p.category,
     archetype: p.archetype,
+    durationMin: p.durationMin || 0,
     price: p.price,
     reorderLevel: p.reorderLevel,
     unit: p.unit || "unit",
@@ -82,7 +84,7 @@ function shape(p, stockByProduct, showCost) {
     imageUrl: p.imageUrl || "",
     branchId: p.branchId || null, // null = shared by every store
     // MTO items carry no stock of their own — their components do.
-    stock: mto ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
+    stock: mto || svc ? null : stockByProduct ? stockByProduct.get(String(p._id)) ?? 0 : undefined,
     // A recipe now belongs to either archetype: an MTO item's bom is expanded
     // live at checkout; a stock item's bom is what a Production Run consumes.
     bom: hasBom ? (p.bom || []).map((c) => ({ productId: c.productId, per: c.per, factor: c.factor, includeLeakage: c.includeLeakage !== false })) : undefined,
@@ -158,7 +160,8 @@ const productSchema = z.object({
   sku: z.string().default(""),
   barcode: z.string().trim().max(64).default(""),
   category: z.string().min(1).default("General"),
-  archetype: z.enum(["stock", "made_to_order"]).default("stock"),
+  archetype: z.enum(["stock", "made_to_order", "service"]).default("stock"),
+  durationMin: z.number().int().min(0).max(1440).default(0),
   bom: bomSchema.optional(),
   price: z.number().min(0, "Price can't be negative"),
   cost: z.number().min(0).default(0),
@@ -210,6 +213,7 @@ productsRouter.post("/", requirePerm("products_add"), async (req, res) => {
   if (unitError) return res.status(400).json({ error: "invalid", message: unitError });
 
   const isMto = d.archetype === "made_to_order";
+  const isService = d.archetype === "service";
   if (isMto && !d.bom) {
     return res.status(400).json({ error: "invalid", message: "Add the components this item is made from." });
   }
@@ -231,6 +235,7 @@ productsRouter.post("/", requirePerm("products_add"), async (req, res) => {
     barcode: d.barcode,
     category: d.category,
     archetype: d.archetype,
+    durationMin: isService ? d.durationMin : 0,
     bom: d.bom?.length ? d.bom : [],
     producedUnitsPerStockUnit: d.producedUnitsPerStockUnit,
     price: money(d.price),
@@ -240,12 +245,12 @@ productsRouter.post("/", requirePerm("products_add"), async (req, res) => {
     purchaseUnit: d.purchaseUnit,
     unitsPerPurchase: d.unitsPerPurchase,
     expiry: d.expiry ? new Date(d.expiry) : undefined,
-    tracksSerials: !isMto && d.tracksSerials,
-    warrantyMonths: !isMto && d.tracksSerials ? d.warrantyMonths : 0,
+    tracksSerials: !isMto && !isService && d.tracksSerials,
+    warrantyMonths: !isMto && !isService && d.tracksSerials ? d.warrantyMonths : 0,
   });
 
   // Opening stock lands as a proper IN movement so the ledger starts correct.
-  if (!isMto && d.openingStock > 0 && req.ctx.branchId) {
+  if (!isMto && !isService && d.openingStock > 0 && req.ctx.branchId) {
     const { applyMovement } = await import("#modules/inventory/inventory.service.js");
     await applyMovement(req.ctx, {
       branchId: req.ctx.branchId,
@@ -262,7 +267,7 @@ productsRouter.post("/", requirePerm("products_add"), async (req, res) => {
     price: product.price,
     cost: product.cost,
   });
-  res.status(201).json({ product: { ...shape(product, null, canSeeCost(req.ctx)), ...(isMto ? {} : { stock: d.openingStock }) } });
+  res.status(201).json({ product: { ...shape(product, null, canSeeCost(req.ctx)), ...(isMto || isService ? {} : { stock: d.openingStock }) } });
 });
 
 const importRowSchema = z.object({
@@ -405,6 +410,7 @@ productsRouter.patch("/:id", requirePerm("products_edit"), async (req, res) => {
   if (d.expiry !== undefined) product.expiry = d.expiry ? new Date(d.expiry) : undefined;
   if (d.tracksSerials !== undefined) product.tracksSerials = d.tracksSerials;
   if (d.warrantyMonths !== undefined) product.warrantyMonths = d.warrantyMonths;
+  if (d.durationMin !== undefined && product.archetype === "service") product.durationMin = d.durationMin;
   await product.save();
 
   // A new expiry date (or none) makes the old warnings wrong — clear them and
@@ -441,6 +447,16 @@ productsRouter.post("/archive-all", requirePerm("products_delete"), async (req, 
   const ids = (await Product.find(archivableFilter(req.ctx)).select("_id")).map((p) => p._id);
   const count = await archiveProducts(req.ctx, ids, { via: "bulk" });
   res.json({ ok: true, count });
+});
+
+// POST /api/products/photos/lookup — photos for ONE name typed in the Add product
+// form, before the product exists. Same sources and same rule as /suggest:
+// read-only, nothing is attached until the product is saved and /apply is called.
+productsRouter.post("/photos/lookup", requirePerm("products_add", "products_edit"), requireFeature("productPhotos"), async (req, res) => {
+  const parsed = z.object({ name: z.string().trim().min(2).max(120), category: z.string().trim().max(60).default("") }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "invalid", message: "Type the name first, then find a photo for it." });
+  const { candidates } = await findPhotos(parsed.data.name, parsed.data.category);
+  res.json({ candidates, sources: photoSources(), canStore: imageUploadEnabled() });
 });
 
 // POST /api/products/photos/suggest — look photos up by product NAME. Body:

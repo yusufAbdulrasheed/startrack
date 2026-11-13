@@ -42,6 +42,7 @@ const Settings = lazyPage(() => import("@/pages/Settings"), "Settings");
 const Audit = lazyPage(() => import("@/pages/Audit"), "Audit");
 const Tickets = lazyPage(() => import("@/pages/Tickets"), "Tickets");
 const Help = lazyPage(() => import("@/pages/Help"), "Help");
+const Chat = lazyPage(() => import("@/pages/Chat"), "Chat");
 const SupportDesk = lazyPage(() => import("@/pages/desk/SupportDesk"), "SupportDesk");
 const AskAI = lazyPage(() => import("@/pages/AskAI"), "AskAI");
 const Members = lazyPage(() => import("@/pages/Members"), "Members");
@@ -157,6 +158,7 @@ export default function App() {
         <Route path="audit" element={<FeatureGate feature="auditLog"><Audit /></FeatureGate>} />
         <Route path="tickets" element={<Tickets />} />
         <Route path="help" element={<Help />} />
+        <Route path="chat" element={<Chat />} />
         <Route path="ask-ai" element={<FeatureGate feature="ai"><AskAI /></FeatureGate>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

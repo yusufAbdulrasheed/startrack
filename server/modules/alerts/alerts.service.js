@@ -57,7 +57,7 @@ export async function afterStockChange(ctx, branchId, productIds) {
     let urgent = false;
     for (const p of products) {
       // Made-to-order items hold no stock of their own — their components do.
-      if (p.archetype === "made_to_order" || p.status !== "active") continue;
+      if (p.archetype === "made_to_order" || p.archetype === "service" || p.status !== "active") continue;
       const stock = stockBy.get(String(p._id)) ?? 0;
       const key = keys.stock(branchId, p._id);
       const reorder = p.reorderLevel ?? 0;

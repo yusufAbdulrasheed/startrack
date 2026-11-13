@@ -10,6 +10,7 @@ import { Table, TR, TH, TD } from "@/components/ui/Table";
 import { PageHeader, Spinner } from "@/components/ui/EmptyState";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { CurrencySelect } from "@/components/ui/CurrencySelect";
+import { DisplayCurrencyCard } from "@/components/layout/CurrencySwitcher";
 import { LogoPicker } from "@/components/business/LogoPicker";
 import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
@@ -194,7 +195,6 @@ function BusinessSection({ data, onSaved }: { data: SettingsData; onSaved: () =>
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const { refreshSession } = useSession();
   const dirty = JSON.stringify(form) !== JSON.stringify(initial);
 
@@ -259,29 +259,91 @@ function BusinessSection({ data, onSaved }: { data: SettingsData; onSaved: () =>
 
       <SaveBar dirty={dirty} busy={busy} saved={saved} onSave={save} />
 
-      {/* Identity rather than a setting — nothing to save, so it sits apart. */}
-      <Card className="p-5">
-        <div className="flex items-center gap-2 mb-1">
-          <KeyRound className="w-4 h-4 text-primary" />
-          <div className="text-[13px] font-semibold text-t1">Till login code</div>
+      <DisplayCurrencyCard />
+
+      <TillCodeCard code={data.business.code} onSaved={onSaved} />
+    </div>
+  );
+}
+
+/**
+ * The till login code — the business PIN staff type once on a till device
+ * before their own PIN. Identity rather than a setting, so it saves on its
+ * own, and only the owner can change it (every till signs in against it).
+ */
+function TillCodeCard({ code, onSaved }: { code: string; onSaved: () => void }) {
+  const { can } = useSession();
+  const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(code);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const clean = draft.trim().toUpperCase();
+  const valid = /^[A-Z0-9]{4,10}$/.test(clean);
+
+  async function save() {
+    if (!valid) { setError("Use 4 to 10 letters or numbers, no spaces."); return; }
+    if (clean === code) { setEditing(false); return; }
+    setBusy(true); setError("");
+    try {
+      await api("/settings/till-code", { method: "PATCH", body: JSON.stringify({ code: clean }) });
+      setEditing(false);
+      onSaved();
+    } catch (err: any) {
+      setError(err.message || "Couldn't change the code.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <KeyRound className="w-4 h-4 text-primary" />
+        <div className="text-[13px] font-semibold text-t1">Till login code</div>
+      </div>
+      <div className="text-[12px] text-t3 mb-3">
+        Staff type this once on a till device. After that they sign in with only their PIN.
+      </div>
+      {editing ? (
+        <div className="space-y-2.5">
+          <ErrorBanner message={error} />
+          <Input
+            autoFocus
+            value={draft}
+            maxLength={10}
+            onChange={(e) => { setDraft(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setError(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } }}
+            className="font-mono text-[18px] font-semibold tracking-[0.3em] text-center uppercase"
+            aria-label="New till login code"
+          />
+          <div className="text-[11.5px] text-t3">
+            4 to 10 letters or numbers. Tills signed in with the old code will need the new one next time staff log in, so tell your team.
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" className="flex-1" onClick={() => { setEditing(false); setError(""); setDraft(code); }} disabled={busy}>Cancel</Button>
+            <Button className="flex-1" onClick={save} disabled={busy || !valid}>{busy ? "Saving…" : "Save code"}</Button>
+          </div>
         </div>
-        <div className="text-[12px] text-t3 mb-3">
-          Staff type this once on a till device. After that they sign in with only their PIN.
-        </div>
+      ) : (
         <div className="flex items-center gap-2">
           <div className="flex-1 font-mono text-[22px] font-semibold tracking-[0.3em] text-primary text-center py-3 rounded-ctl bg-primary-softer border border-line">
-            {data.business.code}
+            {code}
           </div>
           <button
-            onClick={() => { navigator.clipboard?.writeText(data.business.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            onClick={() => { navigator.clipboard?.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
             className="w-11 h-11 rounded-ctl border border-line-2 bg-surface flex items-center justify-center text-t3 hover:text-primary hover:border-brand-400 transition-colors"
             title="Copy code"
           >
             {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
           </button>
+          {can("*") && (
+            <Button variant="secondary" className="h-11" onClick={() => { setDraft(code); setEditing(true); }}>Edit</Button>
+          )}
         </div>
-      </Card>
-    </div>
+      )}
+    </Card>
   );
 }
 

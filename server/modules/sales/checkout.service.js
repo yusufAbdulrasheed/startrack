@@ -61,10 +61,12 @@ export async function runCheckout(ctx, d, opts = {}) {
     // (each carries its own dimensions and price).
     const qtyByProduct = new Map();
     const mtoItems = [];
+    const serviceItems = [];
     const serialsByProduct = new Map();
     for (const item of d.items) {
       const p = byId.get(item.productId);
       if (p.archetype === "made_to_order") mtoItems.push(item);
+      else if (p.archetype === "service") serviceItems.push(item);
       else qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.qty);
       if (item.serialNos?.length) {
         const arr = serialsByProduct.get(item.productId) || [];
@@ -87,6 +89,17 @@ export async function runCheckout(ctx, d, opts = {}) {
         components: [],
       };
     });
+
+    // Service lines: priced from the catalogue, merged per service, and never
+    // touch stock (there is none). `service: true` keeps voids and returns from
+    // inventing any.
+    const svcQty = new Map();
+    for (const item of serviceItems) svcQty.set(item.productId, (svcQty.get(item.productId) || 0) + item.qty);
+    for (const [productId, qty] of svcQty) {
+      const p = byId.get(productId);
+      const unit = opts.quotedPrices?.get(productId) ?? p.price;
+      lines.push({ productId: p._id, name: p.name, qty, unitPrice: unit, lineCost: money((p.cost || 0) * qty), lineNet: money(unit * qty), returnedQty: 0, service: true, components: [] });
+    }
 
     // Made-to-order lines: quantity of each component comes from the
     // business's own recipe (per m² / per m width / per m height / per item).
@@ -239,6 +252,7 @@ export async function runCheckout(ctx, d, opts = {}) {
     // lines move their components instead (the blind itself has no stock).
     const deductions = [];
     for (const line of lines) {
+      if (line.service) continue; // nothing to count
       if (line.components.length) {
         for (const c of line.components) {
           deductions.push({ productId: c.productId, name: c.name, qty: c.qty, reason: `Used for ${line.name}` });

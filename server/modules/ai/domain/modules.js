@@ -133,7 +133,7 @@ async function buildProducts(ctx) {
   const products = await Product.find({ businessId: ctx.businessId, status: "active" })
     .select("name category price cost archetype expiry reorderLevel tracksSerials").lean();
   const stock = await stockMap(ctx);
-  const physical = products.filter((p) => p.archetype !== "made_to_order");
+  const physical = products.filter((p) => p.archetype !== "made_to_order" && p.archetype !== "service");
   const soon = Date.now() + 30 * DAY;
   const out = {
     products: products.length, madeToOrder: products.length - physical.length,

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Sparkles, Check, X as XIcon, Image as ImageIcon, Trash2 } from "lucide-react";
+import { Package, PackageCheck, AlertTriangle, PackageX, Plus, Search, Pencil, Archive, Upload, Download, FileSpreadsheet, Printer, Barcode, Sparkles, Check, X as XIcon, Image as ImageIcon, Trash2, Layers, Tag } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { EmptyState, PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -16,7 +16,7 @@ import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { usePaged, Pager } from "@/components/ui/Pager";
 import { useSession } from "@/lib/session";
-import { typeMeta } from "@/lib/businessTypes";
+import { typeMeta, type ServiceMeta } from "@/lib/businessTypes";
 import { parseCsv } from "@/lib/csv";
 import { parseXlsx } from "@/lib/xlsx";
 import { downloadProductTemplate } from "@/lib/productTemplate";
@@ -35,7 +35,14 @@ type Product = {
   warrantyMonths?: number;
   unit?: string; purchaseUnit?: string; unitsPerPurchase?: number;
   imageUrl?: string;
+  durationMin?: number;
 };
+
+/** Minutes as people say them: 45 min, 1 h, 1 h 30 min. */
+function fmtDuration(min: number) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return [h ? `${h} h` : "", m ? `${m} min` : ""].filter(Boolean).join(" ");
+}
 
 const PER_LABELS: Record<BomLine["per"], string> = {
   sqm: "per m² of the order",
@@ -55,11 +62,23 @@ function stockStatusOf(p: Product): { label: string; tone: "success" | "warning"
 
 export function Products() {
   const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability, hasFeature } = useSession();
-  const term = typeMeta(activeBusiness?.typeKey).products;
+  const meta = typeMeta(activeBusiness?.typeKey);
+  const term = meta.products;
+  // A trade that sells services (academy, salon, agency) gets a services catalogue, not a stock list.
+  const svc = meta.service;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   // A–Z whatever the server sends: a product just added slots into place, not at the end.
   const products = useMemo(() => [...(data?.products ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true })), [data]);
-  const showCost = products.some((p) => p.cost !== undefined);
+  const showCost = products.some((p) => p.cost !== undefined) && !(svc && !svc.physical);
+  const svcStats = useMemo(() => {
+    const n = products.length;
+    return {
+      n,
+      categories: new Set(products.map((p) => p.category)).size,
+      average: n ? Math.round(products.reduce((sum, p) => sum + p.price, 0) / n) : 0,
+      retail: products.filter((p) => p.archetype !== "service").length,
+    };
+  }, [products]);
   // Presentation-only aggregate for the KPI tiles — derived from the same
   // list already on screen, no extra request.
   const stockStats = products.reduce(
@@ -105,29 +124,38 @@ export function Products() {
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1200px] mx-auto">
       <PageHeader
         title={term}
-        subtitle={`${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
+        subtitle={svc ? `${products.length} ${svc.items} listed` : `${products.length} in catalog · ${activeBranch?.name || "no branch"} stock shown`}
         actions={
           <>
-            <Button variant="secondary" onClick={() => (hasFeature("barcodes") ? setLabeling(true) : requestUpgrade("barcodes"))} disabled={hasFeature("barcodes") && !products.length}><Barcode className="w-4 h-4" /> Labels <LockChip feature="barcodes" /></Button>
+            {(!svc || svc.physical) && <Button variant="secondary" onClick={() => (hasFeature("barcodes") ? setLabeling(true) : requestUpgrade("barcodes"))} disabled={hasFeature("barcodes") && !products.length}><Barcode className="w-4 h-4" /> Labels <LockChip feature="barcodes" /></Button>}
             <Button variant="secondary" onClick={() => setPrinting(true)} disabled={!products.length}><Printer className="w-4 h-4" /> Print</Button>
             {can("products_edit") && <Button variant="secondary" onClick={() => (hasFeature("productPhotos") ? setFindingPhotos(true) : requestUpgrade("productPhotos"))} disabled={hasFeature("productPhotos") && !products.some((p) => !p.imageUrl)}><ImageIcon className="w-4 h-4" /> Find photos <LockChip feature="productPhotos" /></Button>}
-            {can("products_add") && <Button variant="secondary" onClick={() => (hasFeature("csvImport") ? setImporting(true) : requestUpgrade("csvImport"))}><Upload className="w-4 h-4" /> Import CSV <LockChip feature="csvImport" /></Button>}
+            {can("products_add") && !svc && <Button variant="secondary" onClick={() => (hasFeature("csvImport") ? setImporting(true) : requestUpgrade("csvImport"))}><Upload className="w-4 h-4" /> Import CSV <LockChip feature="csvImport" /></Button>}
             {can("products_delete") && <Button variant="secondary" onClick={() => setClearing(true)} disabled={!products.length} className="hover:!text-danger hover:!border-danger/50 hover:!bg-danger-soft"><Trash2 className="w-4 h-4" /> Delete all</Button>}
-            {can("products_add") && <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add product</Button>}
+            {can("products_add") && <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add {svc ? svc.item : "product"}</Button>}
           </>
         }
       />
 
       {!loading && products.length > 0 && (
+        svc ? (
+          <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5 mb-6">
+            <StatCard index={0} label={`${svc.items.charAt(0).toUpperCase()}${svc.items.slice(1)} listed`} value={String(svcStats.n)} icon={Layers} />
+            <StatCard tone="success" index={1} label="Categories" value={String(svcStats.categories)} icon={Tag} />
+            <StatCard tone="warning" index={2} label={`Average ${svc.priceLabel.toLowerCase()}`} value={fmtMoney(svcStats.average, currency)} icon={Package} />
+            {svc.physical && <StatCard tone="danger" index={3} label="Retail items" value={String(svcStats.retail)} icon={PackageCheck} />}
+          </div>
+        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5 mb-6">
           <StatCard index={0} label="Total products" value={String(products.length)} icon={Package} />
           <StatCard tone="success" index={1} label="In stock" value={String(stockStats.inStock)} icon={PackageCheck} />
           <StatCard tone="warning" index={2} label="Low stock" value={String(stockStats.low)} icon={AlertTriangle} />
           <StatCard tone="danger" index={3} label="Out of stock" value={String(stockStats.out)} icon={PackageX} />
         </div>
+        )
       )}
 
-      {can("stock_in") && hasFeature("ai") && <RestockSuggestionsPanel />}
+      {can("stock_in") && hasFeature("ai") && (!svc || svc.physical) && <RestockSuggestionsPanel />}
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[220px] max-w-sm">
@@ -135,7 +163,7 @@ export function Products() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search products…"
+            placeholder={svc ? `Search ${svc.items}…` : "Search products…"}
             className="!pl-9"
           />
         </div>
@@ -152,9 +180,9 @@ export function Products() {
         <Card>
           <EmptyState
             icon={Package}
-            title="No products yet"
-            body="Your catalog is empty. Add your first product and it appears on the POS instantly."
-            action={can("products_add") && <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add your first product</Button>}
+            title={svc ? `No ${svc.items} yet` : "No products yet"}
+            body={svc ? `List what you offer, with its ${svc.priceLabel.toLowerCase()}, and it appears at the ${meta.pos.toLowerCase()} straight away.` : "Your catalog is empty. Add your first product and it appears on the POS instantly."}
+            action={can("products_add") && <Button onClick={() => setEditing("new")}><Plus className="w-4 h-4" /> Add your first {svc ? svc.item : "product"}</Button>}
           />
         </Card>
       ) : (
@@ -163,7 +191,7 @@ export function Products() {
             <Table className="min-w-[640px]">
               <thead>
                 <tr className="text-left">
-                  {["Product", "Category", "Price", ...(showCost ? ["Cost"] : []), "Stock", ""].map((h, i) => (
+                  {[svc ? "Service" : "Product", "Category", svc ? svc.priceLabel : "Price", ...(showCost ? ["Cost"] : []), svc ? ([svc.showDuration && "Duration", svc.physical && "Stock"].filter(Boolean).join(" / ") || "Type") : "Stock", ""].map((h, i) => (
                     <TH key={i}>{h}</TH>
                   ))}
                 </tr>
@@ -188,10 +216,12 @@ export function Products() {
                       <TD><Badge tone="neutral">{p.category}</Badge></TD>
                       <TD className="font-mono font-semibold tabular-nums">{fmtMoney(p.price, currency)}</TD>
                       {showCost && (
-                        <TD className="font-mono !text-t3 tabular-nums">{p.cost !== undefined ? fmtMoney(p.cost, currency) : "—"}</TD>
+                        <TD className="font-mono !text-t3 tabular-nums">{p.cost !== undefined && p.archetype !== "service" ? fmtMoney(p.cost, currency) : "—"}</TD>
                       )}
                       <TD>
-                        {p.stock === null ? (
+                        {p.archetype === "service" ? (
+                          p.durationMin ? <span className="text-[13px] text-t2">{fmtDuration(p.durationMin)}</span> : <Badge tone="brand">Service</Badge>
+                        ) : p.stock === null ? (
                           <Badge tone="brand">Made to order</Badge>
                         ) : (
                           <div className="flex items-center gap-2">
@@ -238,7 +268,8 @@ export function Products() {
         serialsAllowed={hasCapability("serials")}
         productionAllowed={hasCapability("production")}
         allowedUnits={typeMeta(activeBusiness?.typeKey).allowedUnits}
-        componentChoices={products.filter((p) => p.archetype !== "made_to_order")}
+        service={svc}
+        componentChoices={products.filter((p) => p.archetype !== "made_to_order" && p.archetype !== "service")}
         onClose={() => setEditing(null)}
         onSaved={() => { setEditing(null); reload(); }}
       />
@@ -776,7 +807,7 @@ function ImportModal({ open, onClose, onDone, categories }: {
 }
 
 function ProductModal({
-  editing, showCost, showExpiry, mtoAllowed, serialsAllowed, productionAllowed, allowedUnits, componentChoices, onClose, onSaved,
+  editing, showCost, showExpiry, mtoAllowed, serialsAllowed, productionAllowed, allowedUnits, service, componentChoices, onClose, onSaved,
 }: {
   editing: Product | "new" | null;
   showCost: boolean;
@@ -785,6 +816,7 @@ function ProductModal({
   serialsAllowed: boolean;
   productionAllowed: boolean;
   allowedUnits: string[];
+  service: ServiceMeta | null;
   componentChoices: Product[];
   onClose: () => void;
   onSaved: () => void;
@@ -792,6 +824,10 @@ function ProductModal({
   const isNew = editing === "new";
   const p = isNew || !editing ? null : editing;
   const [mto, setMto] = useState(p?.archetype === "made_to_order");
+  // A service trade lists services by default; where it also sells a few physical goods (a salon's
+  // hair products) a new entry can be switched to a stocked item instead.
+  const [kind, setKind] = useState<"service" | "stock">(p ? (p.archetype === "service" ? "service" : "stock") : service ? "service" : "stock");
+  const svcItem = kind === "service" && !mto;
   const [tracksSerials, setTracksSerials] = useState(!!p?.tracksSerials);
   // A stock item's own production recipe — distinct from the made-to-order
   // toggle above: this item DOES carry its own stock, just credited by a
@@ -814,6 +850,7 @@ function ProductModal({
     purchaseUnit: p?.purchaseUnit || "",
     unitsPerPurchase: p?.unitsPerPurchase ?? 1,
     warrantyMonths: p?.warrantyMonths ?? 0,
+    durationMin: p?.durationMin ?? 0,
   });
   const { activeBranch, branchesForActive, hasFeature } = useSession();
   const [shared, setShared] = useState(false);
@@ -822,20 +859,43 @@ function ProductModal({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState(p?.imageUrl || "");
   const [removeImage, setRemoveImage] = useState(false);
+  // "Find a photo": candidates looked up from the name, one of which can be kept. It is attached
+  // right after the product itself is saved (the product has no id before that).
+  const [finding, setFinding] = useState(false);
+  const [found, setFound] = useState<{ url: string; thumb: string; credit: string }[] | null>(null);
+  const [pickedPhoto, setPickedPhoto] = useState<{ url: string; credit: string } | null>(null);
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const setBomLine = (i: number, patch: Partial<BomLine>) =>
     setBom((b) => b.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  async function findPhoto() {
+    if (!hasFeature("productPhotos")) { requestUpgrade("productPhotos"); return; }
+    if (form.name.trim().length < 2) { setError("Type the name first, then find a photo for it."); return; }
+    setFinding(true); setError("");
+    try {
+      const r = await api<{ candidates: { url: string; thumb: string; credit: string }[] }>("/products/photos/lookup", {
+        method: "POST", body: JSON.stringify({ name: form.name.trim(), category: form.category.trim() }),
+      });
+      setFound(r.candidates || []);
+    } catch (err: any) {
+      setError(err.message || "Couldn't look up photos right now.");
+    } finally {
+      setFinding(false);
+    }
+  }
 
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    setPickedPhoto(null);
     setImageFile(file);
     setRemoveImage(false);
     setImagePreview(URL.createObjectURL(file));
   }
 
   function onRemoveImage() {
+    setPickedPhoto(null);
     setImageFile(null);
     setImagePreview("");
     setRemoveImage(true);
@@ -865,22 +925,23 @@ function ProductModal({
       const body = {
         name: form.name.trim(),
         category: form.category.trim() || "General",
-        barcode: mto ? "" : form.barcode.trim(),
-        archetype: mto ? "made_to_order" : "stock",
+        barcode: mto || svcItem ? "" : form.barcode.trim(),
+        archetype: mto ? "made_to_order" : svcItem ? "service" : "stock",
+        ...(svcItem ? { durationMin: service?.showDuration ? Math.max(0, Math.round(Number(form.durationMin) || 0)) : 0 } : {}),
         ...(mto ? { bom: bomClean } : {}),
         ...(!mto && hasRecipe ? { bom: bomClean, producedUnitsPerStockUnit: Number(form.producedUnitsPerStockUnit) || 1 } : {}),
         price: Number(form.price) || 0,
-        cost: Number(form.cost) || 0,
-        reorderLevel: Number(form.reorderLevel) || 0,
-        ...(!mto ? {
+        cost: svcItem ? 0 : Number(form.cost) || 0,
+        reorderLevel: svcItem ? 0 : Number(form.reorderLevel) || 0,
+        ...(!mto && !svcItem ? {
           unit: form.unit.trim() || "unit",
           purchaseUnit: form.purchaseUnit.trim(),
           unitsPerPurchase: Number(form.unitsPerPurchase) || 1,
         } : {}),
-        ...(showExpiry && !mto ? { expiry: form.expiry } : {}),
-        ...(isNew && !mto ? { openingStock: Number(form.openingStock) || 0 } : {}),
+        ...(showExpiry && !mto && !svcItem ? { expiry: form.expiry } : {}),
+        ...(isNew && !mto && !svcItem ? { openingStock: Number(form.openingStock) || 0 } : {}),
         ...(isNew ? { shareWithAllStores: shared } : {}),
-        ...(serialsAllowed && !mto ? { tracksSerials, warrantyMonths: Number(form.warrantyMonths) || 0 } : {}),
+        ...(serialsAllowed && !mto && !svcItem ? { tracksSerials, warrantyMonths: Number(form.warrantyMonths) || 0 } : {}),
       };
       const res = isNew
         ? await api<{ product: { id: string } }>("/products", { method: "POST", body: JSON.stringify(body) })
@@ -893,7 +954,13 @@ function ProductModal({
       // still has to be SEEN, though — a silently-dropped photo (e.g. no
       // Cloudinary configured on the server) previously looked identical
       // to a successful upload.
-      if (imageFile) {
+      if (pickedPhoto && !imageFile) {
+        try {
+          await api("/products/photos/apply", { method: "POST", body: JSON.stringify({ items: [{ id: savedId, url: pickedPhoto.url, credit: pickedPhoto.credit }] }) });
+        } catch (imgErr: any) {
+          alert(`"${form.name}" was saved, but the photo couldn't be attached: ${imgErr.message}`);
+        }
+      } else if (imageFile) {
         try {
           const fd = new FormData();
           fd.append("image", imageFile);
@@ -913,11 +980,11 @@ function ProductModal({
   }
 
   return (
-    <Modal open={!!editing} onClose={onClose} title={isNew ? "Add product" : `Edit ${p?.name}`} subtitle={isNew ? "It appears on the POS immediately" : "Price changes are logged to the audit trail"} wide={mto}>
+    <Modal open={!!editing} onClose={onClose} title={isNew ? (service ? `Add ${service.item}` : "Add product") : `Edit ${p?.name}`} subtitle={isNew ? (service ? "It appears at checkout immediately" : "It appears on the POS immediately") : "Price changes are logged to the audit trail"} wide={mto}>
       <form onSubmit={save} className="space-y-3">
         <ErrorBanner message={error} />
 
-        {mtoAllowed && isNew && (
+        {mtoAllowed && isNew && !service && (
           <button
             type="button"
             onClick={() => setMto((v) => !v)}
@@ -933,7 +1000,23 @@ function ProductModal({
           </button>
         )}
 
-        {serialsAllowed && !mto && (
+        {isNew && service?.physical && (
+          <button
+            type="button"
+            onClick={() => setKind((k) => (k === "service" ? "stock" : "service"))}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-ctl bg-surface-2 border border-line text-left hover:border-brand-300 transition-colors"
+          >
+            <span>
+              <span className="block text-[13px] font-semibold text-t1">This is a physical product</span>
+              <span className="block text-[11px] text-t3">Something you sell and restock (hair products, say) — tracked in stock, unlike a service.</span>
+            </span>
+            <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", kind === "stock" ? "bg-primary" : "bg-surface-3 border border-line-2")}>
+              <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", kind === "stock" ? "left-[22px]" : "left-0.5")} />
+            </span>
+          </button>
+        )}
+
+        {serialsAllowed && !mto && !svcItem && (
           <button
             type="button"
             onClick={() => setTracksSerials((v) => !v)}
@@ -948,13 +1031,13 @@ function ProductModal({
             </span>
           </button>
         )}
-        {serialsAllowed && !mto && tracksSerials && (
+        {serialsAllowed && !mto && !svcItem && tracksSerials && (
           <Field label="Warranty (months)" hint="0 = not tracked. Set on each unit's Serial the moment it's sold.">
             <Input type="number" min="0" value={form.warrantyMonths} onChange={(e) => set("warrantyMonths", e.target.value)} />
           </Field>
         )}
 
-        {productionAllowed && !mto && (
+        {productionAllowed && !mto && !svcItem && (
           <button
             type="button"
             onClick={() => setHasRecipe((v) => !v)}
@@ -985,24 +1068,64 @@ function ProductModal({
           <div className="min-w-0">
             <div className="text-[12.5px] font-semibold text-t2">Product photo</div>
             <div className="text-[11px] text-t4 mb-1.5">Shown on the POS grid instead of a category icon. JPEG/PNG/WEBP, up to 5MB.</div>
-            {imagePreview && (
-              <button type="button" onClick={onRemoveImage} className="text-[11.5px] font-semibold text-danger hover:underline">Remove photo</button>
-            )}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                type="button"
+                onClick={findPhoto}
+                disabled={finding}
+                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-primary hover:underline disabled:opacity-60"
+              >
+                <Sparkles className="w-3.5 h-3.5" /> {finding ? "Looking…" : "Find a photo"}
+              </button>
+              {imagePreview && (
+                <button type="button" onClick={onRemoveImage} className="text-[11.5px] font-semibold text-danger hover:underline">Remove photo</button>
+              )}
+            </div>
           </div>
         </div>
-        <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={mto ? "e.g. Day & Night Window Blind" : "e.g. Golden Penny Semovita 2kg"} /></Field>
+        {found && (
+          <div className="rounded-ctl border border-line bg-surface-2 p-2.5">
+            {found.length === 0 ? (
+              <div className="text-[12px] text-t3">No photo found for that name. Try a simpler name, or upload your own.</div>
+            ) : (
+              <>
+                <div className="text-[11.5px] font-medium text-t3 mb-1.5">Tap the photo you want to use</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {found.slice(0, 8).map((c) => (
+                    <button
+                      key={c.url}
+                      type="button"
+                      onClick={() => { setPickedPhoto({ url: c.url, credit: c.credit }); setImageFile(null); setRemoveImage(false); setImagePreview(c.thumb || c.url); setFound(null); }}
+                      className="aspect-square rounded-lg overflow-hidden border border-line hover:border-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      title={c.credit}
+                    >
+                      <img src={c.thumb || c.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        <Field label="Name"><Input autoFocus required value={form.name} onChange={(e) => set("name", e.target.value)} placeholder={mto ? "e.g. Day & Night Window Blind" : svcItem ? (service?.showDuration ? "e.g. Haircut & styling" : service?.item === "fee" ? "e.g. Registration fee" : "e.g. Website design") : "e.g. Golden Penny Semovita 2kg"} /></Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Category"><Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder={mto ? "Blinds" : "Grains"} /></Field>
-          {!mto && (hasFeature("barcodes")
+          {!mto && !svcItem && (hasFeature("barcodes")
             ? <Field label="Barcode" hint="Optional — scan into this box"><Input value={form.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>
             : <Field label="Barcode" hint="Barcodes and labels are part of the Pro plan"><Input value="" disabled placeholder="Pro plan" onClick={() => requestUpgrade("barcodes")} /></Field>)}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={mto ? "Price per m²" : "Selling price"} hint={mto ? "Order price = this × width × height (adjustable at sale)" : undefined}>
+          <Field label={mto ? "Price per m²" : svcItem && service ? service.priceLabel : "Selling price"} hint={mto ? "Order price = this × width × height (adjustable at sale)" : undefined}>
             <Input required type="number" min="0" step="0.01" value={form.price} onChange={(e) => set("price", e.target.value)} />
           </Field>
-          {showCost && !mto && <Field label="Cost price" hint="Only finance roles see this"><Input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set("cost", e.target.value)} /></Field>}
+          {showCost && !mto && !svcItem && <Field label="Cost price" hint="Only finance roles see this"><Input type="number" min="0" step="0.01" value={form.cost} onChange={(e) => set("cost", e.target.value)} /></Field>}
         </div>
+
+        {svcItem && service?.showDuration && (
+          <Field label="Duration (minutes)" hint="How long it takes — optional, shown on the list">
+            <Input type="number" min="0" step="5" value={form.durationMin || ""} onChange={(e) => set("durationMin", e.target.value)} placeholder="45" />
+          </Field>
+        )}
 
         {mto ? (
           <div>
@@ -1034,6 +1157,13 @@ function ProductModal({
               + Add component
             </button>
           </div>
+        ) : svcItem ? (
+          isNew && branchesForActive.length > 1 ? (
+            <label className="flex items-start gap-2 text-[12px] text-t2">
+              <input type="checkbox" className="mt-0.5" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+              <span>Offer at every branch. Left off, this belongs to <b>{activeBranch?.name}</b> only.</span>
+            </label>
+          ) : null
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3">
@@ -1109,7 +1239,7 @@ function ProductModal({
             )}
           </>
         )}
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : isNew ? "Add product" : "Save changes"}</Button>
+        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Saving…" : isNew ? (service ? `Add ${service.item}` : "Add product") : "Save changes"}</Button>
       </form>
     </Modal>
   );

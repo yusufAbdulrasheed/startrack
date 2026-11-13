@@ -340,7 +340,7 @@ inventoryRouter.get("/movements", requirePerm("inventory_view"), requireBranch, 
 
 // GET /api/inventory/low-stock — products at/below their reorder level
 inventoryRouter.get("/low-stock", requireBranch, async (req, res) => {
-  const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }).select("name reorderLevel");
+  const products = await Product.find({ businessId: req.ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] } }).select("name reorderLevel");
   const inv = await Inventory.find({ branchId: req.ctx.branchId, productId: { $in: products.map((p) => p._id) } });
   const stockBy = new Map(inv.map((i) => [String(i.productId), i.stock]));
   const low = products

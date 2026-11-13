@@ -77,6 +77,7 @@ export const PERMISSION_GROUPS = [
       { key: "settings", label: "Change business settings" },
       { key: "audit", label: "See the audit log" },
       { key: "support", label: "Manage support tickets" },
+      { key: "startrack_help", label: "Contact StarTrack support (Help from StarTrack)" },
     ],
   },
 ];

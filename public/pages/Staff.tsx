@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useState } from "react";
 import { UserCog, Plus, KeyRound, Ban, CheckCircle2, Copy, Pencil, Clock, Trash2, CalendarPlus, Network, ShieldCheck } from "lucide-react";
 import { PERMISSION_GROUPS } from "#shared/permissions.js";
@@ -94,6 +95,7 @@ export function Staff() {
           <div className="text-[13px] text-t2">
             Till login code for this business: <span className="font-mono font-semibold text-primary tracking-[0.2em]">{code}</span>
             <span className="text-t3"> — staff enter it once on the till, then sign in with just their PIN.</span>
+            {can("*") && <> <Link to="/app/settings" className="font-semibold text-primary hover:underline">Change it</Link></>}
           </div>
           <Button size="sm" variant="secondary" className="ml-auto shrink-0" onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
             <Copy className="w-3.5 h-3.5" /> {copied ? "Copied!" : "Copy"}

@@ -9,6 +9,12 @@ export type Capability =
   | "memberships" | "credit" | "lots" | "loyalty" | "coldChain"
   | "programs" | "projects";
 
+/** Present only on trades that sell services rather than stock (academy, salon, agency). */
+export type ServiceTerms = {
+  item: string; items: string; saleNoun: string; priceLabel: string;
+  showDuration: boolean; physical: boolean;
+};
+
 export type BusinessTypeTemplate = {
   label: string;
   terminology: { products: string };
@@ -20,6 +26,7 @@ export type BusinessTypeTemplate = {
   skuPrefix?: string;
   allowedUnits?: string[];
   positions?: string[];
+  service?: ServiceTerms;
 };
 
 export declare const TOGGLEABLE_MODULES: ToggleableModule[];

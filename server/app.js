@@ -40,6 +40,7 @@ import { searchRouter } from "#modules/search/search.routes.js";
 import { overviewRouter } from "#modules/overview/overview.routes.js";
 import { reportsRouter } from "#modules/reports/reports.routes.js";
 import { ratesRouter } from "#modules/rates/rates.routes.js";
+import { chatRouter } from "#modules/chat/chat.routes.js";
 
 // Business-vertical modules (server/modules/businesses/*/) — genuinely
 // single-consumer logic that lives in its own directory. Blinds has none:
@@ -152,6 +153,8 @@ app.use("/api/metrics", tenant, metricsRouter);
 app.use("/api/settings", tenant, settingsRouter);
 app.use("/api/audit", tenant, requireFeature("auditLog"), auditRouter);
 app.use("/api/notifications", tenant, notificationsRouter);
+// Team chat: owner, manager and sales rep of one business. Every role may use it, so no permission gate.
+app.use("/api/chat", tenant, chatRouter);
 app.use("/api/jobs", tenant, requireFeature("verticals"), jobsRouter);
 app.use("/api/tasks", tenant, tasksRouter);
 app.use("/api/announcements", tenant, announcementsRouter);

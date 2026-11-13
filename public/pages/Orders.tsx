@@ -37,7 +37,7 @@ const VIEWS = [["open", "Open"], ["placed", "Waiting"], ["completed", "Completed
 const PER = 10;
 
 export function Orders() {
-  const { currency } = useSession();
+  const { currency, can } = useSession();
   const [view, setView] = useState<(typeof VIEWS)[number][0]>("open");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -67,9 +67,9 @@ export function Orders() {
           <span className="grid place-items-center w-11 h-11 rounded-2xl bg-primary-soft text-primary"><Globe className="w-5 h-5" /></span>
           <div className="flex-1 min-w-[220px]">
             <div className="text-[14px] font-semibold text-t1">Your online store is switched off</div>
-            <div className="text-[12.5px] text-t3 mt-0.5">Turn it on in Business page → Online store so customers can register and order.</div>
+            <div className="text-[12.5px] text-t3 mt-0.5">{can("*") ? "Turn it on in Business page → Online store so customers can register and order." : "The business owner can turn it on so customers can register and order."}</div>
           </div>
-          <Link to="/app/my-site"><Button size="sm">Set up online store</Button></Link>
+          {can("*") && <Link to="/app/my-site"><Button size="sm">Set up online store</Button></Link>}
         </Card>
       )}
 

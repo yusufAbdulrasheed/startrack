@@ -155,6 +155,16 @@ async function wipeAllShowcaseData() {
 async function seedCatalog(ctx, shop) {
   const byName = new Map();
   for (const item of shop.catalog) {
+    // A service (haircut, course fee, website build) is sold, never counted: no stock, no opening movement.
+    if (item.service) {
+      const svc = await Product.create({
+        accountId: ctx.accountId, businessId: ctx.businessId,
+        name: item.name, category: item.category, price: item.price, cost: 0, reorderLevel: 0,
+        archetype: "service", durationMin: item.duration || 0, imageUrl: item.image || "",
+      });
+      byName.set(item.name, { doc: svc, ...item, cost: 0 });
+      continue;
+    }
     const p = await Product.create({
       accountId: ctx.accountId, businessId: ctx.businessId,
       name: item.name, category: item.category, barcode: item.barcode || "",
@@ -212,6 +222,7 @@ async function seedTradingHistory(ctx, byName, customers, sellers) {
       const items = [...chosen.values()].map(({ prod, qty }) => ({
         productId: prod.doc._id, name: prod.name, qty,
         unitPrice: prod.price, lineCost: money(prod.cost * qty), lineNet: money(prod.price * qty), returnedQty: 0,
+        ...(prod.service ? { service: true } : {}),
       }));
       const subtotal = money(items.reduce((sum, i) => sum + i.lineNet, 0));
       const discount = Math.random() < 0.2 ? money(Math.min(300, subtotal * 0.05)) : 0;
@@ -222,6 +233,7 @@ async function seedTradingHistory(ctx, byName, customers, sellers) {
       const customer = Math.random() < 0.45 ? pick(customers) : null;
 
       for (const line of items) {
+        if (line.service) continue; // nothing to count
         const inv = await Inventory.findOneAndUpdate(
           { branchId: ctx.branchId, productId: line.productId }, { $inc: { stock: -line.qty } }, { new: true }
         );

@@ -61,7 +61,7 @@ stockReceiptsRouter.get("/", canRead, requireBranch, async (req, res) => {
 
 // GET /api/stock-receipts/template.xlsx — a delivery sheet listing this store's products, quantity column blank
 stockReceiptsRouter.get("/template.xlsx", requirePerm("stock_in"), requireFeature("csvImport"), requireBranch, async (req, res) => {
-  const products = await Product.find(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } }))
+  const products = await Product.find(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] } }))
     .select("name sku barcode cost").sort({ name: 1 }).collation({ locale: "en", strength: 2, numericOrdering: true }).lean();
   const inv = await Inventory.find({ branchId: req.ctx.branchId }).select("productId stock").lean();
   const stockOf = new Map(inv.map((i) => [String(i.productId), i.stock]));
@@ -130,7 +130,7 @@ stockReceiptsRouter.post("/parse", requirePerm("stock_in"), requireFeature("csvI
     return res.status(422).json({ error: "no_columns", message: "The sheet needs a quantity column and one that names each product (name, SKU or barcode). The template has both." });
   }
 
-  const catalog = await Product.find(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })).select("name sku barcode");
+  const catalog = await Product.find(scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] } })).select("name sku barcode");
   const by = { sku: new Map(), barcode: new Map(), name: new Map() };
   for (const p of catalog) {
     if (p.sku) by.sku.set(normKey(p.sku), p);

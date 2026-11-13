@@ -97,7 +97,7 @@ export function StoreSettings() {
         <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">This kind of business sells rooms rather than items from a basket, so it can't run an online store.</div>
       )}
       {data.eligible && data.sellable === 0 && (
-        <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">You have no products to sell online yet. The shop only lists products you've added (not services), so add some under Products first.</div>
+        <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">You have no physical products to sell online yet. The online shop only lists items you stock, not services (a service can't be put in a basket), so add some under Products first.</div>
       )}
       {data.eligible && !data.pageLive && (
         <div className="rounded-xl bg-warning-soft text-warning px-4 py-3 text-[13px] font-semibold">Your business page isn't published yet. Publish it under Setup first — the online store lives on that page.</div>

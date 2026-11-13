@@ -35,7 +35,7 @@ const canRead = requirePerm("inventory_view");
 
 /** Stock products of this business that the active store sells, with the branch's level joined on. */
 function stockPipeline(ctx, extraMatch = {}) {
-  const match = scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" }, ...extraMatch });
+  const match = scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] }, ...extraMatch });
   return [
     { $match: match },
     { $lookup: { from: "inventories", let: { pid: "$_id" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$productId", "$$pid"] }, { $eq: ["$branchId", ctx.branchId] }] } } }], as: "inv" } },
@@ -105,7 +105,7 @@ inventoryHubRouter.get("/overview", canRead, requireBranch, async (req, res) => 
       ...stockPipeline(req.ctx),
       { $group: { _id: null, items: { $sum: 1 }, units: { $sum: { $max: ["$stock", 0] } }, cost: { $sum: "$stockValue" }, retail: { $sum: "$retailValue" }, low: { $sum: { $cond: [{ $eq: ["$stockStatus", "low"] }, 1, 0] } }, out: { $sum: { $cond: [{ $eq: ["$stockStatus", "out"] }, 1, 0] } } } },
     ]),
-    Product.distinct("category", scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })),
+    Product.distinct("category", scopedToBranch(req.ctx, { businessId: req.ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] } })),
   ]);
   const total = rows[0]?.total[0]?.n || 0;
   const s = summary[0] || { items: 0, units: 0, cost: 0, retail: 0, low: 0, out: 0 };
@@ -357,7 +357,7 @@ inventoryHubRouter.post("/import", requirePerm("stock_in"), requireFeature("csvI
   const ctx = req.ctx;
 
   // How the file's products line up with this store's catalog.
-  const catalog = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $ne: "made_to_order" } })).select("name sku barcode price cost reorderLevel category unit");
+  const catalog = await Product.find(scopedToBranch(ctx, { businessId: ctx.businessId, status: "active", archetype: { $nin: ["made_to_order", "service"] } })).select("name sku barcode price cost reorderLevel category unit");
   const by = { sku: new Map(), barcode: new Map(), name: new Map() };
   for (const p of catalog) {
     if (p.sku) by.sku.set(normKey(p.sku), p);

@@ -291,6 +291,7 @@ async function voidSale(ctx, saleId, reason, onVoid) {
     }
 
     for (const line of sale.items) {
+      if (line.service) continue; // a service had no stock to put back
       if (line.components?.length) {
         // Made-to-order: the components come back, not the custom item.
         for (const c of line.components) {
@@ -377,7 +378,7 @@ async function voidSale(ctx, saleId, reason, onVoid) {
   });
 
   // Stock came back — anything that was flagged low may now be fine.
-  afterStockChange(ctx, sale.branchId, sale.items.flatMap((l) =>
+  afterStockChange(ctx, sale.branchId, sale.items.filter((l) => !l.service).flatMap((l) =>
     l.components?.length ? l.components.map((c) => c.productId) : [l.productId]
   ));
 

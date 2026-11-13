@@ -74,7 +74,7 @@ returnsRouter.get("/sales", requirePerm("returns"), requireBranch, async (req, r
       id: s._id, saleNo: s.saleNo, at: s.at, staffName: s.staffName, status: s.status,
       customerId: s.customerId || null, customerName: s.customerName || "",
       subtotal: s.subtotal, discount: s.discount, vat: s.vat, total: s.total,
-      items: s.items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unitPrice: i.unitPrice, lineNet: i.lineNet, returnedQty: i.returnedQty || 0, ...(i.components?.length ? { custom: true } : {}) })),
+      items: s.items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unitPrice: i.unitPrice, lineNet: i.lineNet, returnedQty: i.returnedQty || 0, ...(i.components?.length || i.service ? { custom: true } : {}) })),
     })),
   });
 });
@@ -157,7 +157,7 @@ returnsRouter.post("/", requirePerm("returns"), requireBranch, async (req, res) 
       });
     }
 
-    const isCustom = !!line.components?.length;
+    const isCustom = !!line.components?.length || !!line.service;
     const unitNet = money((line.lineNet / line.qty) * paidFactor);
     // Custom-made items: money comes back, cost doesn't (the fabric is cut)
     // and nothing restocks. Damaged items come back but never go on the shelf.

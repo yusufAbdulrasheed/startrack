@@ -131,6 +131,8 @@ test.describe("WhatsApp receipts", () => {
     await page.goto("/app/pos");
     await page.getByText("Rice").first().click();
     await page.getByRole("button", { name: /^(Charge|Pay|Complete)/i }).first().click();
+    // Complete Sale opens the payment dialog (customer, method, discount); confirming it rings the sale up.
+    await page.getByRole("button", { name: /^Confirm payment/i }).click();
     await expect(page.getByLabel("Customer's WhatsApp number")).toBeVisible({ timeout: 15_000 });
     await page.getByLabel("Customer's WhatsApp number").fill("08035556666");
     await page.getByRole("button", { name: "WhatsApp receipt" }).click();

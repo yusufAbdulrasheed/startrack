@@ -68,6 +68,9 @@ const TAB_FEATURE: Partial<Record<string, string>> = {
 export function Dashboard() {
   const { session, activeBusiness, activeBranch, currency, hasModule, hasFeature, can } = useSession();
   const [tab, setTab] = useState<Tab>("overview");
+  // Trades that sell services only (academy, agency) have no shelf: no stock, movement or expiry views.
+  const svc = typeMeta(activeBusiness?.typeKey).service;
+  const noStock = !!svc && !svc.physical;
   const { data: m, loading, error, reload } = useApi<Metrics>("/metrics/dashboard", [activeBranch?.id]);
   // Online orders waiting on you, if the business runs an online store. Only asked
   // when the plan includes it, so it never trips an upgrade prompt.
@@ -144,11 +147,10 @@ export function Dashboard() {
           ...(can("dashboard_finance") ? [{ k: "profit", label: "Profit & Loss", icon: TrendingUp }] : []),
           { k: "sales", label: "Sales", icon: Receipt },
           ...(hasModule("expenses") ? [{ k: "expenses", label: "Expenses", icon: ReceiptText }] : []),
-          { k: "inventory", label: "Inventory", icon: Boxes },
-          { k: "movement", label: "Movement", icon: ArrowLeftRight },
+          ...(!noStock ? [{ k: "inventory", label: "Inventory", icon: Boxes }, { k: "movement", label: "Movement", icon: ArrowLeftRight }] : []),
           ...(hasModule("customers") ? [{ k: "customers", label: "Customers", icon: Users }] : []),
           { k: "staff", label: "Staff", icon: UserCog },
-          ...(hasModule("expiry") ? [{ k: "expiry", label: "Expiry", icon: CalendarClock }] : []),
+          ...(hasModule("expiry") && !noStock ? [{ k: "expiry", label: "Expiry", icon: CalendarClock }] : []),
           { k: "archive", label: "Archive", icon: History },
         ] as { k: Tab; label: string; icon: any }[]).map(({ k, label, icon: Icon }) => (
           <button
@@ -214,13 +216,13 @@ export function Dashboard() {
       {/* Detail on the left, things wanting attention on the right. */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 space-y-4">
-          <TopMovingProducts products={m.topProducts} currency={currency} onViewAll={() => animateSwitch("tab", () => setTab("inventory"))} />
+          <TopMovingProducts products={m.topProducts} currency={currency} noun={svc ? svc.items : "products"} onViewAll={noStock ? undefined : () => animateSwitch("tab", () => setTab("inventory"))} />
           <LiveFeed sales={m.recentSales} currency={currency} />
         </div>
 
         <div className="space-y-4">
           {hasFeature("ai") && <AiInsightsCard />}
-          <AlertsPanel lowStock={m.lowStock} />
+          {!noStock && <AlertsPanel lowStock={m.lowStock} />}
         </div>
       </div>
       </>
@@ -338,19 +340,20 @@ const EMPTY = "py-8 text-center text-[12.5px] text-t3";
 // The design's "Top Moving Products" table. The last column shows each
 // product's share of the best seller, which is a real comparison, rather than
 // a sparkline we have no per-product history to draw.
-function TopMovingProducts({ products, currency, onViewAll }: {
+function TopMovingProducts({ products, currency, noun = "products", onViewAll }: {
   products: { id: string; name: string; sold: number; revenue: number }[];
   currency: string;
-  onViewAll: () => void;
+  noun?: string;
+  onViewAll?: () => void;
 }) {
   const max = products[0]?.revenue || 1;
   return (
     <Panel
       flush
       icon={Package}
-      title="Top moving products"
+      title={`Top moving ${noun}`}
       subtitle="Best sellers by revenue, last 7 days"
-      action={<button onClick={onViewAll} className="text-[12.5px] font-bold text-primary hover:underline">View all</button>}
+      action={onViewAll ? <button onClick={onViewAll} className="text-[12.5px] font-bold text-primary hover:underline">View all</button> : undefined}
     >
       {products.length === 0 ? (
         <div className={EMPTY}>Sales data builds this list.</div>
@@ -359,7 +362,7 @@ function TopMovingProducts({ products, currency, onViewAll }: {
           <Table className="min-w-[520px]">
             <thead>
               <tr>
-                <TH>Product</TH>
+                <TH>{noun === "products" ? "Product" : "Service"}</TH>
                 <TH className="text-right">Qty sold</TH>
                 <TH className="text-right">Revenue</TH>
                 <TH>Share</TH>

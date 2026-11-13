@@ -93,6 +93,15 @@ export async function createDemoSandbox(requestedType = "restaurant") {
   // Catalog + opening stock (through the ledger, like real life).
   const products = [];
   for (const item of CATALOG) {
+    // A service (haircut, course fee, website build) is sold, never counted: no stock, no opening movement.
+    if (item.service) {
+      const svc = await Product.create({
+        ...base, name: item.name, category: item.category, price: item.price, cost: 0, reorderLevel: 0,
+        archetype: "service", durationMin: item.duration || 0, imageUrl: item.image || "",
+      });
+      products.push({ doc: svc, ...item, cost: 0 });
+      continue;
+    }
     const p = await Product.create({
       ...base, name: item.name, category: item.category, barcode: item.barcode || "",
       price: item.price, cost: item.cost, reorderLevel: item.reorder,
@@ -162,6 +171,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
         productId: prod.doc._id, name: prod.name, qty,
         unitPrice: prod.price, lineCost: money(prod.cost * qty), lineNet: money(prod.price * qty),
         returnedQty: 0,
+        ...(prod.service ? { service: true } : {}),
       }));
       const subtotal = money(items.reduce((sum, i) => sum + i.lineNet, 0));
       const discount = Math.random() < 0.25 ? money(Math.min(200, subtotal * 0.05)) : 0;
@@ -173,6 +183,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
 
       // Stock walks down through the ledger, exactly like real checkout.
       for (const line of items) {
+        if (line.service) continue; // nothing to count
         const inv = await Inventory.findOneAndUpdate(
           { branchId: branch._id, productId: line.productId },
           { $inc: { stock: -line.qty } },
@@ -217,6 +228,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
   // Final stock count: reconcile every product to its designed level
   // (including the deliberately-low ones) via honest ADJUST movements.
   for (const item of products) {
+    if (item.service) continue;
     const inv = await Inventory.findOne({ branchId: branch._id, productId: item.doc._id });
     const delta = item.stock - (inv?.stock ?? 0);
     if (delta !== 0 && inv) {
@@ -268,6 +280,7 @@ export async function createDemoSandbox(requestedType = "restaurant") {
   // the way out, so the sandbox always opens with the situation it advertises.
   const countAt = new Date(Date.now() - 30 * 60 * 1000);
   for (const item of products) {
+    if (item.service) continue;
     const inv = await Inventory.findOne({ branchId: branch._id, productId: item.doc._id });
     const current = inv?.stock ?? 0;
     const delta = item.stock - current;

@@ -4,11 +4,19 @@
 // one source and the client just narrows it to the fields the UI needs.
 import { BUSINESS_TYPES, typeTemplate } from "#shared/businessTypes.js";
 
-export type TypeMeta = { label: string; products: string; pos: string; positions: string[]; allowedUnits: string[] };
+export type ServiceMeta = {
+  item: string; items: string; saleNoun: string; priceLabel: string;
+  showDuration: boolean; physical: boolean;
+};
+export type TypeMeta = {
+  label: string; products: string; pos: string; positions: string[]; allowedUnits: string[];
+  /** Set for trades that sell services, not stock (academy, salon, agency): the screens change wording and logic. */
+  service: ServiceMeta | null;
+};
 
 type Template = {
   label: string; terminology: { products: string }; posLabel: string;
-  positions?: string[]; allowedUnits?: string[];
+  positions?: string[]; allowedUnits?: string[]; service?: ServiceMeta;
 };
 
 const narrow = (t: Template): TypeMeta => ({
@@ -22,6 +30,7 @@ const narrow = (t: Template): TypeMeta => ({
   // The unit dropdown on the product form narrows to this list when the
   // trade has one (water, poultry); everyone else keeps free text.
   allowedUnits: t.allowedUnits || [],
+  service: t.service || null,
 });
 
 export const TYPE_META: Record<string, TypeMeta> = Object.fromEntries(

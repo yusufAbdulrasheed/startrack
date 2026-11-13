@@ -5,6 +5,7 @@ import { refreshAll } from "@/lib/useApi";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { ChatButton } from "@/components/layout/ChatButton";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
 import { AiAssistant } from "@/components/ai/AiAssistant";
 import { PlanChip } from "@/components/plan/PlanUi";
@@ -14,7 +15,6 @@ import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { businessLogoUrl } from "@/lib/logo";
-import { CurrencySwitcher } from "@/components/layout/CurrencySwitcher";
 
 // Staff change their own till PIN — requires the current one when set.
 function ChangePinModal({ open, onClose, businessId }: { open: boolean; onClose: () => void; businessId: string }) {
@@ -150,9 +150,9 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             <Plus className="w-4 h-4" /> <span className="max-xl:hidden">New sale</span>
           </Link>
         )}
-        <CurrencySwitcher />
         {/* Very narrow phones: the refresh button gives way so the bar never overflows. */}
         <span className="contents max-[479px]:hidden"><RefreshButton /></span>
+        <ChatButton />
         <span data-tour="topbar-notifications" className="flex">
           <NotificationBell />
         </span>

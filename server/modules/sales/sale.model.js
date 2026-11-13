@@ -39,6 +39,8 @@ const saleSchema = new mongoose.Schema(
         lineCost: { type: Number, default: 0 }, // qty * unit cost at time of sale
         lineNet: { type: Number, required: true }, // qty * unitPrice
         returnedQty: { type: Number, default: 0 }, // maintained by the returns module
+        // A service line: sold, never counted. No stock moved when it sold, so none comes back on a void or return.
+        service: { type: Boolean },
         // Made-to-order lines: the order's dimensions and the exact
         // components consumed (void restores THESE, not the MTO product).
         width: { type: Number },

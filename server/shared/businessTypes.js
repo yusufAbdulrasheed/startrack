@@ -48,13 +48,25 @@ export const CAPABILITIES = {
 
 export const ALL_CAPABILITIES = Object.keys(CAPABILITIES);
 
-const T = (products, pos, categories, modules, tagline, capabilities = []) => ({
+/**
+ * `service` marks a trade that sells time and expertise, not stock: its
+ * catalogue lists SERVICES (archetype "service": no stock, no reorder level,
+ * nothing to restock on a return) and its screens speak that language.
+ *   item / items   what one entry is called ("service")
+ *   saleNoun       what a sale is called at the till ("Bill")
+ *   priceLabel     what its price is called ("Fee", "Rate", "Price")
+ *   showDuration   offer a duration in minutes (chair time)
+ *   physical       also sells a few physical goods (hair products), which keep
+ *                  the usual stock tools; false = no stock tools at all
+ */
+const T = (products, pos, categories, modules, tagline, capabilities = [], service = null) => ({
   terminology: { products },
   posLabel: pos,
   defaultCategories: categories,
   modules,
   tagline,
   capabilities,
+  ...(service ? { service } : {}),
 });
 
 // Every module except the ones a trade genuinely never wants.
@@ -185,15 +197,16 @@ export const BUSINESS_TYPES = {
 
   // ── Service businesses ──────────────────────────────────────────────
   // These sell time and expertise, not stock. Each has its own workflow
-  // (server/modules/businesses/{academy,salon,agency}/); the product catalog
-  // is only for the few physical extras they also sell (books, hair products).
+  // (server/modules/businesses/{academy,salon,agency}/) and a catalogue of
+  // SERVICES, not products (see `service` on T above).
   academy: {
     label: "Training Academy / Tech School",
-    ...T("Store Items", "Front Desk",
-      ["Books & Materials", "Merchandise", "Equipment"],
+    ...T("Fees & Services", "Fee Desk",
+      ["Tuition", "Registration & Exam Fees", "Certificates", "Workshops & Short Courses", "Consulting"],
       ["customers", "expenses", "attendance"],
       "Courses, classes and students — with the fees still owed",
-      ["programs"]),
+      ["programs"],
+      { item: "fee", items: "fees & services", saleNoun: "Receipt", priceLabel: "Fee", showDuration: false, physical: false }),
     skuPrefix: "ACA",
     positions: [
       "Director", "Head of Training", "Lead Tutor", "Tutor", "Teaching Assistant",
@@ -202,20 +215,22 @@ export const BUSINESS_TYPES = {
   },
   salon: {
     label: "Salon / Barber / Spa",
-    ...T("Salon Products", "Front Desk",
-      ["Hair Products", "Skin Care", "Accessories"],
+    ...T("Services", "Checkout",
+      ["Hair", "Barbering", "Nails", "Spa & Massage", "Skin & Facials", "Makeup & Lashes"],
       ["customers", "expenses", "attendance", "suppliers", "stock_count", "loyaltyCard"],
       "A full chair is the product — book it, serve it, get paid",
-      ["appointments"]),
+      ["appointments"],
+      { item: "service", items: "services", saleNoun: "Bill", priceLabel: "Price", showDuration: true, physical: true }),
     skuPrefix: "SAL",
   },
   agency: {
     label: "Tech Agency / Freelance Studio",
-    ...T("Equipment & Licences", "Billing Desk",
-      ["Equipment", "Licences"],
+    ...T("Services & Packages", "Billing Desk",
+      ["Web & App Development", "Design & Branding", "Marketing", "Maintenance & Support", "Consulting"],
       ["customers", "expenses", "attendance"],
       "Projects, milestones and the money still to collect",
-      ["projects"]),
+      ["projects"],
+      { item: "service", items: "services & packages", saleNoun: "Invoice", priceLabel: "Rate", showDuration: false, physical: false }),
     skuPrefix: "AGE",
   },
 };

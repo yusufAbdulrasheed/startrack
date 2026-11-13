@@ -14,6 +14,7 @@ import { Modal } from "@/components/ui/Modal";
 import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
+import { typeMeta } from "@/lib/businessTypes";
 import { outboxEnqueue, outboxFlush, outboxList, outboxDiscard, type QueuedSale } from "@/lib/outbox";
 import { onOutboxSynced } from "@/lib/outboxDb";
 import { fmtMoney } from "@/lib/format";
@@ -27,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 type Product = {
   id: string; name: string; price: number; category: string; stock: number | null; barcode: string; sku?: string;
-  archetype?: string; tracksSerials?: boolean; imageUrl?: string;
+  archetype?: string; tracksSerials?: boolean; imageUrl?: string; durationMin?: number;
   bom?: { productId: string; per: string; factor: number }[];
 };
 type Line = {
@@ -79,6 +80,8 @@ function LineThumb({ src, custom }: { src?: string; custom: boolean }) {
 
 export function POS() {
   const { activeBusiness, activeBranch, currency, hasModule } = useSession();
+  // Academy, salon and agency sell services: no stock to count, and the till talks about bills, not sales.
+  const svc = typeMeta(activeBusiness?.typeKey).service;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   const products = useMemo(() => data?.products ?? [], [data]);
   const bizId = activeBusiness?.id || "";
@@ -190,6 +193,7 @@ export function POS() {
   const [mtoFor, setMtoFor] = useState<Product | null>(null);
   const [serialFor, setSerialFor] = useState<Line | null>(null);
   const isMto = (p: Product) => p.archetype === "made_to_order";
+  const isService = (p: Product) => p.archetype === "service";
   // A recipe scales by area/side only if some component's bom line says so
   // (blinds, priced per m²). A plain "unit" recipe — rice, chicken, tomato
   // behind a bowl of jollof — needs no dimensions at all.
@@ -208,6 +212,15 @@ export function POS() {
         const ex = c.find((l) => l.id === p.id && l.mto && !l.mto.width);
         if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
         return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: Infinity, qty: 1, mto: {}, imageUrl: p.imageUrl }];
+      });
+      return;
+    }
+    if (isService(p)) {
+      // A service has no stock to run out of — every tap just adds another.
+      setCart((c) => {
+        const ex = c.find((l) => l.id === p.id && !l.mto);
+        if (ex) return c.map((l) => (l === ex ? { ...l, qty: l.qty + 1 } : l));
+        return [...c, { uid: crypto.randomUUID(), id: p.id, name: p.name, price: p.price, stock: Infinity, qty: 1, imageUrl: p.imageUrl }];
       });
       return;
     }
@@ -426,15 +439,16 @@ export function POS() {
           {loading ? (
             <Spinner />
           ) : products.length === 0 ? (
-            <EmptyState icon={Package} title="No products yet" body="Add products on the Products page (or ask your manager to) and they'll appear here, ready to sell." />
+            <EmptyState icon={Package} title={svc ? `No ${svc.items} yet` : "No products yet"} body={svc ? `List your ${svc.items} on the ${typeMeta(activeBusiness?.typeKey).products} page (or ask your manager to) and they'll appear here, ready to bill.` : "Add products on the Products page (or ask your manager to) and they'll appear here, ready to sell."} />
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {filtered.map((p) => {
                 const mto = isMto(p);
                 const custom = mto && needsDims(p); // only a dimensioned recipe counts as "Custom"
-                const left = mto ? Infinity : (p.stock ?? 0) - inCart(p.id);
-                const oos = !mto && left <= 0;
-                const low = !mto && left > 0 && left <= 5;
+                const service = isService(p);
+                const left = mto || service ? Infinity : (p.stock ?? 0) - inCart(p.id);
+                const oos = !mto && !service && left <= 0;
+                const low = !mto && !service && left > 0 && left <= 5;
                 return (
                   <button
                     key={p.id}
@@ -463,7 +477,7 @@ export function POS() {
                       <span className="font-mono font-semibold text-[14px] text-primary">
                         {fmtMoney(p.price, currency)}{custom && <span className="text-[10px] text-t4 font-sans">/m²</span>}
                       </span>
-                      {!mto && <span className="text-[11px] text-t4">{left} left</span>}
+                      {service ? (p.durationMin ? <span className="text-[11px] text-t4">{p.durationMin} min</span> : null) : !mto && <span className="text-[11px] text-t4">{left} left</span>}
                     </div>
                     <span className="absolute bottom-3 right-3 w-6 h-6 rounded-lg bg-primary text-on-primary flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Plus className="w-4 h-4" />
@@ -498,7 +512,7 @@ export function POS() {
       >
         <div className="p-4 border-b border-line flex items-center gap-2 max-lg:sticky max-lg:top-0 max-lg:z-10 max-lg:bg-surface">
           <ShoppingCart className="w-4 h-4 text-primary" />
-          <span className="font-semibold text-[14px] text-t1">Current Sale</span>
+          <span className="font-semibold text-[14px] text-t1">Current {svc?.saleNoun ?? "Sale"}</span>
           {count > 0 && <span className="ml-auto"><Badge tone="brand">{count} items</Badge></span>}
           <button
             onClick={() => setCartOpen(false)}
@@ -515,7 +529,7 @@ export function POS() {
                 <ShoppingCart className="w-7 h-7" />
               </div>
               <div className="text-[13px] font-semibold text-t2">Cart is empty</div>
-              <div className="text-[12px] text-t4 mt-1">Tap a product to add it to the sale</div>
+              <div className="text-[12px] text-t4 mt-1">{svc ? `Tap a ${svc.item} to add it to the ${svc.saleNoun.toLowerCase()}` : "Tap a product to add it to the sale"}</div>
             </div>
           ) : (
             <div className="space-y-2">
