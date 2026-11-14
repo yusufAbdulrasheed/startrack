@@ -45,7 +45,7 @@ export function BusinessesTab({ types, onOpenAccount }: {
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto animate-fade-up">
       <PageHeader
         title="Businesses"
-        subtitle="Every shop, restaurant and studio running on StarTrack, with how recently it traded."
+        subtitle="Every business running on StarTrack, with how recently it traded."
         actions={
           <>
             <Select value={typeKey} onChange={(e) => { setTypeKey(e.target.value); setPage(1); }} className="!w-48 !h-10">

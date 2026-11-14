@@ -12,7 +12,7 @@ import { aiEnabled, chat } from "#core/ai.js";
 import { Membership } from "#modules/auth/membership.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { withTransaction } from "#core/tx.js";
-import { typeTemplate, TOGGLEABLE_MODULES, ALL_TOGGLEABLE } from "#shared/businessTypes.js";
+import { typeTemplate, modulesAvailableTo, ALL_TOGGLEABLE, BUSINESS_TYPES } from "#shared/businessTypes.js";
 import { findCurrency, currencyCodeOf } from "#shared/currencies.js";
 import multer from "multer";
 import { LOGO_MAX_BYTES, logoUrlFor, removeLogo, saveLogo, sniffImage } from "#modules/business/logo.js";
@@ -62,10 +62,6 @@ function shapeBusiness(b) {
         discountValue: b.settings.loyaltyRule?.discountValue ?? 5,
       },
       ai: { digestEnabled: b.settings.ai?.digestEnabled ?? false },
-      gym: {
-        renewalReminderDays: b.settings.gym?.renewalReminderDays ?? 3,
-        smsReminders: b.settings.gym?.smsReminders ?? false,
-      },
     },
     // So the UI can say "email is off because nobody configured SMTP"
     // rather than leaving the owner to wonder why nothing arrives.
@@ -80,7 +76,7 @@ settingsRouter.get("/", requirePerm("settings"), async (req, res) => {
   res.json({
     business: shapeBusiness(req.ctx.business),
     branches: branches.map((b) => ({ id: b._id, name: b.name, address: b.address })),
-    availableModules: TOGGLEABLE_MODULES,
+    availableModules: modulesAvailableTo(req.ctx.business.typeKey),
   });
 });
 
@@ -135,12 +131,6 @@ const updateSchema = z.object({
     })
     .optional(),
   ai: z.object({ digestEnabled: z.boolean().optional() }).optional(),
-  gym: z
-    .object({
-      renewalReminderDays: z.number().int().min(0).max(30).optional(),
-      smsReminders: z.boolean().optional(),
-    })
-    .optional(),
 });
 
 // PATCH /api/settings — audited (VAT changes move money)
@@ -202,10 +192,6 @@ settingsRouter.patch("/", requirePerm("settings"), async (req, res) => {
   if (d.ai !== undefined) {
     const merged = { ...(business.settings.ai?.toObject?.() || business.settings.ai || {}), ...d.ai };
     business.settings.ai = merged;
-  }
-  if (d.gym !== undefined) {
-    const merged = { ...(business.settings.gym?.toObject?.() || business.settings.gym || {}), ...d.gym };
-    business.settings.gym = merged;
   }
   await business.save();
 
@@ -332,7 +318,7 @@ settingsRouter.post("/receipt/draft", requirePerm("settings"), async (req, res) 
 
 const newBusinessSchema = z.object({
   name: z.string().min(2, "Name the business"),
-  businessType: z.string().default("restaurant"),
+  businessType: z.enum(Object.keys(BUSINESS_TYPES), "Choose one of the business types").default("supermarket"),
   tradingName: z.string().default(""),
   taxId: z.string().default(""),
   currency: z.string().default("NGN").refine((v) => !!findCurrency(v), "Choose a currency from the list"),
@@ -343,7 +329,7 @@ const newBusinessSchema = z.object({
  * POST /api/settings/businesses — a second (or fifth) shop under this account.
  *
  * The account layer stays invisible until exactly this moment. Owning a
- * restaurant and a hotel is one login and two completely separate sets of
+ * supermarket and a water factory is one login and two completely separate sets of
  * books — they share nothing but the person paying for them.
  */
 settingsRouter.post("/businesses", requirePerm("*"), async (req, res) => {
@@ -409,8 +395,8 @@ settingsRouter.post("/businesses", requirePerm("*"), async (req, res) => {
  */
 settingsRouter.get("/businesses", async (req, res) => {
   // Owning the account is what grants the whole list. Anyone else sees only
-  // the shops they were actually hired into — a waiter at the restaurant
-  // has no business knowing the owner also runs a hotel.
+  // the shops they were actually hired into — a cashier at the shop
+  // has no business knowing the owner also runs a water factory.
   const ownsAccount = req.ctx.perms.includes("*");
   let scope = { accountId: req.ctx.accountId };
   if (!ownsAccount) {

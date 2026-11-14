@@ -1,22 +1,20 @@
 import { Product } from "#modules/products/product.model.js";
-import { Course } from "#modules/businesses/academy/course.model.js";
-import { SalonService } from "#modules/businesses/salon/salonService.model.js";
-import { GymPlan } from "#modules/businesses/gym/gymPlan.model.js";
+import { importTargetsFor } from "#platform/registry.js";
+import { importField as F, cell, isEmpty } from "#platform/importKit.js";
 import { openStockInBulk } from "#modules/inventory/inventory.service.js";
 import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { typeTemplate, hasCapability } from "#shared/businessTypes.js";
 import { money } from "#core/money.js";
 import {
   normKey, clean, parseMoney, parseCount, parseBool, parseCode, parseDate, normalizeUnit,
-  parseWeeks, parseMinutes, parseDays, pick,
 } from "#modules/imports/values.js";
 
 /**
  * What a spreadsheet can be turned into, per trade.
  *
  * A "target" is one catalog the business keeps: products everywhere, plus the
- * trade's own list — courses for an academy, a service menu for a salon,
- * membership plans for a gym. Each target knows
+ * business's own list, which that business registers itself (the academy's
+ * courses, see server/businesses/academy/imports.js). Each target knows
  *   - which columns it looks for (and the many names people give them),
  *   - how to clean a row according to THIS trade's rules,
  *   - what counts as a duplicate, and
@@ -31,7 +29,7 @@ const MAX_NOTE_EXAMPLES = 3;
 // ── Field definitions ────────────────────────────────────────────────
 // `hints` are normalised header names (see normKey). `exclude` rejects a header
 // that merely contains a hint ("Supplier name" is not the item's name).
-const F = (key, label, hints, { required = false, exclude = null } = {}) => ({ key, label, hints, required, exclude: exclude ? new RegExp(exclude) : null });
+
 
 const PRODUCT_FIELDS = [
   F("name", "Name", ["name", "productname", "product", "item", "itemname", "description", "itemdescription", "title", "menuitem", "dish", "goods", "particulars", "article", "itemdesc", "productdescription", "menu", "stockitem"], { required: true, exclude: "(supplier|vendor|customer|manufacturer|brand|categor|group|code|number|qty|quantity|price|cost|date|no$|num$|id$)" }),
@@ -49,30 +47,6 @@ const PRODUCT_FIELDS = [
 const SERIAL_FIELDS = [
   F("tracksSerials", "Track serial numbers", ["trackserial", "serialtracking", "serialized", "serialised", "tracksserials", "hasserial"]),
   F("warrantyMonths", "Warranty (months)", ["warranty", "warrantymonths", "warrantyperiod", "guarantee"]),
-];
-
-const COURSE_FIELDS = [
-  F("name", "Course name", ["course", "coursename", "name", "program", "programme", "title", "subject", "coursetitle", "module"], { required: true, exclude: "(code|id$|number|tutor|instructor|fee|price)" }),
-  F("fee", "Fee", ["fee", "fees", "price", "tuition", "cost", "amount", "coursefee", "tuitionfee", "charge", "rate"], { required: true }),
-  F("category", "Track / category", ["category", "track", "department", "area", "field", "school", "faculty", "stream", "discipline"]),
-  F("level", "Level", ["level", "difficulty", "stage", "grade"]),
-  F("mode", "Mode", ["mode", "delivery", "format", "deliverymode", "medium", "classtype"]),
-  F("durationWeeks", "Duration", ["duration", "durationweeks", "weeks", "length", "period", "courselength", "timeline", "term"]),
-  F("description", "Description", ["description", "details", "about", "summary", "outline", "overview", "synopsis", "content", "curriculum", "topics"]),
-];
-
-const SERVICE_FIELDS = [
-  F("name", "Service", ["service", "servicename", "name", "treatment", "style", "title", "item", "description"], { required: true, exclude: "(price|cost|fee|time|duration|category|code)" }),
-  F("price", "Price", ["price", "cost", "fee", "rate", "amount", "charge", "pricengn"], { required: true }),
-  F("durationMins", "Duration", ["duration", "durationmins", "minutes", "mins", "time", "length", "timetaken", "timerequired", "durationminutes"]),
-  F("category", "Category", ["category", "type", "group", "department", "section"]),
-];
-
-const PLAN_FIELDS = [
-  F("name", "Plan", ["plan", "planname", "membership", "membershiptype", "name", "package", "tier", "title", "subscription"], { required: true, exclude: "(price|fee|cost|duration|days)" }),
-  F("price", "Price", ["price", "fee", "cost", "rate", "amount", "charge", "membershipfee"], { required: true }),
-  F("durationDays", "Duration", ["duration", "durationdays", "days", "validity", "period", "length", "term", "validfor", "billingcycle", "cycle"]),
-  F("description", "Description", ["description", "details", "includes", "benefits", "notes", "features"]),
 ];
 
 // ── Column guessing ──────────────────────────────────────────────────
@@ -121,8 +95,6 @@ export function guessNameColumn(rows, headers, taken) {
 }
 
 // ── Helpers shared by the targets ────────────────────────────────────
-const cell = (row, mapping, key) => (mapping[key] ? row[mapping[key]] : undefined);
-const isEmpty = (v) => v === undefined || v === null || v === "";
 
 function escapeSku(prefix) {
   return (prefix || "GEN").toUpperCase();
@@ -167,7 +139,7 @@ const TARGETS = {
 
     // One spreadsheet row → a clean product, or a reason it can't be one.
     normalize(raw, mapping, env) {
-      const { tpl, categoriesLower, ignoreStock, serials } = env;
+      const { tpl, categoriesLower, serials } = env;
       const notes = [];
       const name = clean(cell(raw, mapping, "name"), 120);
       if (!name) return { error: "No name" };
@@ -198,7 +170,6 @@ const TARGETS = {
       let stock = parseCount(cell(raw, mapping, "stock"));
       if (stock === null || stock < 0) stock = 0;
       if (!Number.isInteger(stock)) { stock = Math.round(stock); notes.push("Stock was rounded to a whole number"); }
-      if (ignoreStock && stock > 0) { notes.push("Stock comes in through batches in this trade"); stock = 0; }
 
       let reorderLevel = parseCount(cell(raw, mapping, "reorderLevel"));
       reorderLevel = reorderLevel === null || reorderLevel < 0 ? 5 : Math.round(reorderLevel);
@@ -222,7 +193,7 @@ const TARGETS = {
         data.tracksSerials = !!track;
         data.warrantyMonths = track && warranty && warranty > 0 ? Math.min(Math.round(warranty), 600) : 0;
       }
-      data.stockText = ignoreStock ? "—" : `${stock}${unit && unit !== "unit" ? ` ${unit}` : ""}`;
+      data.stockText = `${stock}${unit && unit !== "unit" ? ` ${unit}` : ""}`;
       return { data, notes };
     },
 
@@ -244,9 +215,6 @@ const TARGETS = {
       for (const c of have) if (c) categoriesLower.set(String(c).toLowerCase(), c);
       return {
         tpl, categoriesLower,
-        // Cold-room stock is cartons and weights tracked in batches; a bare
-        // number from a spreadsheet would put the ledger out of step.
-        ignoreStock: hasCapability(ctx.business?.typeKey, "coldChain"),
         serials: hasCapability(ctx.business?.typeKey, "serials"),
       };
     },
@@ -285,173 +253,24 @@ const TARGETS = {
       return { created: created.length, detail: stocked ? `${stocked} with opening stock` : "" };
     },
   },
-
-  courses: {
-    key: "courses",
-    perm: "prices",
-    available: (ctx) => hasCapability(ctx.business?.typeKey, "programs"),
-    label: () => "Courses",
-    singular: "course",
-    fields: () => COURSE_FIELDS,
-    columns: [
-      { key: "name", label: "Course", format: "text" },
-      { key: "category", label: "Track", format: "text" },
-      { key: "fee", label: "Fee", format: "money", align: "right" },
-      { key: "weeksText", label: "Duration", format: "text", align: "right" },
-      { key: "level", label: "Level", format: "text" },
-    ],
-    sample: ["Course", "Track", "Fee", "Duration (weeks)", "Level", "Mode", "Description"],
-    sampleRows: [["Fullstack Web Development", "Web", 150000, 16, "Beginner", "Hybrid", "HTML to deployment"]],
-
-    normalize(raw, mapping) {
-      const notes = [];
-      const name = clean(cell(raw, mapping, "name"), 120);
-      if (name.length < 2) return { error: "No course name" };
-      const fee = parseMoney(cell(raw, mapping, "fee"));
-      if (fee === null || fee < 0) return { name, error: isEmpty(cell(raw, mapping, "fee")) ? "No fee" : "The fee isn't a number" };
-
-      const levelRaw = cell(raw, mapping, "level");
-      const level = pick(levelRaw, { beginner: ["begin", "basic", "intro", "novice", "entry", "level1", "starter", "junior"], intermediate: ["inter", "mid", "level2", "medium"], advanced: ["advan", "expert", "pro", "senior", "level3", "master"] }) || "beginner";
-      if (!isEmpty(levelRaw) && !pick(levelRaw, { x: ["begin", "basic", "intro", "novice", "entry", "level1", "starter", "junior", "inter", "mid", "level2", "medium", "advan", "expert", "pro", "senior", "level3", "master"] })) notes.push(`Level “${clean(levelRaw, 20)}” wasn't recognised — set to beginner`);
-      const modeRaw = cell(raw, mapping, "mode");
-      const mode = pick(modeRaw, { online: ["online", "virtual", "remote", "zoom", "elearn", "web"], physical: ["physical", "onsite", "inperson", "offline", "classroom", "campus", "onground"], hybrid: ["hybrid", "blend", "both", "mixed"] }) || "hybrid";
-
-      let weeks = parseWeeks(cell(raw, mapping, "durationWeeks"));
-      if (weeks === null) {
-        weeks = 4;
-        if (!isEmpty(cell(raw, mapping, "durationWeeks"))) notes.push("The duration wasn't clear — set to 4 weeks");
-      }
-      weeks = Math.min(weeks, 260);
-      const category = clean(cell(raw, mapping, "category"), 60) || "General";
-      const data = {
-        name, category, fee: money(fee), level, mode, durationWeeks: weeks,
-        description: clean(cell(raw, mapping, "description"), 1000),
-      };
-      data.weeksText = `${weeks} wk${weeks === 1 ? "" : "s"}`;
-      return { data, notes };
-    },
-    keys: (d) => [`n:${normKey(d.name)}`],
-    async existing(ctx) {
-      const rows = await Course.find({ businessId: ctx.businessId }).select("name");
-      return new Map(rows.map((c) => [`n:${normKey(c.name)}`, c.name]));
-    },
-    async env() { return {}; },
-    async create(ctx, rows) {
-      const docs = rows.map((d) => ({ accountId: ctx.accountId, businessId: ctx.businessId, name: d.name, category: d.category, level: d.level, mode: d.mode, durationWeeks: d.durationWeeks, fee: d.fee, description: d.description }));
-      const created = await Course.insertMany(docs, { ordered: false });
-      return { created: created.length, detail: "" };
-    },
-  },
-
-  salon_services: {
-    key: "salon_services",
-    perm: "prices",
-    available: (ctx) => hasCapability(ctx.business?.typeKey, "appointments"),
-    label: () => "Services",
-    singular: "service",
-    fields: () => SERVICE_FIELDS,
-    columns: [
-      { key: "name", label: "Service", format: "text" },
-      { key: "category", label: "Category", format: "text" },
-      { key: "price", label: "Price", format: "money", align: "right" },
-      { key: "minsText", label: "Takes", format: "text", align: "right" },
-    ],
-    sample: ["Service", "Category", "Price", "Duration (minutes)"],
-    sampleRows: [["Haircut & beard trim", "Barbing", 3500, 45]],
-
-    normalize(raw, mapping) {
-      const notes = [];
-      const name = clean(cell(raw, mapping, "name"), 120);
-      if (!name) return { error: "No service name" };
-      const price = parseMoney(cell(raw, mapping, "price"));
-      if (price === null || price < 0) return { name, error: isEmpty(cell(raw, mapping, "price")) ? "No price" : "The price isn't a number" };
-      let mins = parseMinutes(cell(raw, mapping, "durationMins"));
-      if (mins === null) {
-        mins = 30;
-        notes.push("No duration given — set to 30 minutes");
-      }
-      // A booking needs at least 5 minutes and at most 12 hours.
-      const clamped = Math.min(720, Math.max(5, mins));
-      if (clamped !== mins) notes.push(`Duration adjusted to ${clamped} minutes (allowed: 5–720)`);
-      const data = { name, category: clean(cell(raw, mapping, "category"), 60) || "General", price: money(price), durationMins: clamped };
-      data.minsText = clamped >= 60 && clamped % 60 === 0 ? `${clamped / 60} hr` : `${clamped} min`;
-      return { data, notes };
-    },
-    keys: (d) => [`n:${normKey(d.name)}`],
-    async existing(ctx) {
-      const rows = await SalonService.find({ businessId: ctx.businessId }).select("name");
-      return new Map(rows.map((c) => [`n:${normKey(c.name)}`, c.name]));
-    },
-    async env() { return {}; },
-    async create(ctx, rows) {
-      const docs = rows.map((d) => ({ accountId: ctx.accountId, businessId: ctx.businessId, name: d.name, category: d.category, price: d.price, durationMins: d.durationMins }));
-      const created = await SalonService.insertMany(docs, { ordered: false });
-      return { created: created.length, detail: "" };
-    },
-  },
-
-  gym_plans: {
-    key: "gym_plans",
-    perm: "prices",
-    available: (ctx) => hasCapability(ctx.business?.typeKey, "memberships"),
-    label: () => "Membership plans",
-    singular: "plan",
-    fields: () => PLAN_FIELDS,
-    columns: [
-      { key: "name", label: "Plan", format: "text" },
-      { key: "price", label: "Price", format: "money", align: "right" },
-      { key: "daysText", label: "Lasts", format: "text", align: "right" },
-      { key: "description", label: "Includes", format: "text" },
-    ],
-    sample: ["Plan", "Price", "Duration (days)", "Description"],
-    sampleRows: [["Monthly", 25000, 30, "Gym floor access"]],
-
-    normalize(raw, mapping) {
-      const notes = [];
-      const name = clean(cell(raw, mapping, "name"), 120);
-      if (!name) return { error: "No plan name" };
-      const price = parseMoney(cell(raw, mapping, "price"));
-      if (price === null || price < 0) return { name, error: isEmpty(cell(raw, mapping, "price")) ? "No price" : "The price isn't a number" };
-      let days = parseDays(cell(raw, mapping, "durationDays"));
-      if (days === null) {
-        days = parseDays(name); // "Quarterly plan", "3 Months"
-        if (days === null) { days = 30; notes.push("No length given — set to 30 days"); }
-      }
-      const data = { name, price: money(price), durationDays: Math.min(days, 3650), description: clean(cell(raw, mapping, "description"), 500) };
-      data.daysText = `${data.durationDays} day${data.durationDays === 1 ? "" : "s"}`;
-      return { data, notes };
-    },
-    keys: (d) => [`n:${normKey(d.name)}`],
-    async existing(ctx) {
-      const rows = await GymPlan.find({ businessId: ctx.businessId, active: true }).select("name");
-      return new Map(rows.map((c) => [`n:${normKey(c.name)}`, c.name]));
-    },
-    async env() { return {}; },
-    async create(ctx, rows) {
-      const docs = rows.map((d) => ({ accountId: ctx.accountId, businessId: ctx.businessId, name: d.name, description: d.description, price: d.price, durationDays: d.durationDays }));
-      const created = await GymPlan.insertMany(docs, { ordered: false });
-      return { created: created.length, detail: "" };
-    },
-  },
 };
 
-export const TARGET_KEYS = Object.keys(TARGETS);
-export const getTarget = (key) => TARGETS[key] || null;
+/** The catalogs available in this business: products everywhere, plus whatever its own service registered. */
+const targetsOf = (ctx) => [TARGETS.products, ...importTargetsFor(ctx.business?.typeKey)];
+export const getTarget = (key, ctx) => targetsOf(ctx).find((t) => t.key === key) || null;
 
 /** The catalogs this person can fill from a spreadsheet, in this business. */
 export function targetsFor(ctx) {
   const can = (p) => ctx.perms.includes("*") || ctx.perms.includes(p);
   const tpl = typeTemplate(ctx.business?.typeKey);
-  return Object.values(TARGETS)
+  return targetsOf(ctx)
     .filter((t) => t.available(ctx) && can(t.perm))
     .map((t) => ({ spec: t, label: t.label(tpl), fields: t.fields(ctx) }));
 }
 
 /** The one a trade means by default when it says "my list". */
 export function primaryTarget(ctx) {
-  const t = typeTemplate(ctx.business?.typeKey);
-  const caps = t.capabilities || [];
-  return caps.includes("programs") ? "courses" : caps.includes("appointments") ? "salon_services" : caps.includes("memberships") ? "gym_plans" : "products";
+  return typeTemplate(ctx.business?.typeKey).primaryImport || "products";
 }
 
 // ── Building the preview ─────────────────────────────────────────────
@@ -505,7 +324,7 @@ export async function splitRows(ctx, spec, rows, mapping, existing, env) {
  */
 export async function executeImport(ctx, action) {
   const p = action.payload;
-  const spec = TARGETS[p.target];
+  const spec = getTarget(p.target, ctx);
   if (!spec || !spec.available(ctx)) throw new Error("That kind of import isn't available for this business.");
   const existing = await spec.existing(ctx);
   const seen = new Set();

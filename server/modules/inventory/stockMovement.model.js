@@ -27,8 +27,8 @@ const stockMovementSchema = new mongoose.Schema(
     supplierId: { type: mongoose.Schema.Types.ObjectId, default: null },
     supplierName: { type: String, default: "" },
     // Set only when refType === "waste" — spoilage/staff-meal/damage/etc.
-    // "shrinkage" and "cold_chain_failure" are the cold-room trade's own two
-    // (see server/modules/businesses/coldroom/): the first is the routine,
+    // "shrinkage" and "cold_chain_failure" were the retired cold-room business's own two (kept so old records still read)
+    // the first was the routine,
     // expected ice-glaze/dehydration gap between a carton's declared and
     // weighed-out kg; the second is a whole-batch loss from a power/generator
     // failure — same ledger door, deliberately distinguishable by this field.

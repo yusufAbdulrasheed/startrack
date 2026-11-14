@@ -2,10 +2,10 @@ import mongoose from "mongoose";
 
 /**
  * A scannable loyalty/access card — issued once a customer qualifies (or,
- * for a gym subscription, immediately on signup; see gym.routes.js), then
+ * for a retired gym business's signup), then
  * reused at every future visit. Deliberately a separate model from Customer:
  * a card's existence and lifecycle ARE the feature (no card = not yet
- * qualified), and this exact model is reused verbatim for gym check-in —
+ * qualified), and this exact model is reused for check-in —
  * a member's loyalty card IS their check-in card, not a second QR system.
  */
 const loyaltyCardSchema = new mongoose.Schema(

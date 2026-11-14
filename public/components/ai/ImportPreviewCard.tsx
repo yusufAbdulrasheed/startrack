@@ -30,8 +30,6 @@ export type ImportPreview = {
 const WHERE: Record<string, { to: string; label: string }> = {
   products: { to: "/app/products", label: "View in the catalog" },
   courses: { to: "/app/academy", label: "View courses" },
-  salon_services: { to: "/app/appointments", label: "View the service menu" },
-  gym_plans: { to: "/app/members", label: "View plans" },
 };
 
 function Tile({ value, label, tone }: { value: number; label: string; tone: "brand" | "neutral" | "warn" }) {

@@ -5,7 +5,6 @@ import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
 import { Account } from "#modules/auth/account.model.js";
 import { User } from "#modules/auth/user.model.js";
-import { hasCapability } from "#shared/businessTypes.js";
 import { planAllows, effectivePlan } from "#shared/plans.js";
 import { siteOf, SLUG_RE } from "#modules/site/site.service.js";
 import { scopedToBranch } from "#core/branchScope.js";
@@ -21,13 +20,10 @@ import { escapeRegex } from "#core/regex.js";
  * in one file (the same promise site.service.js makes for the brochure page).
  */
 
-// Only a trade whose product is a room has nothing to put in a basket. Every
-// other trade — a restaurant with open bills, a cold room that sells by weight,
-// a salon or gym that also retails products — can run a store: the shop only
-// ever offers real stock items (see offeredFilter), so a business with none
-// simply shows an empty shop, which the settings page warns about.
-const NOT_SHOPPABLE = ["rooms"];
-export const storefrontEligible = (typeKey) => !NOT_SHOPPABLE.some((c) => hasCapability(typeKey, c));
+// Every business can run a store: the shop only ever offers real stock items
+// (see offeredFilter), so a business with none (an academy, which sells fees)
+// simply shows an empty shop, which the store settings page warns about.
+export const storefrontEligible = () => true;
 
 export const DEFAULT_STOREFRONT = {
   enabled: false, acceptingOrders: true, branchId: null,

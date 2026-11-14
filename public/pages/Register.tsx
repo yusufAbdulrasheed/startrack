@@ -2,13 +2,12 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, Check, Search, Rocket, Store, MapPin, User,
-  Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg, Snowflake,
-  GraduationCap, Scissors, Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner, Field, Input } from "@/components/ui/Field";
 import { CurrencySelect } from "@/components/ui/CurrencySelect";
 import { TYPE_META } from "@/lib/businessTypes";
+import { businessIcon } from "@/businesses";
 import { useSession } from "@/lib/session";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { PAYMENTS_ENABLED, PLANS, TRIAL_DAYS, bonusPlanFor } from "#shared/plans.js";
@@ -17,12 +16,6 @@ import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { LogoPicker } from "@/components/business/LogoPicker";
 import { blobToBase64 } from "@/lib/logo";
-
-const TYPE_ICON: Record<string, any> = {
-  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
-  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg, coldroom: Snowflake,
-  academy: GraduationCap, salon: Scissors, agency: Code2,
-};
 
 const STEPS = [
   { n: 1, label: "Your business", icon: Store },
@@ -225,7 +218,7 @@ export function Register() {
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[280px] overflow-y-auto pr-1">
                       {types.map((t) => {
-                        const Icon = TYPE_ICON[t.key] || Store;
+                        const Icon = businessIcon(t.key);
                         const on = form.businessType === t.key;
                         return (
                           <button

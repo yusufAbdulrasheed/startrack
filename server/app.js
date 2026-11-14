@@ -9,14 +9,13 @@ import { securityHeaders } from "#core/securityHeaders.js";
 import { tenantContext, requirePerm } from "#core/middleware/tenant.js";
 import { InsufficientStockError } from "#modules/inventory/inventory.service.js";
 
-// Shared core + generic feature modules — every business type uses these
-// same implementations (see server/modules/businesses/*/index.js for what
-// each business vertical composes from them).
+// The shared platform: generic feature modules every business uses. The
+// businesses themselves live in server/businesses/*/ and plug in below, through
+// server/platform/registry.js.
 import { authRouter } from "#modules/auth/auth.routes.js";
 import { verifyRouter } from "#modules/auth/verify.routes.js";
 import { staffRouter } from "#modules/staff/staff.routes.js";
 import { productsRouter } from "#modules/products/products.routes.js";
-import { productionRouter } from "#modules/production/production.routes.js";
 import { suppliersRouter } from "#modules/suppliers/suppliers.routes.js";
 import { stockCountRouter } from "#modules/inventory/stockCount.routes.js";
 import { inventoryRouter } from "#modules/inventory/inventory.routes.js";
@@ -41,23 +40,7 @@ import { overviewRouter } from "#modules/overview/overview.routes.js";
 import { reportsRouter } from "#modules/reports/reports.routes.js";
 import { ratesRouter } from "#modules/rates/rates.routes.js";
 import { chatRouter } from "#modules/chat/chat.routes.js";
-
-// Business-vertical modules (server/modules/businesses/*/) — genuinely
-// single-consumer logic that lives in its own directory. Blinds has none:
-// its whole behavior IS the shared made_to_order capability — see its
-// index.js manifest.
-import { hotelRouter } from "#modules/businesses/hotel/hotel.routes.js";
-import { serialsRouter } from "#modules/businesses/electronics/serials.routes.js";
-import { vaccinationsRouter } from "#modules/businesses/poultry/vaccinations.routes.js";
-import { cohortsRouter } from "#modules/businesses/poultry/cohorts.routes.js";
-import { kitchenQueueRouter } from "#modules/businesses/restaurant/kitchenQueue.routes.js";
-import { loyaltyRouter } from "#modules/businesses/water/loyalty.routes.js";
-import { coldroomRouter } from "#modules/businesses/coldroom/coldroom.routes.js";
-import { gymRouter } from "#modules/businesses/gym/gym.routes.js";
-// Service businesses — sell time and expertise, not stock.
-import { academyRouter } from "#modules/businesses/academy/academy.routes.js";
-import { salonRouter } from "#modules/businesses/salon/salon.routes.js";
-import { agencyRouter } from "#modules/businesses/agency/agency.routes.js";
+import { mountBusinessServices } from "#platform/registry.js";
 
 // Cross-vertical loyalty QR cards — usable by any business, not just water's
 // sachet-token mechanic above. See server/modules/loyalty/.
@@ -129,7 +112,6 @@ app.use("/api/rates", requireAuth, ratesRouter);
 app.use("/api/overview", requireAuth, requireLive, overviewRouter);
 app.use("/api/staff", tenant, staffRouter);
 app.use("/api/products", tenant, productsRouter);
-app.use("/api/production", tenant, requireFeature("verticals"), productionRouter);
 app.use("/api/suppliers", tenant, requireFeature("suppliers"), suppliersRouter);
 app.use("/api/stock-counts", tenant, requireFeature("stockCount"), stockCountRouter);
 app.use("/api/inventory", tenant, inventoryRouter);
@@ -163,20 +145,11 @@ app.use("/api/ai", tenant, requireFeature("ai"), aiRouter);
 app.use("/api/search", tenant, searchRouter);
 app.use("/api/reports", tenant, requireFeature("reports"), reportsRouter);
 
-// Business-vertical routes (server/modules/businesses/*/) — same auth/tenant
-// gate as everything else above, just physically grouped so "every business
-// has its own directory" is visible here too, not only in server/modules/.
-app.use("/api/hotel", tenant, requireFeature("verticals"), hotelRouter);
-app.use("/api/serials", tenant, requireFeature("verticals"), serialsRouter);
-app.use("/api/vaccinations", tenant, requireFeature("verticals"), vaccinationsRouter);
-app.use("/api/cohorts", tenant, requireFeature("verticals"), cohortsRouter);
-app.use("/api/kitchen-queue", tenant, requireFeature("verticals"), kitchenQueueRouter);
-app.use("/api/loyalty", tenant, requireFeature("loyalty"), loyaltyRouter);
-app.use("/api/coldroom", tenant, requireFeature("verticals"), coldroomRouter);
-app.use("/api/gym", tenant, requireFeature("verticals"), gymRouter);
-app.use("/api/academy", tenant, requireFeature("verticals"), academyRouter);
-app.use("/api/salon", tenant, requireFeature("verticals"), salonRouter);
-app.use("/api/agency", tenant, requireFeature("verticals"), agencyRouter);
+// Business services (server/businesses/*/): each business's own routes. The
+// registry mounts every router behind sign-in, the tenant context and a check
+// that the caller's business IS that business, so /api/cohorts answers only to
+// a poultry farm. The platform never imports a business directly.
+mountBusinessServices(app, tenant);
 app.use("/api/loyalty-cards", tenant, requireFeature("loyalty"), loyaltyCardRouter);
 app.use("/api/site", tenant, requireFeature("sitePage"), siteRouter);
 // Online orders placed on the business's page, handled by its owner and staff.

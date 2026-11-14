@@ -33,7 +33,7 @@ export const PERMISSION_GROUPS = [
       { key: "stock_count", label: "Do stock counts" },
       { key: "transfers", label: "Move stock between branches" },
       { key: "inventory_export", label: "Export inventory" },
-      { key: "stock", label: "Suppliers and trade stock work (batches, production, serials, cold room)" },
+      { key: "stock", label: "Suppliers and trade stock work (batches, production, serials)" },
       { key: "prices", label: "Set trade prices (rooms, services, courses, plans)" },
     ],
   },

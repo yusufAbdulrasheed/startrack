@@ -509,7 +509,7 @@ function LoyaltySection({ customerId, onChanged }: { customerId: string; onChang
 
 // The "credit" capability — what this customer currently owes, a way to
 // record a repayment, and the statement behind both. Every credit sale
-// (coldroom's /sales today) posts to the same ledger this reads.
+// (a business's own sale endpoint) posts to the same ledger this reads.
 function CreditSection({ customerId, currency, onChanged }: { customerId: string; currency: string; onChanged: () => void }) {
   const { data, loading, reload } = useApi<{ creditBalance: number; entries: LedgerEntry[] }>(`/customers/${customerId}/ledger`, [customerId]);
   const [amount, setAmount] = useState<number | "">("");

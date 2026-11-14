@@ -21,8 +21,8 @@ type Session = { id?: string; module: string; turns: Turn[] };
  * The AI that travels with you. One button in the top bar; it reads the route
  * to know which screen you're on and sends that to the server, which attaches
  * that screen's live data and the business's trade knowledge (see
- * server/modules/ai/domain/). Ask on the Front Desk and it talks occupancy and
- * folios; ask in the Academy and it talks fees and seats.
+ * server/modules/ai/domain/ and each business's own ai.js). Ask in the Academy
+ * and it talks fees and seats; on the Serial Numbers screen, warranties.
  *
  * Every answer is saved on the server as it arrives, so the History view can
  * bring any past conversation back. While the app stays open, hopping between

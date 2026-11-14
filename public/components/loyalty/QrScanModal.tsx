@@ -64,7 +64,7 @@ function cameraProblem(err: unknown): string {
 
 /**
  * Camera scanning with a type-it-in fallback, for product barcodes at the
- * till, loyalty cards and gym check-ins. Reads both striped barcodes (the
+ * till and loyalty cards. Reads both striped barcodes (the
  * EAN/UPC printed on packaging) and QR codes. A USB or Bluetooth barcode
  * scanner also works on the typing screen: it types the code and presses
  * Enter, which submits.

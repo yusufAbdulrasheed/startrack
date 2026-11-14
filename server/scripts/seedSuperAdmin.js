@@ -53,7 +53,7 @@ try {
     // a branch. This one is StarTrack's own, and sits on full access (no
     // subscription) so it never lapses or gets plan-gated.
     const account = await Account.create({ name: "StarTrack HQ", ownerUserId: user._id, plan: "business" });
-    const business = await Business.create({ accountId: account._id, name: "StarTrack HQ", typeKey: "restaurant" });
+    const business = await Business.create({ accountId: account._id, name: "StarTrack HQ", typeKey: "supermarket" });
     const branch = await Branch.create({ accountId: account._id, businessId: business._id, name: "Head Office" });
     await Membership.create({ userId: user._id, accountId: account._id, businessId: business._id, branchId: branch._id, role: "owner" });
     console.log(`✓ Created platform overseer ${email}.`);

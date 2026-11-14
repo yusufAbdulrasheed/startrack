@@ -75,7 +75,7 @@ export function AiChat({
 
   // What "my list" means for this trade, in the person's own words.
   const canImport = can("prices");
-  const listNoun = hasCapability("programs") ? "courses" : hasCapability("appointments") ? "services" : hasCapability("memberships") ? "membership plans" : typeMeta(activeBusiness?.typeKey).products.toLowerCase();
+  const listNoun = hasCapability("programs") ? "courses" : typeMeta(activeBusiness?.typeKey).products.toLowerCase();
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [turns.length, busy]);
 

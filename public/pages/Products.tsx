@@ -64,7 +64,7 @@ export function Products() {
   const { activeBranch, activeBusiness, currency, can, hasModule, hasCapability, hasFeature } = useSession();
   const meta = typeMeta(activeBusiness?.typeKey);
   const term = meta.products;
-  // A trade that sells services (academy, salon, agency) gets a services catalogue, not a stock list.
+  // A trade that sells services (the academy) gets a services catalogue, not a stock list.
   const svc = meta.service;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   // A–Z whatever the server sends: a product just added slots into place, not at the end.
@@ -264,7 +264,7 @@ export function Products() {
         editing={editing}
         showCost={can("products_add") || can("products_edit")}
         showExpiry={hasModule("expiry") && hasFeature("expiry")}
-        mtoAllowed={hasModule("made_to_order")}
+        mtoAllowed={hasModule("made_to_order") && hasCapability("madeToOrder")}
         serialsAllowed={hasCapability("serials")}
         productionAllowed={hasCapability("production")}
         allowedUnits={typeMeta(activeBusiness?.typeKey).allowedUnits}
@@ -824,8 +824,8 @@ function ProductModal({
   const isNew = editing === "new";
   const p = isNew || !editing ? null : editing;
   const [mto, setMto] = useState(p?.archetype === "made_to_order");
-  // A service trade lists services by default; where it also sells a few physical goods (a salon's
-  // hair products) a new entry can be switched to a stocked item instead.
+  // A service business lists services by default; where its manifest says it also sells a few
+  // physical goods, a new entry can be switched to a stocked item instead.
   const [kind, setKind] = useState<"service" | "stock">(p ? (p.archetype === "service" ? "service" : "stock") : service ? "service" : "stock");
   const svcItem = kind === "service" && !mto;
   const [tracksSerials, setTracksSerials] = useState(!!p?.tracksSerials);
@@ -1008,7 +1008,7 @@ function ProductModal({
           >
             <span>
               <span className="block text-[13px] font-semibold text-t1">This is a physical product</span>
-              <span className="block text-[11px] text-t3">Something you sell and restock (hair products, say) — tracked in stock, unlike a service.</span>
+              <span className="block text-[11px] text-t3">Something you sell and restock (a workbook, say) — tracked in stock, unlike a service.</span>
             </span>
             <span className={cn("w-11 h-6 rounded-full transition-colors relative shrink-0", kind === "stock" ? "bg-primary" : "bg-surface-3 border border-line-2")}>
               <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", kind === "stock" ? "left-[22px]" : "left-0.5")} />

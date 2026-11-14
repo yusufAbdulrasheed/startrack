@@ -13,6 +13,7 @@ import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { archiveProducts, archivableFilter } from "#modules/products/archive.service.js";
 import { findPhotos, downloadPhoto, photoSources } from "#modules/products/photoSearch.js";
 import { escapeRegex } from "#core/regex.js";
+import { checkoutFor } from "#platform/registry.js";
 
 export const productsRouter = Router();
 
@@ -214,6 +215,12 @@ productsRouter.post("/", requirePerm("products_add"), async (req, res) => {
 
   const isMto = d.archetype === "made_to_order";
   const isService = d.archetype === "service";
+  // Only the business whose service handles an archetype can sell it (blinds'
+  // made-to-order items, the academy's services): the till would have no way
+  // to ring it up anywhere else. Plain stock is always fine.
+  if (d.archetype !== "stock" && !checkoutFor(req.ctx.business.typeKey).archetypes?.[d.archetype]) {
+    return res.status(400).json({ error: "invalid", message: "This kind of business can't sell that kind of item." });
+  }
   if (isMto && !d.bom) {
     return res.status(400).json({ error: "invalid", message: "Add the components this item is made from." });
   }
@@ -387,7 +394,7 @@ productsRouter.patch("/:id", requirePerm("products_edit"), async (req, res) => {
   }
 
   // A recipe can be edited on either archetype: MTO (checkout expansion) or
-  // stock (Production Runs, see server/modules/production/).
+  // stock (Production Runs, see server/businesses/water/production/).
   if (d.bom !== undefined) {
     const check = await validateBom(req.ctx.businessId, d.bom);
     if (check.error) return res.status(400).json({ error: "invalid", message: check.error });

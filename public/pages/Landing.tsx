@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  AlertTriangle, ArrowRight, BedDouble, Blinds, Boxes, Briefcase, Check, ChevronDown, Droplets, Egg, FileSpreadsheet, GraduationCap, Globe,
-  Menu, MessageCircle, QrCode, Receipt, ScanLine, Scissors, ShieldCheck, Smartphone, Sparkles, Store, TrendingUp, UtensilsCrossed, WifiOff, X,
+  AlertTriangle, ArrowRight, Blinds, Boxes, Check, ChevronDown, Droplets, Egg, FileSpreadsheet, GraduationCap, Globe,
+  Menu, MessageCircle, QrCode, Receipt, ScanLine, ShieldCheck, Smartphone, Sparkles, Store, TrendingUp, WifiOff, X,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { BrandMark } from "@/components/brand/BrandMark";
@@ -157,7 +157,7 @@ function Hero() {
             Run your whole business from <span style={{ background: "linear-gradient(100deg,#9ba0ff,#d6a8ff)", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>one place.</span>
           </h1>
           <p className="mt-6 text-[18px] sm:text-[20px] leading-relaxed text-white/75 max-w-[540px]">
-            Sales, stock, staff and customers for shops, restaurants, farms, salons and more. Simple enough for day one, powerful enough for ten branches.
+            Sales, stock, staff and customers for shops, farms, factories, schools and more. Simple enough for day one, powerful enough for ten branches.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Link to="/register" className={primaryBtn} style={primaryShadow}>{PAYMENTS_ENABLED ? `Get started — ${TRIAL_DAYS} days of Pro free` : `Start free — ${TRIAL_DAYS} days of Pro on us`} <ArrowRight className="w-4 h-4" /></Link>
@@ -308,15 +308,11 @@ function AiSection() {
 /* ── Industries ──────────────────────────────────────────────────── */
 const INDUSTRIES = [
   { icon: Store, title: "Supermarkets & shops", body: "Barcodes, expiry dates and reorder alerts." },
-  { icon: UtensilsCrossed, title: "Restaurants", body: "Orders to the kitchen, recipes that deduct ingredients." },
   { icon: Blinds, title: "Blinds & curtains", body: "Priced per square metre from stock you hold." },
   { icon: Smartphone, title: "Electronics", body: "Serial numbers, warranty and repairs per unit." },
-  { icon: BedDouble, title: "Hotels", body: "Rooms, folios and a kitchen that bills to the room." },
   { icon: Droplets, title: "Water factories", body: "Raw materials in, pure water out, yield measured." },
   { icon: Egg, title: "Poultry farms", body: "Feed, mortality and harvest tracked per batch." },
   { icon: GraduationCap, title: "Training academies", body: "Courses, intakes, fees in instalments, attendance." },
-  { icon: Scissors, title: "Salons & spas", body: "Appointments by stylist with deposits and balances." },
-  { icon: Briefcase, title: "Agencies", body: "Projects, milestones and billing as you deliver." },
 ];
 
 function Industries() {
@@ -324,7 +320,7 @@ function Industries() {
     <section id="industries" className="px-5 py-24 lg:py-32">
       <div className="max-w-[1180px] mx-auto">
         <Heading eyebrow="Built for how you trade" title="Not a generic till. Your trade, understood." sub="StarTrack adapts its screens, units and rules to the kind of business you run." />
-        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {INDUSTRIES.map(({ icon: I, title, body }) => (
             <div key={title} className="group rounded-3xl border border-line bg-surface p-5 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-e2">
               <span className="grid place-items-center w-11 h-11 rounded-2xl bg-primary-soft text-primary transition-colors group-hover:text-white group-hover:bg-primary"><I className="w-5 h-5" strokeWidth={1.8} /></span>

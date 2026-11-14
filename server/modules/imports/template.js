@@ -12,7 +12,7 @@ export async function buildTemplate(ctx, requested) {
   const key = available.some((t) => t.spec.key === requested) ? requested : available.find((t) => t.spec.key === primaryTarget(ctx))?.spec.key || available[0]?.spec.key;
   const target = available.find((t) => t.spec.key === key);
   if (!target) return null;
-  const spec = getTarget(key);
+  const spec = getTarget(key, ctx);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "StarTrack";

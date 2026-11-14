@@ -39,7 +39,6 @@ function shapeSale(s, showCost) {
       lineNet: i.lineNet,
       returnedQty: i.returnedQty,
       ...(i.width ? { width: i.width, height: i.height, custom: true } : {}),
-      ...(i.prepStatus ? { prepStatus: i.prepStatus } : {}),
       ...(showCost ? { lineCost: i.lineCost } : {}),
     })),
     subtotal: s.subtotal,
@@ -277,7 +276,7 @@ async function voidSale(ctx, saleId, reason, onVoid) {
     if (!sale) throw notFound("Sale not found.");
     if (sale.status === "voided") throw conflict("This sale is already voided.", "already_voided");
     if (sale.service?.kind) {
-      throw conflict("This is a service payment — reverse it from the Academy, Appointments or Projects screen it belongs to.", "service_payment");
+      throw conflict("This is a service payment — reverse it from the Academy screen it belongs to.", "service_payment");
     }
     if (sale.channel === "invoice") {
       throw conflict("This sale is an invoice. Void it from Invoices, which also clears what the customer owes.", "invoice_sale");

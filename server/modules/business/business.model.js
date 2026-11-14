@@ -6,7 +6,7 @@ const businessSchema = new mongoose.Schema(
   {
     accountId: { type: mongoose.Schema.Types.ObjectId, ref: "Account", required: true, index: true },
     name: { type: String, required: true, trim: true },
-    typeKey: { type: String, default: "restaurant" }, // hotel | electronics | blinds | water | poultry | restaurant
+    typeKey: { type: String, default: "supermarket" }, // supermarket | blinds | electronics | academy | poultry | water
     // What the business is REGISTERED as, versus what the sign says. Receipts
     // and invoices need the legal name; customers only ever see the trading one.
     tradingName: { type: String, default: "", trim: true },
@@ -193,14 +193,6 @@ const businessSchema = new mongoose.Schema(
       // an email already going out, never sends a second one just for it.
       ai: {
         digestEnabled: { type: Boolean, default: false },
-      },
-      // Gym memberships only (capability: "memberships") — how far ahead of
-      // expiry to remind, and whether that reminder also SMS's the member
-      // directly (opt-in/off by default — a direct member-facing text is a
-      // bigger step than the owner-facing bell/digest every other alert uses).
-      gym: {
-        renewalReminderDays: { type: Number, default: 3, min: 0, max: 30 },
-        smsReminders: { type: Boolean, default: false },
       },
     },
   },

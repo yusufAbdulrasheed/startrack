@@ -24,7 +24,7 @@ const productSchema = new mongoose.Schema(
     // BOM components (blinds, curtains, tailoring) — carries no stock itself.
     archetype: { type: String, enum: ["stock", "made_to_order", "service"], default: "stock" },
     // A service (haircut, course fee, website build) is sold, never counted: no stock, no
-    // reorder level, nothing to restock on a return. Minutes, optional, shown where it helps (salons).
+    // reorder level, nothing to restock on a return. Minutes, optional, shown where it helps.
     durationMin: { type: Number, default: 0, min: 0 },
     price: { type: Number, required: true, min: 0 }, // stock: unit price · MTO: price per m²
     cost: { type: Number, default: 0, min: 0 }, // unit cost — NEVER sent to staff roles
@@ -33,7 +33,7 @@ const productSchema = new mongoose.Schema(
     // products it consumes and how the quantity is calculated from the
     // order's dimensions. For a stock item that is itself PRODUCED (water
     // factory, bakery, furniture, printing — the "production" capability):
-    // the raw materials a production run consumes — see server/modules/production/.
+    // the raw materials a production run consumes — see server/businesses/water/production/.
     bom: [
       {
         _id: false,

@@ -45,7 +45,7 @@ export const config = {
     // Gmail only sends as the signed-in address (or an alias set up in Gmail), whatever this says.
     from: process.env.MAIL_FROM || "",
   },
-  // Outbound SMS — phone verification codes and (opt-in) gym renewal
+  // Outbound SMS — phone verification codes and (opt-in) renewal
   // reminders go through Termii; see server/core/sms.js. Absent
   // TERMII_API_KEY = SMS stays off, same graceful fallback as email above.
   termii: {

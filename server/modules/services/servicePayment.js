@@ -8,8 +8,7 @@ import { money } from "#core/money.js";
 import { badRequest, conflict, notFound } from "#core/httpError.js";
 
 /**
- * The money side shared by every service business (academy fees, salon
- * appointments, agency project payments).
+ * The money side shared by service businesses (today the academy's fees).
  *
  * A service business has no stock, so none of this touches Inventory. What it
  * does keep identical to a shop is the books: every payment becomes an

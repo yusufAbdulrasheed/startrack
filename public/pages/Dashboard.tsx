@@ -68,7 +68,7 @@ const TAB_FEATURE: Partial<Record<string, string>> = {
 export function Dashboard() {
   const { session, activeBusiness, activeBranch, currency, hasModule, hasFeature, can } = useSession();
   const [tab, setTab] = useState<Tab>("overview");
-  // Trades that sell services only (academy, agency) have no shelf: no stock, movement or expiry views.
+  // Trades that sell services only (the academy) have no shelf: no stock, movement or expiry views.
   const svc = typeMeta(activeBusiness?.typeKey).service;
   const noStock = !!svc && !svc.physical;
   const { data: m, loading, error, reload } = useApi<Metrics>("/metrics/dashboard", [activeBranch?.id]);

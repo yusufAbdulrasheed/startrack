@@ -105,7 +105,7 @@ export const FEATURES = {
   invoices: { plan: "pro", label: "Invoices", blurb: "Bill customers, track what they owe, record part-payments and send invoices by link, WhatsApp, email or PDF." },
   csvImport: { plan: "pro", label: "Bulk import", blurb: "Import products from a spreadsheet." },
   productPhotos: { plan: "pro", label: "Product photos", blurb: "Add photos to products, or find them by name." },
-  verticals: { plan: "pro", label: "Trade-specific tools", blurb: "Rooms, memberships, classes, appointments, kitchen queue, cold room and more." },
+  verticals: { plan: "pro", label: "Trade-specific tools", blurb: "Classes, batches, serial numbers, production runs and the other tools specific to your business." },
   receiptCustom: { plan: "pro", label: "Custom receipt", blurb: "Set your receipt's header, footer and what it shows." },
   receiptTemplates: { plan: "business", label: "Receipt templates", blurb: "Pick a designed receipt layout and let AI write your message." },
   receiptLogo: { plan: "business", label: "Logo on receipts", blurb: "Print your business logo at the top of every receipt." },

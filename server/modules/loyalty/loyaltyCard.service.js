@@ -8,8 +8,8 @@ const genCode = () => crypto.randomBytes(15).toString("base64url"); // 20 chars,
 
 /**
  * Issues a card for a customer, unconditionally — the low-level primitive
- * both the patronage trigger below AND Phase 6's gym signup call into.
- * Accepts a session so a caller inside a transaction (e.g. a gym
+ * the patronage trigger below calls into.
+ * Accepts a session so a caller inside a transaction (e.g. a signup
  * subscription purchase) can create the card atomically with everything
  * else; called with no session, it just writes directly.
  */

@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { User } from "#modules/auth/user.model.js";
-import { AiChat } from "#modules/ai/chat.model.js";
 import { Account } from "#modules/auth/account.model.js";
 import { Business } from "#modules/business/business.model.js";
 import { Branch } from "#modules/business/branch.model.js";
@@ -11,27 +10,17 @@ import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Return } from "#modules/returns/return.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
-import { CustomerLedgerEntry } from "#modules/customers/customerLedger.model.js";
-import { ColdRoomBatch } from "#modules/businesses/coldroom/batch.model.js";
-import { ColdRoomBreakdown } from "#modules/businesses/coldroom/breakdown.model.js";
 import { Expense } from "#modules/expenses/expense.model.js";
 import { Attendance } from "#modules/staff/attendance.model.js";
 import { DailyMetric } from "#modules/metrics/dailyMetric.model.js";
-import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { Counter, nextSeq } from "#core/counters.js";
 import { hashPassword } from "#modules/auth/auth.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { money } from "#core/money.js";
 import { localDay } from "#modules/metrics/metrics.service.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
-import { seedAcademyDemo, seedSalonDemo, seedAgencyDemo } from "#modules/services/demoSeedServices.js";
-import { Course } from "#modules/businesses/academy/course.model.js";
-import { Intake } from "#modules/businesses/academy/intake.model.js";
-import { Enrollment } from "#modules/businesses/academy/enrollment.model.js";
-import { ClassSession } from "#modules/businesses/academy/classSession.model.js";
-import { SalonService } from "#modules/businesses/salon/salonService.model.js";
-import { Appointment } from "#modules/businesses/salon/appointment.model.js";
-import { Project } from "#modules/businesses/agency/project.model.js";
+import { demoFor } from "#platform/registry.js";
+import { purgeAccountData } from "#modules/auth/purgeTenant.js";
 
 
 const CUSTOMER_NAMES = [
@@ -48,8 +37,8 @@ const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
  * Everything hangs off one Account flagged isSandbox — the cleanup sweep
  * removes the whole tree after 24h.
  */
-export async function createDemoSandbox(requestedType = "restaurant") {
-  const typeKey = DEMOS[requestedType] ? requestedType : "restaurant";
+export async function createDemoSandbox(requestedType = "supermarket") {
+  const typeKey = DEMOS[requestedType] ? requestedType : "supermarket";
   const shop = DEMOS[typeKey];
   const template = typeTemplate(typeKey);
   const CATALOG = shop.catalog;
@@ -293,82 +282,10 @@ export async function createDemoSandbox(requestedType = "restaurant") {
     });
   }
 
-  // A hotel's rooms are not stock, so they are seeded as rooms — with guests
-  // already in house, arrivals due and one room out of service, so the heat
-  // map has something real on it the moment the sandbox opens.
-  if (shop.rooms) {
-    const { RoomType, Room } = await import("#modules/businesses/hotel/room.model.js");
-    const { Stay } = await import("#modules/businesses/hotel/stay.model.js");
-    const day = (offset) => {
-      const d = new Date();
-      d.setDate(d.getDate() + offset);
-      return d.toISOString().slice(0, 10);
-    };
-
-    const typeByName = new Map();
-    for (const t of shop.rooms.types) {
-      const doc = await RoomType.create({ ...base, name: t.name, rate: t.rate, capacity: t.capacity, amenities: t.amenities });
-      typeByName.set(t.name, doc);
-    }
-
-    const roomByNumber = new Map();
-    for (const r of shop.rooms.list) {
-      const type = typeByName.get(r.type);
-      const doc = await Room.create({
-        ...base, branchId: branch._id, roomTypeId: type._id, number: r.number,
-        floor: r.floor || "", housekeeping: r.housekeeping || "clean", note: r.note || "",
-      });
-      roomByNumber.set(r.number, { doc, type });
-    }
-
-    const productByName = new Map(products.map((p) => [p.name, p]));
-    for (const s of shop.rooms.stays) {
-      const room = roomByNumber.get(s.room);
-      if (!room) continue;
-      const checkIn = day(s.from);
-      const checkOut = day(s.to);
-      const nights = Math.round((new Date(checkOut) - new Date(checkIn)) / 86_400_000);
-      const rate = room.type.rate;
-
-      // Room nights first, then whatever the guest has ordered so far.
-      const charges = [];
-      for (let i = 0; i < nights; i++) {
-        charges.push({
-          at: new Date(), source: "room",
-          name: `${room.doc.number} · ${room.type.name} · ${day(s.from + i)}`,
-          qty: 1, unitPrice: rate, lineCost: 0, lineNet: rate, byName: "Demo Owner",
-        });
-      }
-      for (const extra of s.extras || []) {
-        const p = productByName.get(extra);
-        if (!p) continue;
-        charges.push({
-          at: new Date(), source: /Laundry/.test(extra) ? "laundry" : /Beer|Drink/.test(extra) ? "bar" : "kitchen",
-          productId: p.doc._id, name: p.name, qty: 1, unitPrice: p.price,
-          lineCost: p.cost, lineNet: p.price, byName: "Amaka Obi", stockMoved: false,
-        });
-      }
-
-      const seq = await nextSeq(`folio:${branch._id}`);
-      await Stay.create({
-        ...base, branchId: branch._id,
-        folioNo: `F-${String(seq).padStart(5, "0")}`,
-        roomId: room.doc._id, roomNumber: room.doc.number, roomTypeName: room.type.name,
-        guestName: s.guest, guestPhone: s.phone || "",
-        guests: 1, checkIn, checkOut, nights, nightlyRate: rate,
-        status: s.status,
-        checkedInAt: s.status === "checked_in" || s.status === "checked_out" ? new Date(`${checkIn}T14:00:00`) : undefined,
-        checkedOutAt: s.status === "checked_out" ? new Date(`${checkOut}T11:00:00`) : undefined,
-        charges, payments: [], staffName: "Demo Owner",
-      });
-    }
-  }
-
-  // Service businesses sell time, not stock — their courses / appointments /
-  // projects are seeded through the same payment code a live business uses.
-  if (typeKey === "academy") await seedAcademyDemo({ base, branch, ctx: ownerCtx });
-  if (typeKey === "salon") await seedSalonDemo({ base, branch, ctx: ownerCtx });
-  if (typeKey === "agency") await seedAgencyDemo({ base, branch, ctx: ownerCtx });
+  // Whatever this business seeds for itself (the academy's classes and students,
+  // seeded through the same payment code a live business uses). Most businesses
+  // have nothing extra here: the shared catalogue and sales above are the demo.
+  await demoFor(typeKey)?.sandbox?.({ ctx: ownerCtx, base, branch, business });
 
   // Raise the alerts this shop's stock situation implies, so a visitor sees
   // the bell populated the moment they land rather than waiting for a sweep.
@@ -397,18 +314,8 @@ export async function cleanupSandboxes() {
   const branchIds = branches.map((b) => b._id);
 
   const byAccount = { accountId: { $in: ids } };
-  await Promise.all([
-    Product.deleteMany(byAccount), Inventory.deleteMany(byAccount), StockMovement.deleteMany(byAccount),
-    Sale.deleteMany(byAccount), Return.deleteMany(byAccount), Customer.deleteMany(byAccount),
-    CustomerLedgerEntry.deleteMany(byAccount),
-    ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
-    Expense.deleteMany(byAccount), Attendance.deleteMany(byAccount), DailyMetric.deleteMany(byAccount),
-    Course.deleteMany(byAccount), Intake.deleteMany(byAccount), Enrollment.deleteMany(byAccount),
-    ClassSession.deleteMany(byAccount), SalonService.deleteMany(byAccount), Appointment.deleteMany(byAccount),
-    Project.deleteMany(byAccount), AiChat.deleteMany(byAccount),
-    AuditLog.deleteMany(byAccount), Branch.deleteMany(byAccount), Business.deleteMany(byAccount),
-    Counter.deleteMany({ scopeKey: { $in: branchIds.map((b) => `sale:${b}`) } }),
-  ]);
+  await purgeAccountData(ids);
+  await Counter.deleteMany({ scopeKey: { $in: branchIds.map((b) => `sale:${b}`) } });
   const memberships = await Membership.find(byAccount).select("userId");
   await User.deleteMany({ _id: { $in: memberships.map((m) => m.userId) } });
   await Membership.deleteMany(byAccount);

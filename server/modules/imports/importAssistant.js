@@ -24,13 +24,9 @@ import {
 
 const MAX_LIST = 60; // how many duplicates / problems the preview lists
 
-// What the person's own words suggest, when their file could be either.
-const WORD_HINTS = [
-  ["courses", /\b(course|courses|class(es)?|programme?s?|tuition|curriculum|syllabus)\b/i],
-  ["salon_services", /\b(service|services|treatments?|hair ?styles?|menu of services|barbing)\b/i],
-  ["gym_plans", /\b(plans?|memberships?|packages?)\b/i],
-  ["products", /\b(products?|items?|stock|inventory|goods|menu|catalog(ue)?)\b/i],
-];
+// What the person's own words suggest, when their file could be either. Each
+// catalogue brings its own wording (`wordHint`); products is the fallback.
+const PRODUCT_HINT = /(products?|items?|stock|inventory|goods|menu|catalog(ue)?)/i;
 
 const aiPlan = z.object({
   target: z.string().optional(),
@@ -79,7 +75,8 @@ function pickTarget(ctx, targets, headers, question) {
     const reqHit = required.filter((f) => m[f.key]).length;
     return { t, m, score: (reqHit === required.length ? 100 : 0) + reqHit * 10 + Object.keys(m).length };
   });
-  const hinted = WORD_HINTS.find(([key, rx]) => rx.test(question || "") && targets.some((t) => t.spec.key === key));
+  const hintList = [...targets.filter((t) => t.spec.wordHint).map((t) => [t.spec.key, t.spec.wordHint]), ["products", PRODUCT_HINT]];
+  const hinted = hintList.find(([key, rx]) => rx.test(question || "") && targets.some((t) => t.spec.key === key));
   if (hinted) {
     const s = scored.find((x) => x.t.spec.key === hinted[0]);
     // Only follow the wording when the file doesn't clearly say otherwise.

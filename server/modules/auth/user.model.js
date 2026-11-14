@@ -13,7 +13,7 @@ const userSchema = new mongoose.Schema(
 
     // Soft flags, never a login/feature gate on their own — see
     // verify.routes.js. A business simply nags or disables a channel-specific
-    // feature (e.g. gym SMS reminders) until the relevant flag is true.
+    // feature (e.g. SMS reminders) until the relevant flag is true.
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: false },
 

@@ -12,45 +12,17 @@ import { Product } from "#modules/products/product.model.js";
 import { Inventory } from "#modules/inventory/inventory.model.js";
 import { StockMovement } from "#modules/inventory/stockMovement.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
-import { Return } from "#modules/returns/return.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
-import { CustomerLedgerEntry, applyCreditChange } from "#modules/customers/customerLedger.model.js";
 import { Expense } from "#modules/expenses/expense.model.js";
-import { Attendance } from "#modules/staff/attendance.model.js";
 import { DailyMetric } from "#modules/metrics/dailyMetric.model.js";
-import { AuditLog } from "#modules/audit/auditLog.model.js";
 import { Counter, nextSeq } from "#core/counters.js";
-import { applyMovement } from "#modules/inventory/inventory.service.js";
 import { money } from "#core/money.js";
-import { localDay, bumpDailyMetric } from "#modules/metrics/metrics.service.js";
+import { localDay } from "#modules/metrics/metrics.service.js";
 import { typeTemplate } from "#shared/businessTypes.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
-import { seedAcademyDemo, seedSalonDemo, seedAgencyDemo } from "#modules/services/demoSeedServices.js";
-import { Course } from "#modules/businesses/academy/course.model.js";
-import { Intake } from "#modules/businesses/academy/intake.model.js";
-import { Enrollment } from "#modules/businesses/academy/enrollment.model.js";
-import { ClassSession } from "#modules/businesses/academy/classSession.model.js";
-import { SalonService } from "#modules/businesses/salon/salonService.model.js";
-import { Appointment } from "#modules/businesses/salon/appointment.model.js";
-import { Project } from "#modules/businesses/agency/project.model.js";
-import { priceLines, totalsFor } from "#modules/jobs/jobs.service.js";
-import { Job } from "#modules/jobs/job.model.js";
-import { ProductionRun } from "#modules/production/productionRun.model.js";
-import { Serial } from "#modules/businesses/electronics/serial.model.js";
-import { Cohort } from "#modules/businesses/poultry/cohort.model.js";
-import { RoomType, Room } from "#modules/businesses/hotel/room.model.js";
-import { Stay } from "#modules/businesses/hotel/stay.model.js";
-import { ColdRoomBatch } from "#modules/businesses/coldroom/batch.model.js";
-import { ColdRoomBreakdown } from "#modules/businesses/coldroom/breakdown.model.js";
-import { syncCartonEquivalentStock } from "#modules/businesses/coldroom/coldroom.service.js";
-import { LoyaltyCard } from "#modules/loyalty/loyaltyCard.model.js";
-import { issueCardForCustomer } from "#modules/loyalty/loyaltyCard.service.js";
-import { Ticket } from "#modules/support/ticket.model.js";
-import { RestockSuggestion } from "#modules/ai/restockSuggestion.model.js";
+import { demoFor } from "#platform/registry.js";
+import { purgeAccountData } from "#modules/auth/purgeTenant.js";
 import { VerificationCode } from "#modules/auth/verificationCode.model.js";
-import { GymPlan } from "#modules/businesses/gym/gymPlan.model.js";
-import { GymSubscription } from "#modules/businesses/gym/gymSubscription.model.js";
-import { GymCheckIn } from "#modules/businesses/gym/gymCheckIn.model.js";
 
 /**
  * Seeds permanent, demonstrable businesses: every trade on every plan (Freemium, Pro, Business) — one independent owner
@@ -106,23 +78,8 @@ async function purgeAccounts(accountIds) {
   const memberships = await Membership.find({ accountId: { $in: accountIds } }).select("userId");
   const userIds = memberships.map((m) => m.userId);
 
-  const byAccount = { accountId: { $in: accountIds } };
+  await purgeAccountData(accountIds);
   await Promise.all([
-    Product.deleteMany(byAccount), Inventory.deleteMany(byAccount), StockMovement.deleteMany(byAccount),
-    Sale.deleteMany(byAccount), Return.deleteMany(byAccount), Customer.deleteMany(byAccount),
-    CustomerLedgerEntry.deleteMany(byAccount),
-    Expense.deleteMany(byAccount), Attendance.deleteMany(byAccount), DailyMetric.deleteMany(byAccount),
-    AuditLog.deleteMany(byAccount),
-    Job.deleteMany(byAccount), ProductionRun.deleteMany(byAccount), Serial.deleteMany(byAccount),
-    Cohort.deleteMany(byAccount), RoomType.deleteMany(byAccount), Room.deleteMany(byAccount), Stay.deleteMany(byAccount),
-    ColdRoomBatch.deleteMany(byAccount), ColdRoomBreakdown.deleteMany(byAccount),
-    LoyaltyCard.deleteMany(byAccount), Ticket.deleteMany(byAccount), RestockSuggestion.deleteMany(byAccount),
-    GymPlan.deleteMany(byAccount), GymSubscription.deleteMany(byAccount), GymCheckIn.deleteMany(byAccount),
-    Course.deleteMany(byAccount), Intake.deleteMany(byAccount), Enrollment.deleteMany(byAccount), ClassSession.deleteMany(byAccount),
-    SalonService.deleteMany(byAccount), Appointment.deleteMany(byAccount), Project.deleteMany(byAccount),
-    Membership.deleteMany({ accountId: { $in: accountIds } }),
-    Branch.deleteMany({ accountId: { $in: accountIds } }),
-    Business.deleteMany({ accountId: { $in: accountIds } }),
     User.deleteMany({ _id: { $in: userIds } }),
     VerificationCode.deleteMany({ userId: { $in: userIds } }),
     Counter.deleteMany({ scopeKey: { $regex: `:(${branchIds.map(String).join("|")})$` } }),
@@ -270,293 +227,6 @@ async function seedTradingHistory(ctx, byName, customers, sellers) {
 
 // ── Vertical-specific showcase data ──────────────────────────────────
 
-async function seedHotel(ctx, shop, byName) {
-  const typeByName = new Map();
-  for (const t of shop.rooms.types) {
-    typeByName.set(t.name, await RoomType.create({ accountId: ctx.accountId, businessId: ctx.businessId, name: t.name, rate: t.rate, capacity: t.capacity, amenities: t.amenities }));
-  }
-  const day = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.toISOString().slice(0, 10); };
-  const roomByNumber = new Map();
-  for (const r of shop.rooms.list) {
-    const type = typeByName.get(r.type);
-    roomByNumber.set(r.number, {
-      doc: await Room.create({ accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, roomTypeId: type._id, number: r.number, floor: r.floor || "", housekeeping: r.housekeeping || "clean", note: r.note || "" }),
-      type,
-    });
-  }
-  for (const s of shop.rooms.stays) {
-    const room = roomByNumber.get(s.room);
-    if (!room) continue;
-    const checkIn = day(s.from), checkOut = day(s.to);
-    const nights = Math.round((new Date(checkOut) - new Date(checkIn)) / 86_400_000);
-    const rate = room.type.rate;
-    const charges = [];
-    for (let i = 0; i < nights; i++) {
-      charges.push({ at: new Date(), source: "room", name: `${room.doc.number} · ${room.type.name} · ${day(s.from + i)}`, qty: 1, unitPrice: rate, lineCost: 0, lineNet: rate, byName: "Demo Owner" });
-    }
-    for (const extra of s.extras || []) {
-      const p = byName.get(extra);
-      if (!p) continue;
-      charges.push({ at: new Date(), source: /Laundry/.test(extra) ? "laundry" : /Beer|Drink|Wine|Juice/.test(extra) ? "bar" : "kitchen", productId: p.doc._id, name: p.name, qty: 1, unitPrice: p.price, lineCost: p.cost, lineNet: p.price, byName: "Amaka Obi", stockMoved: false });
-    }
-    const seq = await nextSeq(`folio:${ctx.branchId}`);
-    await Stay.create({
-      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, folioNo: `F-${String(seq).padStart(5, "0")}`,
-      roomId: room.doc._id, roomNumber: room.doc.number, roomTypeName: room.type.name, guestName: s.guest, guestPhone: s.phone || "",
-      guests: 1, checkIn, checkOut, nights, nightlyRate: rate, status: s.status,
-      checkedInAt: s.status === "checked_in" || s.status === "checked_out" ? new Date(`${checkIn}T14:00:00`) : undefined,
-      checkedOutAt: s.status === "checked_out" ? new Date(`${checkOut}T11:00:00`) : undefined,
-      charges, payments: [], staffName: "Demo Owner",
-    });
-  }
-}
-
-async function seedPoultry(ctx, byName) {
-  const cohort = await Cohort.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
-    name: "Batch 7 — Broilers", species: "Broiler", startDate: daysAgo(28), initialCount: 150, currentCount: 150,
-  });
-  const feed = byName.get("Broiler Starter (25kg bag)")?.doc;
-  const bird = byName.get("Live Broiler (bird)")?.doc;
-  if (feed) {
-    // Deliberately modest — the catalog seeds this bag already low (14, vs a
-    // reorder level of 20) to show a real low-stock alert; feeding more than
-    // that would either crash the seed or empty the shelf outright.
-    for (const [daysBack, qty] of [[21, 3], [14, 4], [7, 3]]) {
-      await applyMovement(ctx, { branchId: ctx.branchId, productId: feed._id, productName: feed.name, type: "OUT", qty: -qty, refType: "cohort_feed", refId: cohort._id, reason: `Fed to ${cohort.name}` });
-      cohort.events.push({ type: "note", note: `${qty} bags fed`, at: daysAgo(daysBack) });
-    }
-  }
-  cohort.currentCount -= 5;
-  cohort.mortalityCount = 5;
-  cohort.events.push({ type: "mortality", count: 5, note: "Heat stress, week 2", at: daysAgo(18) });
-  if (bird) {
-    await applyMovement(ctx, { branchId: ctx.branchId, productId: bird._id, productName: bird.name, type: "IN", qty: 100, refType: "cohort_harvest", refId: cohort._id, reason: `Harvested from ${cohort.name}` });
-    cohort.currentCount -= 100;
-    cohort.events.push({ type: "harvest", count: 100, productName: bird.name, note: "First harvest round", at: daysAgo(3) });
-  }
-  await cohort.save();
-}
-
-async function seedWaterProduction(ctx, byName) {
-  const pack = byName.get("Bottled Water 50cl (pack of 12)")?.doc;
-  const preform = byName.get("Preform 50cl (piece)")?.doc;
-  const cap = byName.get("Bottle Cap (piece)")?.doc;
-  const label = byName.get("Shrink Label (piece)")?.doc;
-  if (!pack || !preform || !cap || !label) return;
-
-  pack.bom = [
-    { productId: preform._id, per: "unit", factor: 12, includeLeakage: true },
-    { productId: cap._id, per: "unit", factor: 12, includeLeakage: true },
-    { productId: label._id, per: "unit", factor: 12, includeLeakage: true },
-  ];
-  pack.producedUnitsPerStockUnit = 12;
-  await pack.save();
-
-  const producedUnits = 120, leakage = 3, yieldPer = 12;
-  const round3 = (n) => Math.round(n * 1000) / 1000;
-  const components = pack.bom.map((line) => {
-    const comp = [preform, cap, label].find((c) => String(c._id) === String(line.productId));
-    return { productId: comp._id, name: comp.name, qty: round3(line.factor * (producedUnits + leakage)), includedLeakage: true };
-  });
-  const creditedQty = Math.floor(producedUnits / yieldPer);
-  const runId = new mongoose.Types.ObjectId();
-  for (const c of components) {
-    await applyMovement(ctx, { branchId: ctx.branchId, productId: c.productId, productName: c.name, type: "OUT", qty: -c.qty, refType: "production", refId: runId, reason: `Used for production run of ${pack.name}` });
-  }
-  await applyMovement(ctx, { branchId: ctx.branchId, productId: pack._id, productName: pack.name, type: "IN", qty: creditedQty, refType: "production", refId: runId, reason: `Production run — ${producedUnits} unit(s), ${leakage} leakage` });
-  const seq = await nextSeq(`run:${ctx.branchId}`);
-  await ProductionRun.create({
-    _id: runId, accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, runNo: `PR-${String(seq).padStart(5, "0")}`,
-    productId: pack._id, productName: pack.name, producedUnits, leakage, creditedQty, producedUnitsPerStockUnit: yieldPer,
-    components, note: "Morning bottling run", staffName: ctx.actorName, at: daysAgo(2),
-  });
-}
-
-async function seedColdroom(ctx, business, byName) {
-  const titus = byName.get("Titus Mackerel")?.doc;
-  const panla = byName.get("Panla (Hake)")?.doc;
-  if (!titus || !panla) return;
-
-  // An open batch, mostly still sealed — the normal state.
-  await ColdRoomBatch.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: titus._id, productName: titus.name,
-    purchaseDate: daysAgo(6), cartonsReceived: 30, packSizeKg: 20, unitCostPerCarton: 15600,
-    remainingCartons: 22, remainingKg: 0, remainingPieces: 0,
-  });
-  // A second, older Titus batch, partly broken down — shows FIFO in action.
-  const b2 = await ColdRoomBatch.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: titus._id, productName: titus.name,
-    purchaseDate: daysAgo(12), cartonsReceived: 15, packSizeKg: 20, unitCostPerCarton: 14800,
-    remainingCartons: 4, remainingKg: 0, remainingPieces: 0,
-  });
-  // Panla batch, already broken down into loose kg AND counted pieces from
-  // two separate cartons — the multi-unit pool in one screenshot.
-  const b3 = await ColdRoomBatch.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: panla._id, productName: panla.name,
-    purchaseDate: daysAgo(4), cartonsReceived: 20, packSizeKg: 10, unitCostPerCarton: 6500,
-    remainingCartons: 15, remainingKg: 9.2, remainingPieces: 34, avgPieceWeightKg: 0.27,
-  });
-
-  // Log the breakdown that produced b2's loose stock — the shrinkage the
-  // whole module exists to make visible.
-  const cartonsOpened = 11, expectedYieldKg = money(cartonsOpened * b2.packSizeKg), actualWeighedKg = 214.4;
-  const varianceKg = money(expectedYieldKg - actualWeighedKg);
-  await ColdRoomBreakdown.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, batchId: b2._id, productId: titus._id, productName: titus.name,
-    cartonsOpened, expectedYieldKg, actualWeighedKg, varianceKg, variancePercent: money((varianceKg / expectedYieldKg) * 100),
-    byName: ctx.actorName, note: "Morning breakdown", at: daysAgo(5),
-  });
-  // b2 was purposely seeded already-net-of-that-breakdown (remainingCartons
-  // 4 = 15 − 11), so the batch and the breakdown record agree with each
-  // other exactly the way a real one would after the write.
-  const b2LooseKg = money(214.4 - 10 * 20); // whatever wasn't sold since — a small, believable remainder
-  b2.remainingKg = b2LooseKg > 0 ? b2LooseKg : 6.4;
-  await b2.save();
-
-  await ColdRoomBreakdown.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, batchId: b3._id, productId: panla._id, productName: panla.name,
-    cartonsOpened: 2, expectedYieldKg: money(2 * b3.packSizeKg), actualWeighedKg: 19.2,
-    varianceKg: money(2 * b3.packSizeKg - 19.2), variancePercent: money(((2 * b3.packSizeKg - 19.2) / (2 * b3.packSizeKg)) * 100),
-    byName: ctx.actorName, note: "Weighed loose for the counter", at: daysAgo(3),
-  });
-  await ColdRoomBreakdown.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, batchId: b3._id, productId: panla._id, productName: panla.name,
-    cartonsOpened: 3, expectedYieldKg: money(3 * b3.packSizeKg), actualWeighedKg: 34 * 0.27,
-    resultingPieceCount: 34, varianceKg: money(3 * b3.packSizeKg - 34 * 0.27), variancePercent: money(((3 * b3.packSizeKg - 34 * 0.27) / (3 * b3.packSizeKg)) * 100),
-    byName: ctx.actorName, note: "Cut into pieces for retail", at: daysAgo(2),
-  });
-
-  // Reconcile the generic ledger to whatever the batches actually say now —
-  // exactly what every real batch-mutating route calls.
-  for (const product of [titus, panla]) {
-    await syncCartonEquivalentStock(ctx, ctx.branchId, product, { refType: "coldroom_purchase", reason: "Showcase seed reconciliation" });
-  }
-
-  // A cold-chain-loss event on the older Titus batch's last cartons — the
-  // high-severity event the whole trade is built to fear.
-  const lossCartons = 1;
-  await ColdRoomBatch.updateOne({ _id: b2._id }, { $inc: { remainingCartons: -lossCartons } });
-  const updatedB2 = await ColdRoomBatch.findById(b2._id);
-  await syncCartonEquivalentStock(ctx, ctx.branchId, titus, { refType: "coldroom_cold_chain_loss", reason: "Generator down for 3 hours overnight", wasteReasonIfLoss: "cold_chain_failure" });
-  await DailyMetric.findOneAndUpdate(
-    { businessId: ctx.businessId, branchId: ctx.branchId, date: localDay(daysAgo(1)) },
-    { $inc: { profit: -money(lossCartons * updatedB2.unitCostPerCarton), wasteTotal: money(lossCartons * updatedB2.unitCostPerCarton) }, $setOnInsert: { accountId: ctx.accountId } },
-    { upsert: true }
-  );
-}
-
-/**
- * Three members in different states, so Members/Check-In have something
- * real the moment the showcase opens — unlike the 24h "Try the demo"
- * sandbox, which deliberately leaves this to the visitor (see demoShops.js's
- * gym `pending` note): a permanent showcase should look permanently lived-in.
- */
-async function seedGym(ctx, shop, customers) {
-  const plans = [];
-  for (const p of shop.gymPlans) {
-    plans.push(await GymPlan.create({ accountId: ctx.accountId, businessId: ctx.businessId, name: p.name, price: p.price, durationDays: p.durationDays }));
-  }
-  const planByName = new Map(plans.map((p) => [p.name, p]));
-  const monthly = planByName.get("Monthly") || plans[0];
-  const annual = planByName.get("Annual") || plans[plans.length - 1];
-
-  const members = [
-    { customer: customers[0], plan: annual, startedDaysAgo: 40 },   // comfortably active
-    { customer: customers[1], plan: monthly, startedDaysAgo: 28 },  // expires in ~2 days — the reminder case
-    { customer: customers[2], plan: monthly, startedDaysAgo: 45 },  // already expired
-  ];
-
-  for (const m of members) {
-    const startDate = daysAgo(m.startedDaysAgo);
-    const expiresAt = new Date(startDate.getTime() + m.plan.durationDays * 24 * 3600 * 1000);
-    const seq = await nextSeq(`sale:${ctx.branchId}`);
-    const sale = await Sale.create({
-      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
-      saleNo: `R-${String(seq).padStart(5, "0")}`, at: startDate,
-      staffId: ctx.userId, staffName: ctx.actorName,
-      customerId: m.customer._id, customerName: m.customer.name,
-      items: [{
-        productId: new mongoose.Types.ObjectId(), name: `${m.plan.name} membership`,
-        qty: 1, unitPrice: m.plan.price, lineCost: 0, lineNet: m.plan.price, returnedQty: 0,
-      }],
-      subtotal: m.plan.price, discount: 0, vat: 0, total: m.plan.price,
-      payments: [{ method: "cash", amount: m.plan.price }],
-    });
-
-    const status = expiresAt < new Date() ? "expired" : "active";
-    const subscription = await GymSubscription.create({
-      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
-      customerId: m.customer._id, customerName: m.customer.name,
-      planId: m.plan._id, planName: m.plan.name,
-      startDate, expiresAt, status, purchasedAt: startDate, saleId: sale._id,
-    });
-
-    await Customer.updateOne(
-      { _id: m.customer._id },
-      { $inc: { totalSpend: m.plan.price, visits: 1 }, $set: { lastSeen: startDate, lastBranchId: ctx.branchId } }
-    );
-    await bumpDailyMetric(ctx, ctx.branchId, localDay(startDate), { revenue: m.plan.price, profit: m.plan.price, txns: 1, payments: { cash: m.plan.price } });
-
-    // Access control IS the product — issued on signup, same as the real
-    // purchase route, reusing the loyalty module's QR card wholesale.
-    await issueCardForCustomer(ctx, m.customer._id, "gym_signup");
-
-    if (status === "active") {
-      for (const daysBack of [5, 2]) {
-        await GymCheckIn.create({
-          accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
-          customerId: m.customer._id, customerName: m.customer.name, subscriptionId: subscription._id,
-          allowed: true, at: daysAgo(daysBack), byStaffId: ctx.userId, byStaffName: ctx.actorName,
-        });
-      }
-    }
-  }
-}
-
-async function seedJobTicket(ctx, business, byName, { title, reference, lines, deposit, stage }) {
-  const rawLines = lines.map((l) => (l.productId ? { productId: l.productId, qty: l.qty } : l));
-  const { lines: priced, subtotal } = await priceLines(ctx, rawLines);
-  const totals = totalsFor(business, subtotal, 0);
-  const seq = await nextSeq(`job:${ctx.branchId}`);
-  const job = await Job.create({
-    accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId,
-    jobNo: `J-${String(seq).padStart(5, "0")}`, title, reference, lines: priced, ...totals,
-    deposit: money(deposit), depositMethod: "cash", stage,
-    stageHistory: [{ stage: "received", at: daysAgo(3) }, { stage, at: daysAgo(1) }],
-    promisedAt: daysAgo(-2), receivedAt: daysAgo(3), staffName: ctx.actorName,
-  });
-  return job;
-}
-
-async function seedElectronicsSerials(ctx, byName) {
-  const phone = byName.get("iPhone 13 128GB")?.doc;
-  if (!phone) return;
-  phone.tracksSerials = true;
-  phone.warrantyMonths = 12;
-  await phone.save();
-  const stock = await Inventory.findOne({ branchId: ctx.branchId, productId: phone._id });
-  const count = stock?.stock || 4;
-  for (let i = 1; i <= count; i++) {
-    await Serial.create({
-      accountId: ctx.accountId, businessId: ctx.businessId, branchId: ctx.branchId, productId: phone._id, productName: phone.name,
-      serialNo: `IMEI-${String(35000000 + i).padStart(9, "0")}`, status: "in_stock", at: daysAgo(15),
-    });
-  }
-}
-
-async function seedKitchenQueue(ctx, lastSale) {
-  if (!lastSale?.items?.length) return;
-  lastSale.items[0].prepStatus = "preparing";
-  if (lastSale.items[1]) lastSale.items[1].prepStatus = "pending";
-  await lastSale.save();
-}
-
-async function seedCreditCustomer(ctx, customers) {
-  const debtor = customers[0];
-  await applyCreditChange(ctx, { customer: debtor, type: "sale", amount: money(pick([4500, 6200, 8900])), refType: "manual", note: "Supplied on trust, pays end of week" });
-}
-
 // ── Orchestration ────────────────────────────────────────────────────
 
 async function seedBusiness(typeKey, plan, owner, account) {
@@ -584,45 +254,11 @@ async function seedBusiness(typeKey, plan, owner, account) {
   // stock is left over. Running it after would race the cohort's feed, the
   // production run's raw materials, and the serial count against however
   // much of that same stock the random simulation happened to sell first.
-  if (typeKey === "hotel" && shop.rooms) await seedHotel(ctx, shop, byName);
-  if (typeKey === "poultry") await seedPoultry(ctx, byName);
-  if (typeKey === "water") { await seedWaterProduction(ctx, byName); await seedCreditCustomer(ctx, customers); }
-  if (typeKey === "coldroom") { await seedColdroom(ctx, business, byName); await seedCreditCustomer(ctx, customers); }
-  if (typeKey === "blinds") {
-    const fabric = byName.get("Blackout Fabric (metre)")?.doc;
-    await seedJobTicket(ctx, business, byName, {
-      title: "3 windows — living room blinds", reference: "Aduke Residence, Lekki",
-      lines: [
-        ...(fabric ? [{ productId: String(fabric._id), qty: 8 }] : []),
-        { name: "Installation labour", price: 15000, qty: 1 },
-      ],
-      deposit: 20000, stage: "in_progress",
-    });
-  }
-  if (typeKey === "electronics") {
-    await seedElectronicsSerials(ctx, byName);
-    await seedJobTicket(ctx, business, byName, {
-      title: "Cracked screen — iPhone 13", reference: "IMEI-035000003",
-      lines: [{ name: "Screen replacement labour", price: 20000, qty: 1 }],
-      deposit: 10000, stage: "ready",
-    });
-  }
-  if (typeKey === "laundry") {
-    await seedJobTicket(ctx, business, byName, {
-      title: "Weekly drop-off — 3 shirts, 1 suit", reference: "Okafor Household",
-      lines: [
-        { name: "Dry Clean - Suit (2pc)", price: 5500, qty: 1 },
-        { name: "Iron - Shirt", price: 400, qty: 3 },
-      ],
-      deposit: 0, stage: "ready",
-    });
-  }
-  if (typeKey === "gym" && shop.gymPlans) await seedGym(ctx, shop, customers);
-  const svcSeed = { academy: seedAcademyDemo, salon: seedSalonDemo, agency: seedAgencyDemo }[typeKey];
-  if (svcSeed) await svcSeed({ base: { accountId: account._id, businessId: business._id }, branch, ctx });
+  await demoFor(typeKey)?.seed?.({
+    ctx, base: { accountId: account._id, businessId: business._id }, branch, business, byName, customers, shop,
+  });
 
-  const lastSale = await seedTradingHistory(ctx, byName, customers, [owner]);
-  if (typeKey === "restaurant") await seedKitchenQueue(ctx, lastSale);
+  await seedTradingHistory(ctx, byName, customers, [owner]);
 
   // Two days of expenses + today's clock-in, same shape as the sandbox demo.
   for (const [type, amount, offset] of [["Fuel", 3800, 2], ["Transport", 1500, 1], ["Diesel", 12000, 0]]) {

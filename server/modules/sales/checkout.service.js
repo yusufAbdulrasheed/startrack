@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 import { Product } from "#modules/products/product.model.js";
-import { Serial } from "#modules/businesses/electronics/serial.model.js";
 import { Sale } from "#modules/sales/sale.model.js";
 import { Customer } from "#modules/customers/customer.model.js";
 import { applyMovement } from "#modules/inventory/inventory.service.js";
@@ -9,7 +8,7 @@ import { bumpDailyMetric, localDay } from "#modules/metrics/metrics.service.js";
 import { money } from "#core/money.js";
 import { withTransaction } from "#core/tx.js";
 import { badRequest } from "#core/httpError.js";
-import { hasCapability } from "#shared/businessTypes.js";
+import { checkoutFor } from "#platform/registry.js";
 import { evaluateAndIssuePatronageCard } from "#modules/loyalty/loyaltyCard.service.js";
 import { scopedToBranch, ownerBranchForNew } from "#core/branchScope.js";
 import { customerRoom } from "#modules/customers/customerLimit.js";
@@ -57,21 +56,20 @@ export async function runCheckout(ctx, d, opts = {}) {
       if (!byId.has(item.productId)) throw badRequest("One of the products no longer exists.");
     }
 
-    // Split: stock lines merge by product; made-to-order lines stay separate
-    // (each carries its own dimensions and price).
+    // Split by what each product IS. Plain stock lines merge by product and are
+    // priced right here. An item of an archetype a business owns (blinds'
+    // made-to-order, academy's services) goes to THAT business's handler,
+    // registered with the platform; a business with no handler for an
+    // archetype simply can't sell that kind of item.
+    const biz = checkoutFor(ctx.business.typeKey);
     const qtyByProduct = new Map();
-    const mtoItems = [];
-    const serviceItems = [];
-    const serialsByProduct = new Map();
+    const byArchetype = new Map();
     for (const item of d.items) {
       const p = byId.get(item.productId);
-      if (p.archetype === "made_to_order") mtoItems.push(item);
-      else if (p.archetype === "service") serviceItems.push(item);
-      else qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.qty);
-      if (item.serialNos?.length) {
-        const arr = serialsByProduct.get(item.productId) || [];
-        serialsByProduct.set(item.productId, [...arr, ...item.serialNos]);
-      }
+      const kind = p.archetype || "stock";
+      if (kind === "stock") qtyByProduct.set(item.productId, (qtyByProduct.get(item.productId) || 0) + item.qty);
+      else if (biz.archetypes?.[kind]) byArchetype.set(kind, [...(byArchetype.get(kind) || []), item]);
+      else throw badRequest(`${p.name} can't be sold by this kind of business.`);
     }
 
     // Server-side pricing and totals — stock lines.
@@ -90,93 +88,17 @@ export async function runCheckout(ctx, d, opts = {}) {
       };
     });
 
-    // Service lines: priced from the catalogue, merged per service, and never
-    // touch stock (there is none). `service: true` keeps voids and returns from
-    // inventing any.
-    const svcQty = new Map();
-    for (const item of serviceItems) svcQty.set(item.productId, (svcQty.get(item.productId) || 0) + item.qty);
-    for (const [productId, qty] of svcQty) {
-      const p = byId.get(productId);
-      const unit = opts.quotedPrices?.get(productId) ?? p.price;
-      lines.push({ productId: p._id, name: p.name, qty, unitPrice: unit, lineCost: money((p.cost || 0) * qty), lineNet: money(unit * qty), returnedQty: 0, service: true, components: [] });
+    for (const [kind, kindItems] of byArchetype) {
+      lines.push(...(await biz.archetypes[kind].lines({ ctx, items: kindItems, byId, opts, session })));
     }
 
-    // Made-to-order lines: quantity of each component comes from the
-    // business's own recipe (per m² / per m width / per m height / per item).
-    if (mtoItems.length) {
-      const compIds = new Set();
-      for (const item of mtoItems) {
-        for (const c of byId.get(item.productId).bom || []) compIds.add(String(c.productId));
-      }
-      const compProducts = await Product.find({ _id: { $in: [...compIds] }, businessId: ctx.businessId }).session(session);
-      const compById = new Map(compProducts.map((p) => [String(p._id), p]));
-      const round3 = (n) => Math.round(n * 1000) / 1000;
-
-      for (const item of mtoItems) {
-        const p = byId.get(item.productId);
-        if (!p.bom?.length) {
-          throw badRequest(`${p.name} has no components configured — set them up on the product first.`);
-        }
-        // Dimensions only matter to a recipe that actually scales by area or
-        // a side (blinds, priced per m²). A plain "unit" recipe — a bowl of
-        // jollof made from rice/chicken/tomato — needs none: default both to
-        // 1 so the pricing formula below collapses to the item's own price.
-        const needsDims = p.bom.some((c) => c.per !== "unit");
-        if (needsDims && (!item.width || !item.height)) throw badRequest(`${p.name} needs width and height.`);
-        const w = needsDims ? item.width : 1;
-        const h = needsDims ? item.height : 1;
-        const components = [];
-        let lineCost = 0;
-        for (const c of p.bom) {
-          const comp = compById.get(String(c.productId));
-          if (!comp) throw badRequest(`A component of ${p.name} no longer exists.`);
-          const base =
-            c.per === "sqm" ? w * h :
-            c.per === "width" ? w :
-            c.per === "height" ? h : 1;
-          const qtyNeeded = round3(base * (c.factor || 1) * item.qty);
-          if (qtyNeeded > 0) {
-            components.push({ productId: comp._id, name: comp.name, qty: qtyNeeded });
-            lineCost += (comp.cost || 0) * qtyNeeded;
-          }
-        }
-        const unitPrice = item.price !== undefined ? money(item.price) : money(p.price * w * h);
-        lines.push({
-          productId: p._id,
-          name: needsDims ? `${p.name} — ${w}m × ${h}m` : p.name,
-          qty: item.qty,
-          unitPrice,
-          lineCost: money(lineCost),
-          lineNet: money(unitPrice * item.qty),
-          returnedQty: 0,
-          ...(needsDims ? { width: w, height: h } : {}),
-          components,
-        });
-      }
-    }
-
-    // Serial-tracked stock: validate any units the cashier picked BEFORE
-    // anything moves — same "cheap failures first" ordering as the customer
-    // resolution below. Optional: a line with no serialNos just sells normally.
-    const serialUpdates = [];
-    if (serialsByProduct.size) {
-      for (const line of lines) {
-        if (line.components.length) continue; // made-to-order lines don't carry serials
-        const given = serialsByProduct.get(String(line.productId));
-        if (!given?.length) continue;
-        if (given.length !== line.qty) {
-          throw badRequest(`${line.name}: chose ${given.length} serial number(s) for a quantity of ${line.qty}.`);
-        }
-        const found = await Serial.find({
-          businessId: ctx.businessId, productId: line.productId, serialNo: { $in: given }, status: "in_stock",
-        }).session(session);
-        if (found.length !== given.length) {
-          const foundNos = new Set(found.map((s) => s.serialNo));
-          const missing = given.find((s) => !foundNos.has(s));
-          throw badRequest(`${missing} isn't an available serial number for ${line.name}.`);
-        }
-        serialUpdates.push(...found);
-      }
+    // Anything the business needs to check BEFORE stock moves (electronics: the
+    // serial numbers the cashier picked). It may refuse the sale by throwing,
+    // and may return a `commit` to run once the sale exists.
+    const afterSale = [];
+    if (biz.validate) {
+      const v = await biz.validate({ ctx, items: d.items, byId, lines, session });
+      if (v?.commit) afterSale.push(v.commit);
     }
 
     const subtotal = money(lines.reduce((s, l) => s + l.lineNet, 0));
@@ -295,12 +217,6 @@ export async function runCheckout(ctx, d, opts = {}) {
     const seq = await nextSeq(`sale:${ctx.branchId}`, session);
     const saleNo = `R-${String(seq).padStart(5, "0")}`;
 
-    // A restaurant sale routes each line to the kitchen queue; every other
-    // business type's items never get a prep status at all.
-    const itemsOut = hasCapability(ctx.business.typeKey, "kitchenQueue")
-      ? lines.map((l) => ({ ...l, prepStatus: "pending" }))
-      : lines;
-
     const [sale] = await Sale.create(
       [{
         _id: saleId,
@@ -314,7 +230,7 @@ export async function runCheckout(ctx, d, opts = {}) {
         customerName: customer?.name || unsavedCustomerName,
         ...(opts.channel ? { channel: opts.channel, orderId: opts.orderId, orderNo: opts.orderNo } : {}),
         deliveryFee,
-        items: itemsOut,
+        items: lines,
         subtotal,
         discount,
         vat,
@@ -342,15 +258,9 @@ export async function runCheckout(ctx, d, opts = {}) {
       customer.visits += 1;
       customer.lastSeen = new Date();
       customer.lastBranchId = ctx.branchId;
-      // Loyalty tokens (water): only sachet/bag lines earn them, per the
-      // trade's own rule — bottles and everything else are sold, just not
-      // counted toward a free pack.
-      if (hasCapability(ctx.business.typeKey, "loyalty")) {
-        const sachetBagQty = lines
-          .filter((l) => /sachet|bag/i.test(l.name))
-          .reduce((s, l) => s + l.qty, 0);
-        if (sachetBagQty > 0) customer.sachetBagQty = (customer.sachetBagQty || 0) + sachetBagQty;
-      }
+      // Whatever this business does with a sale that has a customer (water
+      // counts its loyalty tokens here).
+      if (biz.onCustomerSale) await biz.onCustomerSale({ ctx, customer, lines, session });
       await customer.save({ session });
 
       // Loyalty QR cards (any business — see settings.loyaltyRule). DB
@@ -365,20 +275,7 @@ export async function runCheckout(ctx, d, opts = {}) {
       }
     }
 
-    for (const serial of serialUpdates) {
-      serial.status = "sold";
-      serial.saleId = saleId;
-      serial.customerId = customer?._id || null;
-      serial.customerName = customer?.name || "";
-      serial.soldAt = new Date();
-      const warrantyMonths = byId.get(String(serial.productId))?.warrantyMonths || 0;
-      if (warrantyMonths > 0) {
-        const expires = new Date(serial.soldAt);
-        expires.setMonth(expires.getMonth() + warrantyMonths);
-        serial.warrantyExpiresAt = expires;
-      }
-      await serial.save({ session });
-    }
+    for (const commit of afterSale) await commit(session, { saleId, customer, byId });
 
     const totalCost = money(lines.reduce((s, l) => s + l.lineCost, 0));
     const payments = {};

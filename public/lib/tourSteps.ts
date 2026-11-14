@@ -16,7 +16,7 @@ export function buildDashboardTour(_t: { pos: string; products: string }): TourS
     {
       target: "nav-pos",
       title: "Sales",
-      body: `Sales: ring up a sale, look back at past sales and handle returns. Anything specific to your trade (rooms, jobs, the kitchen) sits under Operations.`,
+      body: `Sales: ring up a sale, look back at past sales and handle returns. Anything specific to your business (jobs, batches, serial numbers, classes) sits under Operations or Inventory.`,
       placement: "right",
     },
     {

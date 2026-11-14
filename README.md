@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# StarTrack
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Sales, stock, staff and customers for small businesses, built as a **platform with independent business services**: supermarket, window blinds, electronics, training academy, poultry farm and water factory. Each business lives in its own folder and plugs into the shared platform through a small, checked contract.
 
-Currently, two official plugins are available:
+**Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for how it is organized, the rules, and how to add a business.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run it
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev            # local database + API + web client together
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+The API reads `.env` (database, mail, payments, AI keys). `npm run dev:db` starts a local MongoDB, so no external database is needed to develop.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | database, API and web client with hot reload |
+| `npm run build` | type-check and build the client |
+| `npm run check:architecture` | fails if a business reaches into another business or the platform's internals, or the platform reaches into a business |
+| `npm run e2e` | the end-to-end suite, in a real browser, against a throwaway local database |
+| `npm run seed:showcase` | permanent demo accounts: every business on every plan |
+| `npm run seed:empty` | empty test accounts for first-run flows |
+| `npm run seed:admin` | the platform admin login |
+
+## Layout
+
+```
+server/platform/     the contract and the platform's public interface
+server/businesses/   the six businesses, each self-contained
+server/modules/      the shared platform services
+public/businesses/   each business's screens
+```

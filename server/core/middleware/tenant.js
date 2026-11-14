@@ -108,7 +108,7 @@ export function requirePerm(...perms) {
 }
 
 // Gate for a business-vertical API: the active business's TRADE must support
-// the capability. Hiding the menu is not enough — a restaurant owner shouldn't
+// the capability. Hiding the menu is not enough — a supermarket owner shouldn't
 // be able to POST to /api/academy by hand and litter their books with classes.
 export function requireCapability(capability) {
   return (req, res, next) => {

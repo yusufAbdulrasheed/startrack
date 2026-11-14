@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { animateSwitch } from "@/lib/viewTransition";
 
 /**
- * Small pieces the three service-business screens (Academy, Appointments,
+ * Small pieces the service-business screens (today the Academy;
  * Projects) all need, kept in one place so they look and behave the same.
  */
 

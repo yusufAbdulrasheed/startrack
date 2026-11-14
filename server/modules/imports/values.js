@@ -133,36 +133,6 @@ export function parseWeeks(v) {
   return Math.round(n);
 }
 
-// "45 min", "1h 30", "1.5 hours", "90" → minutes (salon services).
-export function parseMinutes(v) {
-  if (typeof v === "number") return v > 0 ? Math.round(v <= 12 && Number.isInteger(v) && v < 5 ? v * 60 : v) : null; // a bare 1 or 2 is hours
-  const s = String(v ?? "").toLowerCase().trim();
-  if (!s) return null;
-  const hm = s.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\s*(?:(\d+)\s*(?:m|min|mins|minutes)?)?/);
-  if (hm) return Math.round(Number(hm[1]) * 60 + Number(hm[2] || 0));
-  const n = parseFloat(s);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return /h/.test(s) ? Math.round(n * 60) : Math.round(n);
-}
-
-// "30 days", "1 month", "quarterly", "annual", "3" → days (gym plans).
-export function parseDays(v) {
-  if (typeof v === "number") return v > 0 ? Math.round(v) : null;
-  const s = String(v ?? "").toLowerCase().trim();
-  if (!s) return null;
-  if (/^week(ly)?$/.test(s)) return 7;
-  if (/^month(ly)?$/.test(s)) return 30;
-  if (/^quarter(ly)?$/.test(s)) return 90;
-  if (/^(half[- ]?year(ly)?|bi-?annual|semi-?annual)$/.test(s)) return 180;
-  if (/^(year(ly)?|annual(ly)?)$/.test(s)) return 365;
-  const n = parseFloat(s.replace(/,/g, ""));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  if (/week|wk/.test(s)) return Math.round(n * 7);
-  if (/month|mth|mo\b/.test(s)) return Math.round(n * 30);
-  if (/year|yr/.test(s)) return Math.round(n * 365);
-  return Math.round(n);
-}
-
 export const pick = (s, table) => {
   const k = normKey(s);
   if (!k) return null;

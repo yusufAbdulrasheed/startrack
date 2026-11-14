@@ -1,7 +1,7 @@
 import { config } from "#core/config.js";
 
 /**
- * Outbound SMS via Termii — phone verification codes today, opt-in gym
+ * Outbound SMS via Termii — phone verification codes today, opt-in
  * renewal reminders later. Same shape as mailer.js: configured through
  * TERMII_API_KEY, stays off and says so once when absent, never throws —
  * nothing in the app may depend on an SMS actually landing.
@@ -19,7 +19,7 @@ function warnOnce() {
   console.warn(
     "✆ SMS is OFF — no TERMII_API_KEY configured.\n" +
       "  Set TERMII_API_KEY (from termii.com) to turn it on.\n" +
-      "  Phone verification codes and gym SMS reminders are skipped until then."
+      "  Phone verification codes and SMS reminders are skipped until then."
   );
 }
 

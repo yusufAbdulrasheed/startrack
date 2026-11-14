@@ -14,7 +14,7 @@ import { REPORT_WORDS, wantsFile, reportTool, resolveReportCall, inferReport } f
 
 /**
  * The rules every AI answer lives by, plus what THIS business is. The trade
- * brief is what stops a generic retail assistant telling a hotel to "restock
+ * brief is what stops a generic retail assistant telling an academy to "restock
  * rooms" or an academy to "reorder students" — it states how this trade makes
  * money, its words, and the mistakes to avoid.
  */

@@ -4,6 +4,8 @@ import { RequireAuth, RequirePlatform, useSession } from "@/lib/session";
 import { AdminShell } from "@/components/layout/AdminShell";
 import { FeatureGate } from "@/components/plan/PlanUi";
 import { lazyPage } from "@/lib/lazyPage";
+import { BUSINESS_UIS } from "@/businesses";
+import { typeMeta } from "@/lib/businessTypes";
 import { Suspense } from "react";
 
 // Every page loads on demand, in its own file (see lib/lazyPage.ts).
@@ -22,15 +24,8 @@ const StockIn = lazyPage(() => import("@/pages/StockIn"), "StockIn");
 const Transfers = lazyPage(() => import("@/pages/Transfers"), "Transfers");
 const Returns = lazyPage(() => import("@/pages/Returns"), "Returns");
 const Jobs = lazyPage(() => import("@/pages/Jobs"), "Jobs");
-const Serials = lazyPage(() => import("@/pages/Serials"), "Serials");
-const Production = lazyPage(() => import("@/pages/Production"), "Production");
-const Vaccinations = lazyPage(() => import("@/pages/Vaccinations"), "Vaccinations");
 const Suppliers = lazyPage(() => import("@/pages/Suppliers"), "Suppliers");
 const StockCount = lazyPage(() => import("@/pages/StockCount"), "StockCount");
-const Cohorts = lazyPage(() => import("@/pages/Cohorts"), "Cohorts");
-const KitchenQueue = lazyPage(() => import("@/pages/KitchenQueue"), "KitchenQueue");
-const Hotel = lazyPage(() => import("@/pages/Hotel"), "Hotel");
-const ColdRoom = lazyPage(() => import("@/pages/ColdRoom"), "ColdRoom");
 const MyBusinesses = lazyPage(() => import("@/pages/MyBusinesses"), "MyBusinesses");
 const Platform = lazyPage(() => import("@/pages/Platform"), "Platform");
 const Customers = lazyPage(() => import("@/pages/Customers"), "Customers");
@@ -45,10 +40,6 @@ const Help = lazyPage(() => import("@/pages/Help"), "Help");
 const Chat = lazyPage(() => import("@/pages/Chat"), "Chat");
 const SupportDesk = lazyPage(() => import("@/pages/desk/SupportDesk"), "SupportDesk");
 const AskAI = lazyPage(() => import("@/pages/AskAI"), "AskAI");
-const Members = lazyPage(() => import("@/pages/Members"), "Members");
-const Academy = lazyPage(() => import("@/pages/Academy"), "Academy");
-const Appointments = lazyPage(() => import("@/pages/Appointments"), "Appointments");
-const Projects = lazyPage(() => import("@/pages/Projects"), "Projects");
 const MySite = lazyPage(() => import("@/pages/MySite"), "MySite");
 const Orders = lazyPage(() => import("@/pages/Orders"), "Orders");
 const Invoices = lazyPage(() => import("@/pages/Invoices"), "Invoices");
@@ -64,16 +55,20 @@ const BusinessSite = lazyPage(() => import("@/pages/BusinessSite"), "BusinessSit
 // POS (speed matters at the till); account-login staff without a dashboard
 // land on their own self-service home hub instead.
 function Home() {
-  const { can, session, hasCapability } = useSession();
+  const { can, session, activeBusiness } = useSession();
   if (can("dashboard_ops")) return <Navigate to="dashboard" replace />;
-  // A service business's front desk works in its own screen, not the product till.
-  if (session?.mode === "till") {
-    if (hasCapability("programs")) return <Navigate to="academy" replace />;
-    if (hasCapability("appointments")) return <Navigate to="appointments" replace />;
-    if (hasCapability("projects")) return <Navigate to="projects" replace />;
-    return <Navigate to="pos" replace />;
-  }
+  // Till staff open on their business's own front screen when it has one (the
+  // academy's fee desk), else the till.
+  if (session?.mode === "till") return <Navigate to={typeMeta(activeBusiness?.typeKey).tillHome || "pos"} replace />;
   return <Navigate to="home" replace />;
+}
+
+// A business's own screens open only for that business: a poultry farm that
+// types /app/academy lands back on its dashboard, not on a broken page.
+function OnlyFor({ typeKey, children }: { typeKey: string; children: React.ReactNode }) {
+  const { activeBusiness } = useSession();
+  if (activeBusiness && activeBusiness.typeKey !== typeKey) return <Navigate to="/app/dashboard" replace />;
+  return <>{children}</>;
 }
 
 // While a page outside the app's frame loads (landing, sign-in, the desk…):
@@ -127,19 +122,18 @@ export default function App() {
         <Route path="transfers" element={<FeatureGate feature="transfers"><Transfers /></FeatureGate>} />
         <Route path="returns" element={<FeatureGate feature="returns"><Returns /></FeatureGate>} />
         <Route path="jobs" element={<FeatureGate feature="verticals"><Jobs /></FeatureGate>} />
-        <Route path="members" element={<FeatureGate feature="verticals"><Members /></FeatureGate>} />
-        <Route path="academy" element={<FeatureGate feature="verticals"><Academy /></FeatureGate>} />
-        <Route path="appointments" element={<FeatureGate feature="verticals"><Appointments /></FeatureGate>} />
-        <Route path="projects" element={<FeatureGate feature="verticals"><Projects /></FeatureGate>} />
-        <Route path="serials" element={<FeatureGate feature="verticals"><Serials /></FeatureGate>} />
-        <Route path="production" element={<FeatureGate feature="verticals"><Production /></FeatureGate>} />
-        <Route path="vaccinations" element={<FeatureGate feature="verticals"><Vaccinations /></FeatureGate>} />
+        {/* Each business's own screens (public/businesses/<key>/ui.ts), open only to that business. */}
+        {BUSINESS_UIS.flatMap((ui) =>
+          ui.routes.map(({ path, feature, Page }) => (
+            <Route
+              key={`${ui.key}:${path}`}
+              path={path}
+              element={<OnlyFor typeKey={ui.key}>{feature ? <FeatureGate feature={feature}><Page /></FeatureGate> : <Page />}</OnlyFor>}
+            />
+          ))
+        )}
         <Route path="suppliers" element={<FeatureGate feature="suppliers"><Suppliers /></FeatureGate>} />
         <Route path="stock-count" element={<FeatureGate feature="stockCount"><StockCount /></FeatureGate>} />
-        <Route path="cohorts" element={<FeatureGate feature="verticals"><Cohorts /></FeatureGate>} />
-        <Route path="kitchen" element={<FeatureGate feature="verticals"><KitchenQueue /></FeatureGate>} />
-        <Route path="front-desk" element={<FeatureGate feature="verticals"><Hotel /></FeatureGate>} />
-        <Route path="cold-room" element={<FeatureGate feature="verticals"><ColdRoom /></FeatureGate>} />
         <Route path="businesses" element={<MyBusinesses />} />
         <Route path="platform" element={<Navigate to="/admin" replace />} />
         <Route path="customers" element={<Customers />} />

@@ -1,4 +1,5 @@
 import type { ServiceMeta } from "@/lib/businessTypes";
+import type { BusinessNavItem } from "#shared/businessTypes.js";
 import {
   LayoutDashboard, ShoppingCart, Package, Settings, LifeBuoy, ClipboardList, Truck, Users, Wallet, UserCog,
 } from "lucide-react";
@@ -16,7 +17,8 @@ export type NavGroup = {
  * The app's sections, each holding the pages that belong to it: selling under
  * Sales, stock under Inventory, buying under Purchases, money under Finance,
  * people under Staff, and account matters under Settings. Trade-specific
- * desks (rooms, kitchen, jobs, ...) get their own Operations section, which
+ * pages (jobs, batches, serial numbers, classes ...) come from each business's
+ * manifest and join the Operations or Inventory section, which
  * only appears for trades that have them.
  *
  * Every page carries its own gates: perm (role), module (switched on for this
@@ -28,7 +30,7 @@ export type NavGroup = {
  * Sidebar and the header's global search (GlobalSearch.tsx, "jump to a
  * page/module" results) read from this, so they can never drift apart.
  */
-export function buildNav(t: { products: string; pos: string; service?: ServiceMeta | null }): NavGroup[] {
+export function buildNav(t: { products: string; pos: string; service?: ServiceMeta | null; nav?: BusinessNavItem[] }): NavGroup[] {
   const groups: NavGroup[] = [
     {
       to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard,
@@ -49,17 +51,9 @@ export function buildNav(t: { products: string; pos: string; service?: ServiceMe
       ],
     },
     {
-      to: "/app/front-desk", label: "Operations", icon: ClipboardList,
+      to: "/app/jobs", label: "Operations", icon: ClipboardList,
       children: [
-        { to: "/app/front-desk", label: "Front Desk", perm: "sales", capability: "rooms", feature: "verticals" },
-        { to: "/app/kitchen", label: "Kitchen Queue", perm: "sales", capability: "kitchenQueue", feature: "verticals" },
-        { to: "/app/cold-room", label: "Cold Room", perm: "sales", capability: "coldChain", feature: "verticals" },
         { to: "/app/jobs", label: "Job Tickets", perm: "sales", capability: "jobs", feature: "verticals" },
-        { to: "/app/members", label: "Members", perm: "sales", capability: "memberships", feature: "verticals" },
-        { to: "/app/academy", label: "Academy", perm: "sales", capability: "programs", feature: "verticals" },
-        { to: "/app/appointments", label: "Appointments", perm: "sales", capability: "appointments", feature: "verticals" },
-        { to: "/app/projects", label: "Projects", perm: "sales", capability: "projects", feature: "verticals" },
-        { to: "/app/vaccinations", label: "Vaccination & Medication", perm: "dashboard_ops", capability: "medication", feature: "verticals" },
       ],
     },
     {
@@ -69,9 +63,6 @@ export function buildNav(t: { products: string; pos: string; service?: ServiceMe
         { to: "/app/inventory", label: "Stock levels", perm: "inventory_view" },
         { to: "/app/stock-count", label: "Stock Counts", perm: "stock_count", module: "stock_count", feature: "stockCount" },
         { to: "/app/transfers", label: "Transfers", perm: "transfers", module: "transfers", feature: "transfers" },
-        { to: "/app/serials", label: "Serial Numbers", perm: "stock", capability: "serials", feature: "verticals" },
-        { to: "/app/production", label: "Production", perm: "stock", capability: "production", feature: "verticals" },
-        { to: "/app/cohorts", label: "Batches", perm: "stock", capability: "cohorts", feature: "verticals" },
       ],
     },
     {
@@ -123,14 +114,20 @@ export function buildNav(t: { products: string; pos: string; service?: ServiceMe
       ],
     },
   ];
-  return t.service ? forService(groups, t.service) : groups;
+  // A business's own pages (its manifest's `nav`) join the section they name.
+  const withOwn = groups.map((g) => {
+    const group = g.label === "Operations" ? "operations" : g.label === "Inventory" ? "inventory" : null;
+    const own = group ? (t.nav || []).filter((n) => n.group === group).map(({ group: _g, ...item }) => item) : [];
+    return own.length ? { ...g, children: [...(g.children || []), ...own] } : g;
+  });
+  return t.service ? forService(withOwn, t.service) : withOwn;
 }
 
 /**
  * A trade that sells services, not stock: the Inventory section becomes the
  * Services catalogue, and the stock machinery (levels, counts, transfers,
  * purchasing, online ordering) only stays where the trade also sells a few
- * physical goods (a salon's hair products).
+ * physical goods.
  */
 function forService(groups: NavGroup[], svc: ServiceMeta): NavGroup[] {
   const stockPages = new Set(["/app/inventory", "/app/stock-count", "/app/transfers", "/app/serials", "/app/production", "/app/cohorts"]);

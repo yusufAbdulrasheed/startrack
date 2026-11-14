@@ -5,7 +5,7 @@ import mongoose from "mongoose";
  *
  * This is the primitive nine trades need and a till cannot express. A suit
  * being altered, a car being repaired, a laptop being fixed, a print run and
- * a load of laundry are the same shape: something arrives, it moves through
+ * a blind to be installed are the same shape: something arrives, it moves through
  * stages, parts and labour accumulate against it, and one day someone comes
  * back for it.
  *
@@ -14,7 +14,7 @@ import mongoose from "mongoose";
  * isn't settled yet.
  */
 
-// Deliberately generic. A mechanic's "in progress" and a laundry's "washing"
+// Deliberately generic. A mechanic's "in progress" and an installer's "measuring"
 // are the same stage wearing different words — the trade supplies the words
 // (see stageLabels in the shared config), the workflow stays one thing.
 export const JOB_STAGES = ["received", "in_progress", "ready", "collected", "cancelled"];

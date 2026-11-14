@@ -1,20 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Blinds, BedDouble, Droplets, Egg, RefreshCw, Search, Smartphone, Sparkles, Store, UtensilsCrossed } from "lucide-react";
+import { RefreshCw, Search, Sparkles } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/EmptyState";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
+import { businessIcon } from "@/businesses";
 import { cn } from "@/lib/utils";
 
 type DemoShop = {
   key: string; label: string; group: string; depth: "full" | "catalog"; pending: string;
   blurb: string; business: string; highlight: string; products: number;
-};
-
-const SHOP_ICON: Record<string, any> = {
-  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
-  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg,
 };
 
 /**
@@ -87,7 +83,7 @@ export function DemoPicker({ open, onClose }: { open: boolean; onClose: () => vo
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={`Search ${shops.length} trades — blinds, poultry, hotel…`}
+            placeholder={`Search ${shops.length} businesses — blinds, poultry, water…`}
             className="w-full h-10 pl-9 pr-3 rounded-ctl bg-surface-2 border border-line text-[13px] text-t1 placeholder:text-t4 focus:outline-none focus:border-brand-500"
           />
         </div>
@@ -104,7 +100,7 @@ export function DemoPicker({ open, onClose }: { open: boolean; onClose: () => vo
               <div className="text-[11.5px] font-medium tracking-[0.1em] text-t4 mb-2">{group}</div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {list.map((s) => {
-                  const Icon = SHOP_ICON[s.key] || Store;
+                  const Icon = businessIcon(s.key);
                   const busy = starting === s.key;
                   return (
                     <button

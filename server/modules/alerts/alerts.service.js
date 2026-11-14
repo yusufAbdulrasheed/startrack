@@ -8,14 +8,10 @@ import { raise, resolve, resolveByPrefix, keys } from "#modules/alerts/notify.js
 import { sendMail, emailShell, alertRow, mailEnabled, esc } from "#core/mailer.js";
 import { ownerOf, realEmail } from "#core/ownerMail.js";
 import { runBillingNotices } from "#modules/billing/billingNotices.js";
-import { sendSms } from "#core/sms.js";
 import { config } from "#core/config.js";
 import { aiEnabled } from "#core/ai.js";
 import { generateDigest } from "#modules/ai/ai.service.js";
-import { hasCapability } from "#shared/businessTypes.js";
 import { businessHasFeature } from "#core/plan.js";
-import { GymSubscription } from "#modules/businesses/gym/gymSubscription.model.js";
-import { Customer } from "#modules/customers/customer.model.js";
 
 const DAY = 86_400_000;
 const startOfToday = () => {
@@ -220,77 +216,6 @@ export async function scanExpiry(business) {
   return { raised, resolved };
 }
 
-// ── Gym membership renewals ──────────────────────────────────────────
-
-/**
- * Mirrors scanExpiry's shape above, applied to GymSubscription instead of
- * Product — same escalate/resolve-by-prefix rhythm, just one threshold
- * (the owner's configured renewalReminderDays) instead of stock's several.
- * Only businesses with the "memberships" capability have anything to scan.
- */
-export async function scanGymExpiries(business) {
-  if (!hasCapability(business.typeKey, "memberships")) return { raised: 0, resolved: 0 };
-
-  const cfg = business.settings?.gym || {};
-  const reminderDays = cfg.renewalReminderDays ?? 3;
-  const now = new Date();
-
-  // Keeps `status` honest for every other query (front-desk roster,
-  // check-in) instead of leaving it to a lazy compute at read time.
-  await GymSubscription.updateMany(
-    { businessId: business._id, status: "active", expiresAt: { $lt: now } },
-    { $set: { status: "expired" } }
-  );
-
-  const active = await GymSubscription.find({ businessId: business._id, status: "active" })
-    .select("customerId customerName planName expiresAt branchId");
-  if (!active.length) return { raised: 0, resolved: 0 };
-
-  let raised = 0, resolved = 0;
-  for (const sub of active) {
-    const prefix = keys.membershipExpiringPrefix(sub._id);
-    const days = Math.ceil((sub.expiresAt - now) / DAY);
-
-    if (days > reminderDays) {
-      // Renewed past the window, or simply not due yet — any reminder tied
-      // to an earlier expiry date on this subscription is stale now.
-      await resolveByPrefix(business._id, prefix);
-      resolved++;
-      continue;
-    }
-
-    const { isNew } = await raise(
-      { accountId: business.accountId, businessId: business._id, branchId: sub.branchId },
-      {
-        type: "membership_expiring",
-        severity: days <= 0 ? "critical" : "warning",
-        title: `${sub.customerName}'s membership expires ${days <= 0 ? "today" : `in ${days} day${days === 1 ? "" : "s"}`}`,
-        body: `${sub.planName} plan, expires ${iso(sub.expiresAt)}. Remind them to renew.`,
-        target: { type: "gymSubscription", id: sub._id, label: sub.customerName },
-        dedupeKey: keys.membershipExpiring(sub._id, iso(sub.expiresAt)),
-        data: { customerName: sub.customerName, planName: sub.planName, expiresAt: iso(sub.expiresAt), days },
-      }
-    );
-    raised++;
-
-    // Member-facing SMS, distinct from the owner-facing Notification above
-    // (the point here is nudging the MEMBER to come back) — opt-in, and
-    // only on the first raise of this particular reminder, not every sweep.
-    if (isNew && cfg.smsReminders) {
-      const customer = await Customer.findById(sub.customerId).select("phone whatsapp");
-      const phone = customer?.phone || customer?.whatsapp;
-      if (phone) {
-        await sendSms({
-          to: phone,
-          message: `Hi ${sub.customerName}, your ${business.name} membership expires ${iso(sub.expiresAt)}. Renew to keep your access.`,
-        }).catch(() => {});
-      }
-    }
-  }
-
-  return { raised, resolved };
-}
-
 // ── Returns waiting on a manager ─────────────────────────────────────
 
 export async function raiseReturnPending(ctx, ret) {
@@ -464,7 +389,6 @@ export async function sweepBusiness(business) {
   const stock = await scanStock(business);
   // Expiry tracking is a Pro feature; Freemium businesses get no expiry alerts.
   const expiry = (await businessHasFeature(business, "expiry")) ? await scanExpiry(business) : { raised: 0, resolved: 0 };
-  const memberships = await scanGymExpiries(business);
 
   // Returns still waiting — catches any submitted while alerts were off.
   const stale = await Return.find({ businessId: business._id, status: "pending" }).select(
@@ -478,7 +402,7 @@ export async function sweepBusiness(business) {
   }
 
   const digest = await sendDigest(business);
-  return { business: business.name, stock, expiry, memberships, pendingReturns: stale.length, digest };
+  return { business: business.name, stock, expiry, pendingReturns: stale.length, digest };
 }
 
 /**

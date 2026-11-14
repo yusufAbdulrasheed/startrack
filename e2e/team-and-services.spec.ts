@@ -134,22 +134,22 @@ test.describe("Help from StarTrack", () => {
   });
 });
 
-test.describe("Service businesses (salon, academy, agency)", () => {
+test.describe("Service businesses (the academy)", () => {
   test("a service is sold, never counted: no stock, nothing moves, and a void or return puts nothing back", async ({ request }) => {
-    const o = await ownerOf(request, "salon");
+    const o = await ownerOf(request, "academy");
 
-    const made = await request.post("/api/products", { headers: o.headers, data: { name: "Braids (medium)", category: "Hair", archetype: "service", price: 15000, durationMin: 180 } });
+    const made = await request.post("/api/products", { headers: o.headers, data: { name: "Frontend tuition (3 months)", category: "Tuition", archetype: "service", price: 15000 } });
     expect(made.status(), await made.text()).toBe(201);
     const svc = (await made.json()).product;
-    expect(svc).toMatchObject({ archetype: "service", stock: null, durationMin: 180 });
+    expect(svc).toMatchObject({ archetype: "service", stock: null });
 
     // A physical product alongside it still has stock, and is the only thing the stock screens know about.
-    const gel = (await (await request.post("/api/products", { headers: o.headers, data: { name: "Edge control gel", category: "Hair", price: 2500, openingStock: 10 } })).json()).product;
+    const gel = (await (await request.post("/api/products", { headers: o.headers, data: { name: "Course workbook", category: "Tuition", price: 2500, openingStock: 10 } })).json()).product;
     const listed = (await get(request, o.headers, "/api/products")).products;
-    expect(listed.find((p: any) => p.name === "Braids (medium)").stock).toBeNull();
-    expect(listed.find((p: any) => p.name === "Edge control gel").stock).toBe(10);
+    expect(listed.find((p: any) => p.name === "Frontend tuition (3 months)").stock).toBeNull();
+    expect(listed.find((p: any) => p.name === "Course workbook").stock).toBe(10);
     const levels = await get(request, o.headers, "/api/inventory");
-    expect(JSON.stringify(levels)).not.toContain("Braids (medium)");
+    expect(JSON.stringify(levels)).not.toContain("Frontend tuition (3 months)");
 
     // Sell 2 braids and 1 gel. Only the gel leaves the shelf.
     const sold = await request.post("/api/sales", {
@@ -160,7 +160,7 @@ test.describe("Service businesses (salon, academy, agency)", () => {
     const sale = (await sold.json()).sale;
     expect(sale.total).toBe(32500);
     const afterSale = (await get(request, o.headers, "/api/products")).products;
-    expect(afterSale.find((p: any) => p.name === "Edge control gel").stock).toBe(9);
+    expect(afterSale.find((p: any) => p.name === "Course workbook").stock).toBe(9);
     const moves = await (await db()).collection("stockmovements").find({ businessId: new (await import("mongoose")).default.Types.ObjectId(o.businessId) }).toArray();
     expect(moves.filter((m: any) => String(m.productId) === svc.id)).toHaveLength(0);   // a service never touches the ledger
 
@@ -168,19 +168,19 @@ test.describe("Service businesses (salon, academy, agency)", () => {
     const voided = await request.post(`/api/sales/${sale.id}/void`, { headers: o.headers, data: { reason: "Customer cancelled" } });
     expect(voided.status(), await voided.text()).toBe(200);
     const afterVoid = (await get(request, o.headers, "/api/products")).products;
-    expect(afterVoid.find((p: any) => p.name === "Edge control gel").stock).toBe(10);
-    expect(afterVoid.find((p: any) => p.name === "Braids (medium)").stock).toBeNull();
+    expect(afterVoid.find((p: any) => p.name === "Course workbook").stock).toBe(10);
+    expect(afterVoid.find((p: any) => p.name === "Frontend tuition (3 months)").stock).toBeNull();
     const moves2 = await (await db()).collection("stockmovements").find({ businessId: new (await import("mongoose")).default.Types.ObjectId(o.businessId) }).toArray();
     expect(moves2.filter((m: any) => String(m.productId) === svc.id)).toHaveLength(0);
   });
 
   test("returning a service refunds the money but restocks nothing", async ({ request }) => {
-    const o = await ownerOf(request, "agency");
-    const svc = (await (await request.post("/api/products", { headers: o.headers, data: { name: "Logo design", category: "Design & Branding", archetype: "service", price: 50000 } })).json()).product;
+    const o = await ownerOf(request, "academy");
+    const svc = (await (await request.post("/api/products", { headers: o.headers, data: { name: "Exam fee", category: "Registration & Exam Fees", archetype: "service", price: 50000 } })).json()).product;
     const sale = (await (await request.post("/api/sales", {
       headers: o.headers, data: { items: [{ productId: svc.id, qty: 1 }], payments: [{ method: "transfer", amount: 50000 }], discount: 0, clientSaleId: `s-${stamp}-2` },
     })).json()).sale;
-    const ret = await request.post("/api/returns", { headers: o.headers, data: { saleId: sale.id, items: [{ productId: svc.id, qty: 1, condition: "good" }], reasonType: "other", reason: "Client changed brief", outcome: "refund", refundMethod: "transfer" } });
+    const ret = await request.post("/api/returns", { headers: o.headers, data: { saleId: sale.id, items: [{ productId: svc.id, qty: 1, condition: "good" }], reasonType: "other", reason: "Student withdrew", outcome: "refund", refundMethod: "transfer" } });
     expect(ret.status(), await ret.text()).toBe(201);
     expect((await ret.json()).return.items[0].restock).toBe(false);
   });

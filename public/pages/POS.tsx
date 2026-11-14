@@ -80,7 +80,7 @@ function LineThumb({ src, custom }: { src?: string; custom: boolean }) {
 
 export function POS() {
   const { activeBusiness, activeBranch, currency, hasModule } = useSession();
-  // Academy, salon and agency sell services: no stock to count, and the till talks about bills, not sales.
+  // The academy sells services: no stock to count, and the till talks about bills, not sales.
   const svc = typeMeta(activeBusiness?.typeKey).service;
   const { data, loading, reload } = useApi<{ products: Product[] }>("/products", [activeBranch?.id]);
   const products = useMemo(() => data?.products ?? [], [data]);

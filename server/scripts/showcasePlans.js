@@ -11,7 +11,7 @@ export const SHOWCASE_OWNER_PASSWORD = "demo12";
 /** The plans each trade is seeded on, in the order they are listed. */
 export const SHOWCASE_PLAN_KEYS = ["free", "pro", "business"];
 
-/** The login for a trade on a plan, e.g. salon.pro@startrack.demo. */
+/** The login for a trade on a plan, e.g. academy.pro@startrack.demo. */
 export const showcaseEmail = (typeKey, plan) => `${typeKey}.${plan}@startrack.demo`;
 
 /** A paid-up subscription that stays valid for testing (no Pro bonus: Freemium stays Freemium). */

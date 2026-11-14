@@ -337,7 +337,7 @@ export function Docs() {
               cols={3}
               items={[
                 { title: "One app for the whole shop", body: "Point of sale, inventory, customers, expenses, staff, attendance, returns, reports and alerts live together, so every number agrees with every other number." },
-                { title: "Shaped to your trade", body: `A restaurant, a cold room, a hotel and a gym don't work alike. StarTrack ships ${types.length} industry setups with their own screens, vocabulary and workflows.` },
+                { title: "Shaped to your trade", body: `A supermarket, a poultry farm, a water factory and a training academy don't work alike. StarTrack ships ${types.length} industry setups with their own screens, vocabulary and workflows.` },
                 { title: "Works on any device", body: "A progressive web app: installable on a phone or tablet, usable on a laptop, and able to keep selling when the internet drops." },
               ]}
             />
@@ -346,7 +346,7 @@ export function Docs() {
               head={["Layer", "What it is", "Example"]}
               rows={[
                 ["Account", "The paying customer. Owns the subscription, plan and billing.", "Ada's Holdings"],
-                ["Business", "One trading operation with its own catalog, stock, sales and staff. Each has a trade type.", "Ada's Kitchen (Restaurant)"],
+                ["Business", "One trading operation with its own catalog, stock, sales and staff. Each has a trade type.", "Fresh Mart (Supermarket)"],
                 ["Branch", "A physical location of a business. Stock and sales are kept per branch.", "Wuse 2 branch"],
                 ["Member", "A person with a role in a business (and optionally a single branch).", "Chidi — Manager, Wuse 2"],
               ]}
@@ -397,7 +397,7 @@ export function Docs() {
           >
             <Checks
               items={[
-                "One account can own several businesses (Business plan) — e.g. a restaurant and a water factory.",
+                "One account can own several businesses (Business plan) — e.g. a supermarket and a water factory.",
                 "Each business can have several branches (Pro: up to 3; Business: unlimited).",
                 "Stock, sales, staff, alerts and metrics are scoped to the branch you're working in.",
                 "Switch between businesses from Settings → My Businesses.",
@@ -456,7 +456,7 @@ export function Docs() {
             id="selling"
             eyebrow="Daily operations"
             title="Selling at the till"
-            intro="The till is the heart of the app. It is named for your trade — “Order Point” for a restaurant, “Front Desk” for a hotel, “Sales Point” for a water factory — but the engine is the same."
+            intro="The till is the heart of the app. It is named for your business — “Point of Sale” for a supermarket, “Sales Point” for a water factory, “Fee Desk” for an academy — but the engine is the same."
           >
             <Checks
               items={[
@@ -553,7 +553,7 @@ export function Docs() {
               items={[
                 "Customer records with contact details and purchase history.",
                 "Top spenders, newest customers and outstanding balances in the Customers report.",
-                "Customer credit (water, poultry, cold-room trades): supply now, invoice later, with a running ledger per customer.",
+                "Customer credit (water and poultry): supply now, invoice later, with a running ledger per customer.",
                 "Loyalty cards (Pro): QR cards for regulars with a scan-to-apply discount and rules for who qualifies, configured in Settings → Loyalty Cards.",
                 "Cards can be emailed to the customer and opened on a public page at /loyalty/<code> — no login needed.",
                 "Scan a card with the device camera at the till to apply the discount.",
@@ -677,7 +677,6 @@ export function Docs() {
                 "Returns waiting — a return needs a manager's decision.",
                 "A notification bell in the header collects these in-app.",
                 "Email alerts over SMTP (Gmail by default), with a choice of who else hears them.",
-                "Gym renewal reminders by SMS (opt-in).",
                 "Each alert type can be switched on or off under Settings → Alerts.",
               ]}
             />
@@ -723,18 +722,12 @@ export function Docs() {
                 </div>
               ))}
             </div>
-            <H3>Trade-specific screens</H3>
+            <H3>Screens that belong to one business</H3>
             <Table
               head={["Screen", "Where", "What it does"]}
               rows={[
-                ["Front Desk (Hotel)", "Operations", "Rooms as a calendar, check-in/out, and a folio that collects charges from reception, kitchen and extras and settles once at check-out."],
-                ["Kitchen Queue", "Operations", "Sale lines routed to the kitchen with a prep status per line."],
-                ["Job Tickets", "Operations", "Work taken in, progressed through stages over days, then collected. Used by blinds, electronics and laundry."],
-                ["Members (Gym)", "Operations", "Membership plans, subscriptions, check-ins and renewal reminders."],
+                ["Job Tickets", "Operations", "Work taken in, progressed through stages over days, then collected. Used by blinds and electronics."],
                 ["Academy", "Operations", "Courses run as intakes; students enrol, pay fees in instalments and are marked present each session."],
-                ["Appointments (Salon)", "Operations", "Booked time against a person or a chair, with service catalog."],
-                ["Projects (Agency)", "Operations", "Work agreed for a budget, delivered in milestones, paid in stages and logged against hours."],
-                ["Cold Room", "Operations", "Cartons converted into kilograms and pieces, with shrinkage and power-failure loss tracked explicitly."],
                 ["Serial Numbers", "Inventory", "Each unit tracked individually with warranty and repair history."],
                 ["Production", "Inventory", "Consume raw materials, yield finished goods and measure the waste between."],
                 ["Batches (Poultry)", "Inventory", "Living batches that eat daily, suffer mortality and are harvested."],
@@ -742,7 +735,7 @@ export function Docs() {
               ]}
             />
             <Callout kind="info" title="Service businesses sell time, not stock">
-              Academy, Salon and Agency record their money as ordinary sales and daily metrics, so the dashboard, reports and AI treat them like any other business.
+              The academy lists fees and services (no stock to count), and records its money as ordinary sales and daily metrics, so the dashboard, reports and AI treat it like any other business.
             </Callout>
           </Section>
 

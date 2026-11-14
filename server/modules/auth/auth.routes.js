@@ -10,7 +10,7 @@ import { requireAuth } from "#core/middleware/requireAuth.js";
 import { rateLimit, failureGuard } from "#core/rateLimit.js";
 import { config } from "#core/config.js";
 import { effectivePlan, featuresFor, isPlan, planStatus, PLANS, PAYMENTS_ENABLED } from "#shared/plans.js";
-import { typeTemplate } from "#shared/businessTypes.js";
+import { typeTemplate, BUSINESS_TYPES } from "#shared/businessTypes.js";
 import { createDemoSandbox } from "#modules/auth/demoSeed.js";
 import { DEMOS } from "#modules/auth/demoShops.js";
 import { withTransaction } from "#core/tx.js";
@@ -30,7 +30,7 @@ const registerSchema = z.object({
   phone: z.string().default(""),
   password: z.string().min(6, "Password must be at least 6 characters"),
   businessName: z.string().min(2, "Enter your business name"),
-  businessType: z.string().default("restaurant"),
+  businessType: z.enum(Object.keys(BUSINESS_TYPES), "Choose one of the business types").default("supermarket"),
   tradingName: z.string().default(""),
   taxId: z.string().default(""),
   employees: z.number().int().min(0).max(100000).default(0),
@@ -303,8 +303,8 @@ authRouter.post("/demo", async (req, res) => {
     return res.status(429).json({ error: "rate_limited", message: "Too many demo sessions from this device. Try again in an hour." });
   }
 
-  // Unknown or missing type falls back to the restaurant.
-  const typeKey = typeof req.body?.type === "string" && DEMOS[req.body.type] ? req.body.type : "restaurant";
+  // Unknown or missing type falls back to the supermarket.
+  const typeKey = typeof req.body?.type === "string" && DEMOS[req.body.type] ? req.body.type : "supermarket";
   const { user, account, business, branch, membership } = await createDemoSandbox(typeKey);
   const body = sessionPayload(user, account, membership, { businesses: [business], branches: [branch] }, false);
   // Demo tokens die with the sandbox.

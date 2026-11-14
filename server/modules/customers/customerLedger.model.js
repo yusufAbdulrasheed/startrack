@@ -8,10 +8,10 @@ import { money } from "#core/money.js";
  * the fast-read running total; this collection is the append-only ledger
  * behind it, exactly the relationship StockMovement has with Inventory.stock.
  *
- * Nothing here is coldroom-specific — any business type with the "credit"
- * capability posts to the same collection — but coldroom is, today, the only
+ * Nothing here is specific to one business — any business type with the "credit"
+ * capability posts to the same collection — but the water and poultry businesses are the
  * vertical whose own sale endpoint actually writes to it (see
- * server/modules/businesses/coldroom/coldroom.routes.js).
+ * server/businesses/<key>/).
  */
 const customerLedgerEntrySchema = new mongoose.Schema(
   {
@@ -26,7 +26,7 @@ const customerLedgerEntrySchema = new mongoose.Schema(
     amount: { type: Number, required: true },
     balanceAfter: { type: Number, required: true },
     method: { type: String, enum: ["cash", "pos", "transfer"] }, // repayments only
-    refType: { type: String, default: "" }, // "coldroom_sale" | "void" | "manual"
+    refType: { type: String, default: "" }, // "sale" | "void" | "manual" (older rows may say "coldroom_sale")
     refId: { type: mongoose.Schema.Types.ObjectId },
     note: { type: String, default: "" },
     byName: { type: String, default: "" },

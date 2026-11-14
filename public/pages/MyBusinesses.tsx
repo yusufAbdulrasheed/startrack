@@ -1,8 +1,5 @@
 import { useMemo, useState } from "react";
-import {
-  Plus, ArrowRight, KeyRound, Check, Search, Store,
-  Blinds, Smartphone, BedDouble, UtensilsCrossed, Droplets, Egg,
-} from "lucide-react";
+import { Plus, ArrowRight, KeyRound, Check, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader, Spinner } from "@/components/ui/EmptyState";
@@ -14,13 +11,9 @@ import { api } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useSession } from "@/lib/session";
 import { TYPE_META } from "@/lib/businessTypes";
+import { businessIcon } from "@/businesses";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-const TYPE_ICON: Record<string, any> = {
-  blinds: Blinds, electronics: Smartphone, hotel: BedDouble,
-  restaurant: UtensilsCrossed, water: Droplets, poultry: Egg,
-};
 
 type Biz = {
   id: string; name: string; tradingName: string; typeKey: string; typeLabel: string;
@@ -75,7 +68,7 @@ export function MyBusinesses() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {businesses.map((b, i) => {
-          const Icon = TYPE_ICON[b.typeKey] || Store;
+          const Icon = businessIcon(b.typeKey);
           const active = b.id === activeBusiness?.id;
           return (
             <button
@@ -212,7 +205,7 @@ function AddBusiness({ open, onClose, onSaved }: { open: boolean; onClose: () =>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[240px] overflow-y-auto pr-1">
             {types.map((t) => {
-              const Icon = TYPE_ICON[t.key] || Store;
+              const Icon = businessIcon(t.key);
               const on = form.businessType === t.key;
               return (
                 <button

@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Thin styled wrappers around the plain <table> markup that Dashboard,
- * Products, Sales and Hotel each hand-rolled identically. Callers still
+ * Products, Sales and others each hand-rolled identically. Callers still
  * compose their own <thead>/<tr>/<td> content and column sets — this only
  * centralizes the shared visual convention so it's restyled in one place.
  */

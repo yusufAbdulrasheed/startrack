@@ -9,6 +9,8 @@
   },
   "imports": {
     "#core/*": "./server/core/*",
+    "#platform/*": "./server/platform/*",
+    "#businesses/*": "./server/businesses/*",
     "#modules/*": "./server/modules/*",
     "#shared/*": "./server/shared/*"
   },
@@ -19,6 +21,7 @@
     "dev:web": "vite",
     "build": "tsc -b && vite build",
     "start": "node server/index.js",
+    "check:architecture": "node server/scripts/checkArchitecture.js",
     "seed:showcase": "node server/scripts/seedShowcase.js",
     "seed:showcase:reset": "node server/scripts/seedShowcase.js --reset",
     "seed:empty": "node server/scripts/seedEmptyTest.js",
